@@ -1,0 +1,177 @@
+import React, { createContext, useState, useEffect, useContext } from 'react';
+import { Alert } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Category, Recipe } from '../types';
+import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, loginService, logoutService, getCategoriesService, createCategoryService } from '../services/api';
+
+interface AppContextType {
+    recipes: Recipe[];
+    categories: Category[];
+    selectedCategory: number | null;
+    setSelectedCategory: (catId: number | null) => void;
+    loading: boolean;
+    isAuthenticated: boolean;
+    isAuthLoading: boolean;
+    user: any;
+    fetchRecipes: (catId?: number | null, search?: string) => Promise<void>;
+    createCategory: (name: string) => Promise<void>;
+    saveRecipe: (recipe: Recipe) => Promise<void>;
+    deleteRecipe: (id: number) => Promise<void>;
+    importRecipeAI: (url: string) => Promise<Recipe>;
+    login: (u: string, p: string) => Promise<void>;
+    logout: () => Promise<void>;
+
+    createMode: 'manual' | 'link' | 'video' | 'audio' | null;
+    setCreateMode: (mode: 'manual' | 'link' | 'video' | 'audio' | null) => void;
+
+    // Control de Modales Globales
+    isCreateMenuVisible: boolean;
+    setCreateMenuVisible: (v: boolean) => void;
+    formModalVisible: boolean;
+    setFormModalVisible: (v: boolean) => void;
+    editingRecipe: Recipe | null;
+    setEditingRecipe: (r: Recipe | null) => void;
+}
+
+const AppContext = createContext<AppContextType | undefined>(undefined);
+
+export const AppProvider = ({ children }: { children: React.ReactNode }) => {
+    const [recipes, setRecipes] = useState<Recipe[]>([]);
+    const [categories, setCategories] = useState<Category[]>([]);
+    const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [isAuthLoading, setIsAuthLoading] = useState(true);
+    const [user, setUser] = useState(null);
+
+    // Estados para modales globales
+    const [isCreateMenuVisible, setCreateMenuVisible] = useState(false);
+    const [formModalVisible, setFormModalVisible] = useState(false);
+    const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
+    const [createMode, setCreateMode] = useState<'manual' | 'link' | 'video' | 'audio' | null>(null);
+
+    // Inicialización
+    useEffect(() => {
+        checkAuth();
+    }, []);
+
+    useEffect(() => {
+        if (isAuthenticated) {
+            fetchData();
+        }
+    }, [isAuthenticated]);
+
+    const checkAuth = async () => {
+        try {
+            const token = await AsyncStorage.getItem('authToken');
+            if (token) {
+                setIsAuthenticated(!!token);
+            }
+        } catch (e) {
+            console.error(e);
+            setIsAuthenticated(false);
+        } finally {
+            setIsAuthLoading(false);
+        }
+    };
+
+    const fetchData = async () => {
+        setLoading(true);
+        try {
+            const [recData, catData] = await Promise.all([getRecipesService(), getCategoriesService()]);
+            setRecipes(recData);
+            setCategories(catData);
+        } catch (e: any) {
+            console.log("Error al cargar datos:", e.message);
+            if (e.message === 'No autorizado' || e.message.includes('401')) {
+                await logout();
+            } else {
+                Alert.alert('Error', 'No se pudieron cargar los datos');
+            }
+        }
+        finally { setLoading(false); }
+    };
+
+    const fetchRecipes = async (catId?: number | null, search?: string) => {
+        setLoading(true);
+        try {
+            const data = await getRecipesService(catId, search);
+            setRecipes(data);
+        } catch (e) { console.error(e); }
+        finally { setLoading(false); }
+    };
+
+    const login = async (u: string, p: string) => {
+        const data = await loginService(u, p);
+        if (data && data.access) {
+            await AsyncStorage.setItem('authToken', data.access);
+            setIsAuthenticated(true);
+            fetchData();
+        } else {
+            throw new Error("Login fallido: No se recibió token");
+        }
+    };
+
+    const logout = async () => {
+        try {
+            await logoutService();
+        } catch (e) {
+            console.log("Error en logout service", e);
+        }
+        await AsyncStorage.removeItem('authToken');
+        setIsAuthenticated(false);
+        setRecipes([]);
+        setCategories([]);
+    };
+
+    const saveRecipe = async (recipe: Recipe) => {
+        await saveRecipeService(recipe);
+        fetchRecipes();
+        setFormModalVisible(false);
+    };
+
+    const deleteRecipe = async (id: number) => {
+        await deleteRecipeService(id);
+        fetchRecipes();
+    };
+
+    const importRecipeAI = async (url: string) => {
+        const data = await importRecipeService(url);
+        return data.recipe || data;
+    };
+
+    const createCategory = async (name: string) => {
+        try {
+            const newCategory = await createCategoryService(name);
+            setCategories((prevCols) => [...prevCols, newCategory]);
+        } catch (e) { console.error(e); }
+    };
+
+    const filteredRecipes = selectedCategory
+        ? recipes.filter((recipe) => {
+            if (!recipe.categories || !Array.isArray(recipe.categories)) {
+                return false;
+            }
+            const hasCategory = recipe.categories.some((catId: number) => catId === selectedCategory);
+            return hasCategory;
+        }) : recipes;
+
+    return (
+        <AppContext.Provider value={{
+            recipes: filteredRecipes, categories, selectedCategory, setSelectedCategory, loading, isAuthenticated, isAuthLoading, user,
+            fetchRecipes, saveRecipe, deleteRecipe, importRecipeAI, login, logout, createCategory,
+            isCreateMenuVisible, setCreateMenuVisible,
+            formModalVisible, setFormModalVisible,
+            editingRecipe, setEditingRecipe,
+            createMode, setCreateMode
+        }}>
+            {children}
+        </AppContext.Provider>
+    );
+};
+
+export const useApp = () => {
+    const context = useContext(AppContext);
+    if (!context) throw new Error("useApp must be used within AppProvider");
+    return context;
+};
