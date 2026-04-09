@@ -1,2 +1,35 @@
-/.DS_Store
-/backend
+# --- Dependencias Node ---
+node_modules/
+
+# --- Logs ---
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.log
+
+# --- Entornos (variables de ambiente) ---
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# --- Builds y output ---
+dist/
+build/
+out/
+
+# --- IDEs y Editores ---
+.vscode/
+.idea/
+*.swp
+
+# --- Sistema Operativo ---
+.DS_Store
+Thumbs.db
+
+# --- Backend ---
+backend/.env
+backend/venv
+backend/__pycache__
