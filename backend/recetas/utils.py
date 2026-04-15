@@ -168,4 +168,3 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
 
     print("Error: Se agotaron los reintentos. Intenta más tarde.")
     return None
-

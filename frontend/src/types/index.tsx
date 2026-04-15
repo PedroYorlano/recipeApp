@@ -6,10 +6,6 @@ export interface Ingredient {
 export interface Step {
   order: number;
   instruction: string;
-  image?: string, // URL del backend
-  localImage?: string, // URI local del celular
-  image_base64?: string; // Imagen en base64 para el upload
-  remove_image?: boolean; // Bandera para marcar imagen para eliminación
 }
 
 export interface Recipe {

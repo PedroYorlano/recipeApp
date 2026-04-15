@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from recetas.views import RecipeViewSet, CategoryViewSet, import_recipe_view, SharedRecipeView
+from recetas.views import RecipeViewSet, CategoryViewSet, import_recipe_view, import_recipe_from_file_view, SharedRecipeView
 from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework_simplejwt.views import (
@@ -33,6 +33,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/', include(router.urls)),
     path('api/importar/', import_recipe_view, name='importar_receta'),
+    path('api/importar-archivo/', import_recipe_from_file_view, name='importar_receta_archivo'),
     path('api/compartidas/<uuid:uuid>/', SharedRecipeView.as_view(), name='shared_recipe'),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),

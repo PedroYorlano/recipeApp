@@ -34,14 +34,9 @@ class IngredientSerializer(serializers.ModelSerializer):
 
 class StepSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
-    image_base64 = serializers.CharField(write_only=True, required=False, allow_null=True)
-    remove_image = serializers.BooleanField(write_only=True, required=False)
     class Meta:
         model = Step
-        fields = ['id', 'order', 'instruction', 'image', 'image_base64', 'remove_image']
-        extra_kwargs = {
-            'image': {'read_only': True}
-        }
+        fields = ['id', 'order', 'instruction']
 
 class RecipeSerializer(serializers.ModelSerializer):
     ingredients = IngredientSerializer(many=True)
@@ -87,9 +82,6 @@ class RecipeSerializer(serializers.ModelSerializer):
                 Ingredient.objects.create(recipe=recipe, **ingredient)
 
             for step in steps_data:
-                step_img_b64 = step.pop('image_base64', None)
-                if step_img_b64:
-                    step['image'] = decode_base64_file(step_img_b64)
                 Step.objects.create(recipe=recipe, **step)
         
         return recipe
@@ -132,30 +124,18 @@ class RecipeSerializer(serializers.ModelSerializer):
 
             for item in steps_data:
                 step_id = item.get('id')
-                step_img_b64 = item.pop('image_base64', None)
-                remove_image = item.pop('remove_image', False)
-
                 if step_id:
                     # CASO A: El paso ya existe -> Lo actualizamos
                     try:
                         step_obj = Step.objects.get(id=step_id, recipe=instance)
                         step_obj.order = item.get('order', step_obj.order)
                         step_obj.instruction = item.get('instruction', step_obj.instruction)
-                        
-                        if remove_image:
-                            step_obj.image = None
-                        elif step_img_b64:
-                            step_obj.image = decode_base64_file(step_img_b64)
-                        
                         step_obj.save()
                         keep_step_ids.append(step_obj.id)
                     except Step.DoesNotExist:
                         continue # Si mandaron un ID raro, lo ignoramos
                 else:
                     # CASO B: El paso es nuevo -> Lo creamos
-                    if step_img_b64:
-                        item['image'] = decode_base64_file(step_img_b64)
-                    
                     new_step = Step.objects.create(recipe=instance, **item)
                     keep_step_ids.append(new_step.id)
 

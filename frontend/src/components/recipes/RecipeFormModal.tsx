@@ -121,10 +121,6 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
         if (!prev) return null;
         if (target === 'cover') {
           return { ...prev, localImage: uri };
-        } else if (target === 'step' && stepIndex !== undefined) {
-          const newSteps = [...prev.steps];
-          newSteps[stepIndex] = { ...newSteps[stepIndex], localImage: uri };
-          return { ...prev, steps: newSteps };
         }
         return prev;
       });
@@ -137,15 +133,6 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
       { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
     );
     return `data:image/jpeg;base64,${manipResult.base64}`;
-  };
-
-  const removeStepImage = (index: number) => {
-    setDraftRecipe(prev => {
-      if (!prev) return null;
-      const newSteps = [...prev.steps];
-      newSteps[index] = { ...newSteps[index], remove_image: true, localImage: undefined, image: undefined };
-      return { ...prev, steps: newSteps };
-    });
   };
 
   const removeCoverImage = () => {
@@ -179,13 +166,6 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
       if (payload.localImage) {
         payload.image_base64 = await processImage(payload.localImage);
       }
-
-      payload.steps = await Promise.all(payload.steps.map(async (step: any) => {
-        if (step.localImage) {
-          return { ...step, image_base64: await processImage(step.localImage) };
-        }
-        return step;
-      }));
 
       await onSubmit(payload);
       onClose();
@@ -410,27 +390,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
                     }}
                   />
 
-                  {/* FOTO DEL PASO */}
-                  <View style={styles.stepFooter}>
-                    <TouchableOpacity onPress={() => pickImage('step', index)} style={styles.stepPhotoBtn}>
-                      <Text style={styles.stepPhotoText}>📷 {step.localImage || step.image ? 'Cambiar Foto' : 'Agregar Foto'}</Text>
-                    </TouchableOpacity>
 
-                    {(step.localImage || step.image) && (
-                      <View style={{ marginLeft: 10, position: 'relative' }}>
-                        <Image
-                          source={{ uri: step.localImage || step.image }}
-                          style={{ width: 60, height: 60, borderRadius: 8 }}
-                        />
-                        <TouchableOpacity
-                          onPress={() => removeStepImage(index)}
-                          style={styles.removeStepImgBtn}
-                        >
-                          <Text style={{ color: 'white', fontSize: 10, fontWeight: 'bold' }}>✕</Text>
-                        </TouchableOpacity>
-                      </View>
-                    )}
-                  </View>
                 </View>
               ))}
               <TouchableOpacity style={styles.smallAddBtn} onPress={addStep}>

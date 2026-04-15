@@ -41,7 +41,6 @@ class Step(models.Model):
     recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE, related_name='steps')
     order = models.PositiveIntegerField()
     instruction = models.TextField()
-    image = models.ImageField(upload_to='steps/%Y/%m', blank=True, null=True)
 
     class Meta:
         ordering = ['order']

@@ -8,6 +8,7 @@ from .serializers import RecipeSerializer, CategorySerializer
 import os
 from .utils import download_audio_from_url, extract_recipe_from_audio
 from django_filters.rest_framework import DjangoFilterBackend
+import tempfile
 
 # Create your views here.
 
@@ -65,3 +66,33 @@ def import_recipe_view(request):
         if os.path.exists(audio_path):
             os.remove(audio_path)
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+def import_recipe_from_file_view(request):
+    uploaded_file = request.FILES.get('file')
+
+    if not uploaded_file:
+        return Response({'error': 'No se proporcionó ningún archivo'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        temp = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{uploaded_file.name}")
+        for chunk in uploaded_file.chunks():
+            temp.write(chunk)
+        temp.close()
+        temp_path = temp.name
+
+        recipe_data = extract_recipe_from_audio(temp_path, "", None)
+
+        os.remove(temp_path)
+
+        if not recipe_data:
+            return Response({'error': 'IA falló al extraer la receta'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({'message': 'Receta importada exitosamente', 'recipe': recipe_data}, status=status.HTTP_201_CREATED)
+    
+    except Exception as e:
+        if 'temp_path' in locals() and os.path.exists(temp_path):
+            os.remove(temp_path)
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    

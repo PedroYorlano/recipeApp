@@ -9,6 +9,8 @@ interface AppContextType {
     categories: Category[];
     selectedCategory: number | null;
     setSelectedCategory: (catId: number | null) => void;
+    searchQuery: string;
+    setSearchQuery: (query: string) => void;
     loading: boolean;
     isAuthenticated: boolean;
     isAuthLoading: boolean;
@@ -39,6 +41,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const [recipes, setRecipes] = useState<Recipe[]>([]);
     const [categories, setCategories] = useState<Category[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -147,18 +150,31 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         } catch (e) { console.error(e); }
     };
 
-    const filteredRecipes = selectedCategory
-        ? recipes.filter((recipe) => {
+    const filteredRecipes = recipes.filter((recipe) => {
+        // Filtro por Categoría
+        let matchesCategory = true;
+        if (selectedCategory) {
             if (!recipe.categories || !Array.isArray(recipe.categories)) {
-                return false;
+                matchesCategory = false;
+            } else {
+                matchesCategory = recipe.categories.some((catId: number) => catId === selectedCategory);
             }
-            const hasCategory = recipe.categories.some((catId: number) => catId === selectedCategory);
-            return hasCategory;
-        }) : recipes;
+        }
+
+        // Filtro por Búsqueda (ignorando acentos y mayúsculas)
+        let matchesSearch = true;
+        if (searchQuery.trim() !== '') {
+            matchesSearch = recipe.title.toLowerCase().includes(searchQuery.toLowerCase().trim());
+        }
+
+        return matchesCategory && matchesSearch;
+    });
 
     return (
         <AppContext.Provider value={{
-            recipes: filteredRecipes, categories, selectedCategory, setSelectedCategory, loading, isAuthenticated, isAuthLoading, user,
+            recipes: filteredRecipes, categories, selectedCategory, setSelectedCategory, 
+            searchQuery, setSearchQuery,
+            loading, isAuthenticated, isAuthLoading, user,
             fetchRecipes, saveRecipe, deleteRecipe, importRecipeAI, login, logout, createCategory,
             isCreateMenuVisible, setCreateMenuVisible,
             formModalVisible, setFormModalVisible,

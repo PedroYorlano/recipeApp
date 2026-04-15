@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, FlatList, ActivityIndicator, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar as RNStatusBar } from 'react-native';
+import { View, FlatList, ActivityIndicator, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar as RNStatusBar, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '../context/AppContext';
 import { RecipeCard } from '../components/recipes/RecipeCard';
@@ -16,6 +16,8 @@ export default function HomeScreen() {
         categories,
         selectedCategory,
         setSelectedCategory,
+        searchQuery,
+        setSearchQuery,
         loading,
         isAuthenticated,
         isAuthLoading,
@@ -63,13 +65,28 @@ export default function HomeScreen() {
         <SafeAreaView style={styles.container}>
             <RNStatusBar barStyle="dark-content" backgroundColor={COLORS.card} />
 
-            {/* 1. HEADER LIMPIO */}
+            {/* 1. HEADER Y BÚSQUEDA */}
             <View style={styles.header}>
-                <View>
+                <View style={styles.headerTitleContainer}>
                     <Text style={styles.greeting}>Hola, Chef 👋</Text>
                     <Text style={styles.title}>¿Qué cocinamos hoy?</Text>
                 </View>
-                {/* Aquí podrías poner una foto de perfil pequeña si quisieras */}
+                
+                <View style={styles.searchContainer}>
+                    <Text style={styles.searchIcon}>🔍</Text>
+                    <TextInput
+                        style={styles.searchInput}
+                        placeholder="Buscar por nombre..."
+                        placeholderTextColor={COLORS.text.secondary}
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                    />
+                    {searchQuery.length > 0 && (
+                        <TouchableOpacity onPress={() => setSearchQuery('')}>
+                            <Text style={styles.clearSearchText}>✕</Text>
+                        </TouchableOpacity>
+                    )}
+                </View>
             </View>
 
             {/* 2. FILTROS DE CATEGORÍA */}
@@ -147,7 +164,34 @@ const styles = StyleSheet.create({
         paddingVertical: SPACING.m,
         backgroundColor: COLORS.card,
         borderBottomWidth: 1,
-        borderColor: 'transparent', // Quitamos borde duro, usamos sombra o color plano
+        borderColor: 'transparent',
+    },
+    headerTitleContainer: {
+        marginBottom: SPACING.m,
+    },
+    searchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: COLORS.background,
+        borderRadius: RADIUS.m,
+        paddingHorizontal: SPACING.m,
+        paddingVertical: 8,
+    },
+    searchIcon: {
+        marginRight: 8,
+        fontSize: 16,
+    },
+    searchInput: {
+        flex: 1,
+        fontSize: 15,
+        color: COLORS.text.primary,
+        paddingVertical: 4,
+    },
+    clearSearchText: {
+        color: COLORS.text.secondary,
+        fontSize: 16,
+        padding: 4,
+        fontWeight: 'bold',
     },
     greeting: {
         fontSize: 14,

@@ -166,14 +166,6 @@ export const RecipeDetailModal = ({ visible, recipe, onClose, onEdit, onDelete }
                   </View>
 
                   <Text style={styles.stepInstruction}>{step.instruction}</Text>
-
-                  {step.image && (
-                    <Image
-                      source={{ uri: step.image.startsWith('http') ? step.image : `${SERVER_URL}${step.image}` }}
-                      style={styles.stepImage}
-                      resizeMode="cover"
-                    />
-                  )}
                 </View>
               ))}
             </View>
