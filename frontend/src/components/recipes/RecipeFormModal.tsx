@@ -1,66 +1,42 @@
 import React, { useState, useEffect } from 'react';
-import {
-  Modal, View, Text, TextInput, StyleSheet, ScrollView,
-  TouchableOpacity, ActivityIndicator, Image, Alert
-} from 'react-native';
+import { Modal, View, Text, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import { useApp } from '../../context/AppContext';
 import { Recipe, Category } from '../../types';
+import { Button } from '../ui/Button';
+import { Input } from '../ui/Input';
+import { Camera, X, Plus, Trash2, ArrowLeft, Wand2, ChefHat, Sparkles } from 'lucide-react-native';
 
-// IMPORTAMOS EL TEMA
-import { COLORS, SPACING, RADIUS, globalStyles } from '../../theme';
-
-// Definimos una receta vacía para iniciar el modo manual
 const emptyRecipe: Recipe = {
-  uuid: '',
-  title: '',
-  description: '',
-  ingredients: [],
-  steps: [],
-  categories: [],
-  categories_details: [],
-  servings: 1,
+  uuid: '', title: '', description: '', ingredients: [], steps: [], categories: [], categories_details: [], servings: 1,
 };
 
 interface Props {
-  visible: boolean;
-  onClose: () => void;
-  onSubmit: (recipe: any) => Promise<void>;
-  onImportAI: (url: string) => Promise<any>;
-  initialData: Recipe | null;
-  categories: Category[];
+  visible: boolean; onClose: () => void; onSubmit: (recipe: any) => Promise<void>; onImportAI: (url: string) => Promise<any>; initialData: Recipe | null; categories: Category[];
 }
 
 export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initialData, categories }: Props) => {
-  // --- ESTADOS ---
   const [draftRecipe, setDraftRecipe] = useState<Recipe | null>(null);
   const [importUrl, setImportUrl] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isImported, setIsImported] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Contexto y Modos
   const { createMode, setCreateMode, createCategory } = useApp();
-
-  // Estado para categoría nueva
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
 
-  // --- EFECTO DE INICIALIZACIÓN ---
   useEffect(() => {
     if (visible) {
       if (initialData) {
-        // MODO EDICIÓN
         setDraftRecipe(JSON.parse(JSON.stringify(initialData)));
         setIsImported(false);
       } else if (createMode === 'manual') {
-        // MODO MANUAL
         setDraftRecipe({ ...emptyRecipe });
         setIsImported(false);
       } else {
-        // MODO IMPORTACIÓN
         setDraftRecipe(null);
         setImportUrl('');
         setIsImported(false);
@@ -68,7 +44,6 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
     }
   }, [visible, initialData, createMode]);
 
-  // --- LÓGICA DE IMPORTACIÓN ---
   const handleImport = async () => {
     if (!importUrl) return Alert.alert("Error", "Ingresa una URL");
     setIsProcessing(true);
@@ -88,11 +63,9 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
     setIsImported(false);
   };
 
-  // --- LÓGICA DE CATEGORÍAS ---
   const handleAddCategory = async () => {
     if (!newCategoryName.trim()) {
-      setIsAddingCategory(false);
-      return;
+      setIsAddingCategory(false); return;
     }
     try {
       await createCategory(newCategoryName);
@@ -103,35 +76,19 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
     }
   };
 
-  // --- MANEJO DE IMÁGENES ---
-  const pickImage = async (target: 'cover' | 'step', stepIndex?: number) => {
+  const pickImage = async (target: 'cover') => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') return Alert.alert('Permiso denegado');
+    if (status !== 'granted') return Alert.alert('Permiso denegado al carrete');
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.8,
-    });
-
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [4, 3], quality: 0.8 });
     if (!result.canceled) {
       const uri = result.assets[0].uri;
-      setDraftRecipe(prev => {
-        if (!prev) return null;
-        if (target === 'cover') {
-          return { ...prev, localImage: uri };
-        }
-        return prev;
-      });
+      setDraftRecipe(prev => prev ? ({ ...prev, localImage: uri }) : null);
     }
   };
 
   const processImage = async (uri: string) => {
-    const manipResult = await ImageManipulator.manipulateAsync(
-      uri, [{ resize: { width: 800 } }],
-      { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true }
-    );
+    const manipResult = await ImageManipulator.manipulateAsync(uri, [{ resize: { width: 800 } }], { compress: 0.7, format: ImageManipulator.SaveFormat.JPEG, base64: true });
     return `data:image/jpeg;base64,${manipResult.base64}`;
   };
 
@@ -139,39 +96,26 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
     setDraftRecipe(prev => prev ? ({ ...prev, remove_image: true, localImage: undefined, image: undefined }) : null);
   };
 
-  // --- LÓGICA DE LISTAS (Ingredientes/Pasos) ---
-  const addIngredient = () => {
-    setDraftRecipe(prev => prev ? ({ ...prev, ingredients: [...prev.ingredients, { name: '', quantity: '' }] }) : null);
-  };
-  const addStep = () => {
-    setDraftRecipe(prev => prev ? ({ ...prev, steps: [...prev.steps, { order: prev.steps.length + 1, instruction: '' }] }) : null);
-  };
-  const removeStep = (index: number) => {
-    setDraftRecipe(prev => {
-      if (!prev) return null;
-      const newSteps = prev.steps.filter((_, i) => i !== index).map((s, i) => ({ ...s, order: i + 1 }));
-      return { ...prev, steps: newSteps };
-    });
-  };
+  const addIngredient = () => setDraftRecipe(prev => prev ? ({ ...prev, ingredients: [...prev.ingredients, { name: '', quantity: '' }] }) : null);
+  const addStep = () => setDraftRecipe(prev => prev ? ({ ...prev, steps: [...prev.steps, { order: prev.steps.length + 1, instruction: '' }] }) : null);
+  const removeStep = (index: number) => setDraftRecipe(prev => {
+    if (!prev) return null;
+    const newSteps = prev.steps.filter((_, i) => i !== index).map((s, i) => ({ ...s, order: i + 1 }));
+    return { ...prev, steps: newSteps };
+  });
 
-  // --- GUARDADO FINAL ---
   const handleSaveInternal = async () => {
     if (!draftRecipe) return;
-    if (!draftRecipe.title.trim()) return Alert.alert("Error", "El título es obligatorio");
+    if (!draftRecipe.title.trim()) return Alert.alert("Falta título", "El título de la receta es obligatorio.");
 
     setSaving(true);
     try {
       const payload: any = { ...draftRecipe };
-
-      if (payload.localImage) {
-        payload.image_base64 = await processImage(payload.localImage);
-      }
-
+      if (payload.localImage) payload.image_base64 = await processImage(payload.localImage);
       await onSubmit(payload);
       onClose();
     } catch (error) {
-      console.error(error);
-      Alert.alert("Error", "No se pudo guardar la receta.");
+      Alert.alert("Error", "No se pudo guardar la receta en tu Fogón.");
     } finally {
       setSaving(false);
     }
@@ -179,132 +123,111 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
 
   return (
     <Modal animationType="slide" visible={visible} onRequestClose={onClose}>
-      <SafeAreaView style={styles.modalContainer}>
-
+      <SafeAreaView className="flex-1 bg-fogon-cream">
         {/* HEADER */}
-        <View style={styles.modalHeader}>
-          <Text style={globalStyles.title}>
-            {!draftRecipe ? 'Importar Receta' : (initialData ? 'Editar Receta' : 'Nueva Receta')}
+        <View className="flex-row justify-between items-center px-6 py-4 pt-[60px] bg-fogon-white border-b border-fogon-gray/10 shadow-sm z-10">
+          <Text className="text-xl font-bold font-serif text-fogon-brown">
+            {!draftRecipe ? 'Importar al Fogón' : (initialData ? 'Editar Receta' : 'Nueva Receta')}
           </Text>
-          <TouchableOpacity onPress={onClose}>
-            <Text style={{ color: COLORS.danger, fontWeight: '600', fontSize: 16 }}>Cancelar</Text>
+          <TouchableOpacity onPress={onClose} className="bg-fogon-cream p-2 rounded-full">
+            <X size={20} color="#633806" />
           </TouchableOpacity>
         </View>
 
-        <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+        <ScrollView className="flex-1 px-6 pt-6" showsVerticalScrollIndicator={false}>
 
-          {/* === FASE 1: IMPORTACIÓN === */}
+          {/* FASE 1: IMPORTACIÓN */}
           {!draftRecipe && (
-            <View style={styles.importContainer}>
-              <Text style={styles.labelLarge}>
-                {createMode === 'video' ? 'Pega el link del video (YouTube/Instagram):' : 'Pega el link de la receta:'}
+            <View className="items-center mt-10">
+              <View className="bg-fogon-white p-6 rounded-full shadow-sm border border-fogon-amber/20 mb-6">
+                <Wand2 size={48} color="#EF9F27" />
+              </View>
+              <Text className="text-xl font-bold text-fogon-brown mb-6 text-center px-4">
+                {createMode === 'video' ? 'Pegá el link del video (YouTube o Instagram)' : 'Pegá el link de la receta'}
               </Text>
 
-              <TextInput
-                style={globalStyles.input}
-                placeholder="https://..."
-                placeholderTextColor={COLORS.text.secondary}
-                value={importUrl}
-                onChangeText={setImportUrl}
-                autoCapitalize="none"
-              />
+              <View className="w-full">
+                <Input
+                  placeholder="https://..."
+                  value={importUrl}
+                  onChangeText={setImportUrl}
+                  autoCapitalize="none"
+                />
+              </View>
 
               {isProcessing ? (
-                <View style={styles.loadingBox}>
-                  <ActivityIndicator size="large" color={COLORS.primary} />
-                  <Text style={{ marginTop: 10, color: COLORS.text.secondary }}>La IA está leyendo la receta...</Text>
+                <View className="items-center my-6">
+                  <ActivityIndicator size="large" color="#EF9F27" />
+                  <Text className="mt-4 text-fogon-gray font-semibold">Cocinando la magia... La IA está leyendo la receta.</Text>
                 </View>
               ) : (
-                <TouchableOpacity style={globalStyles.primaryButton} onPress={handleImport}>
-                  <Text style={globalStyles.primaryButtonText}>✨ Extraer con IA</Text>
-                </TouchableOpacity>
+                <View className="w-full mt-2">
+                  <Button title="Extraer con IA" onPress={handleImport} icon={<Sparkles color="#633806" size={20} />} />
+                </View>
               )}
 
-              <View style={styles.separator}>
-                <Text style={styles.separatorText}>— O —</Text>
-                <TouchableOpacity style={styles.secondaryButton} onPress={handleManualCreate}>
-                  <Text style={styles.secondaryButtonText}>Crear manualmente en blanco</Text>
-                </TouchableOpacity>
+              <View className="flex-row items-center w-full my-8">
+                <View className="flex-1 h-[1px] bg-fogon-gray/20" />
+                <Text className="mx-4 text-fogon-gray text-sm font-semibold uppercase tracking-widest">o</Text>
+                <View className="flex-1 h-[1px] bg-fogon-gray/20" />
+              </View>
+              
+              <View className="w-full">
+                <Button title="Cargar a la vieja usanza (Manual)" variant="outline" onPress={handleManualCreate} icon={<ChefHat color="#633806" size={20} />} />
               </View>
             </View>
           )}
 
-          {/* === FASE 2: FORMULARIO === */}
+          {/* FASE 2: EDICIÓN / MANUAL */}
           {draftRecipe && (
-            <View style={styles.formContainer}>
+            <View className="pb-32">
               {isImported && (
-                <View style={styles.successBanner}>
-                  <Text style={styles.successText}>¡Receta importada! Revisa los datos.</Text>
+                <View className="bg-[#3B6D11]/10 px-4 py-3 rounded-[12px] border border-[#3B6D11]/20 mb-6 flex-row items-center">
+                  <Text className="text-[#3B6D11] text-lg mr-2">✨</Text>
+                  <Text className="text-[#3B6D11] font-bold flex-1">¡Receta importada con éxito! Revisa los datos para asegurar que quedó perfecta.</Text>
                 </View>
               )}
 
-              {/* TÍTULO */}
-              <Text style={globalStyles.label}>Título</Text>
-              <TextInput
-                style={globalStyles.input}
-                value={draftRecipe.title}
-                onChangeText={t => setDraftRecipe({ ...draftRecipe, title: t })}
-                placeholder="Ej: Tarta de Manzana"
-              />
+              <Input label="Título de la receta" placeholder="Ej: Tarta de Manzanas de la abuela" value={draftRecipe.title} onChangeText={t => setDraftRecipe({ ...draftRecipe, title: t })} />
 
               {/* PORTADA */}
-              <View style={styles.coverSection}>
+              <Text className="text-fogon-gray uppercase text-xs font-bold tracking-wider mb-2 mt-4 ml-1">Foto de portada</Text>
+              <View className="mb-6">
                 {draftRecipe.localImage || draftRecipe.image ? (
-                  <View style={styles.imagePreviewWrapper}>
-                    <Image
-                      source={{ uri: draftRecipe.localImage || draftRecipe.image }}
-                      style={styles.coverImage}
-                    />
-                    <TouchableOpacity
-                      style={styles.deleteImageBtn}
-                      onPress={removeCoverImage}
-                    >
-                      <Text style={{ color: 'white', fontWeight: 'bold' }}>✕</Text>
+                  <View className="w-full aspect-[4/3] rounded-[16px] overflow-hidden relative shadow-sm border border-fogon-gray/10">
+                    <Image source={{ uri: draftRecipe.localImage || draftRecipe.image }} className="w-full h-full" resizeMode="cover" />
+                    <TouchableOpacity className="absolute top-3 right-3 bg-black/50 w-8 h-8 rounded-full items-center justify-center border border-white/20" onPress={removeCoverImage}>
+                      <X size={16} color="white" />
+                    </TouchableOpacity>
+                    <TouchableOpacity className="absolute bottom-3 left-3 bg-fogon-white/90 px-3 py-1.5 rounded-full shadow-sm" onPress={() => pickImage('cover')}>
+                      <Text className="text-fogon-brown text-xs font-bold">Cambiar Foto</Text>
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  <TouchableOpacity style={styles.coverPlaceholder} onPress={() => pickImage('cover')}>
-                    <Text style={{ fontSize: 40, marginBottom: 10 }}>📷</Text>
-                    <Text style={{ color: COLORS.text.secondary }}>Subir Foto de Portada</Text>
-                  </TouchableOpacity>
-                )}
-
-                {(draftRecipe.localImage || draftRecipe.image) && (
-                  <TouchableOpacity style={styles.changeImageBtn} onPress={() => pickImage('cover')}>
-                    <Text style={styles.changeImageText}>Cambiar Foto</Text>
+                  <TouchableOpacity className="w-full aspect-[5/3] bg-fogon-white rounded-[16px] border-2 border-dashed border-fogon-gray/30 items-center justify-center" onPress={() => pickImage('cover')} activeOpacity={0.7}>
+                    <Camera size={32} color="#A89070" className="mb-2" />
+                    <Text className="text-fogon-gray font-semibold">Subir Foto de Portada</Text>
                   </TouchableOpacity>
                 )}
               </View>
 
-              <Text style={globalStyles.label}>Descripción</Text>
-              <TextInput
-                style={[globalStyles.input, { height: 100, textAlignVertical: 'top' }]}
-                multiline
-                value={draftRecipe.description}
-                placeholder="Breve descripción del plato..."
-                onChangeText={t => setDraftRecipe({ ...draftRecipe, description: t })}
-              />
+              {/* DESCRIPCION */}
+              <Text className="text-fogon-gray uppercase text-xs font-bold tracking-wider mb-2 ml-1">Descripción corta</Text>
+              <TextInput className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-4 text-fogon-brown text-base mb-6 min-h-[100px] shadow-sm text-left align-top" multiline placeholder="Breve historia o tips de por qué esta receta es especial..." placeholderTextColor="#A89070" value={draftRecipe.description} onChangeText={t => setDraftRecipe({ ...draftRecipe, description: t })} />
 
-              {/* CATEGORÍAS */}
-              <Text style={globalStyles.label}>Categorías</Text>
-              <View style={styles.chipsContainer}>
+              {/* CATEGORIAS */}
+              <Text className="text-fogon-gray uppercase text-xs font-bold tracking-wider mb-2 ml-1">Categorías</Text>
+              <View className="flex-row flex-wrap items-center mb-6">
                 {isAddingCategory ? (
-                  <View style={[styles.inputChipContainer]}>
-                    <TextInput
-                      style={styles.inputChip}
-                      placeholder="Nueva..."
-                      autoFocus
-                      value={newCategoryName}
-                      onChangeText={setNewCategoryName}
-                      onSubmitEditing={handleAddCategory}
-                    />
-                    <TouchableOpacity onPress={handleAddCategory} style={styles.okBtn}>
-                      <Text style={styles.okText}>OK</Text>
+                  <View className="flex-row items-center border border-fogon-amber rounded-full px-3 py-1 mr-2 mb-2 bg-fogon-white">
+                    <TextInput className="text-fogon-brown mr-2 py-1 min-w-[70px]" placeholder="Nombre..." autoFocus value={newCategoryName} onChangeText={setNewCategoryName} onSubmitEditing={handleAddCategory} />
+                    <TouchableOpacity onPress={handleAddCategory} className="bg-fogon-amber px-2 py-1.5 rounded-full">
+                      <Text className="text-fogon-brown text-[10px] font-bold">OK</Text>
                     </TouchableOpacity>
                   </View>
                 ) : (
-                  <TouchableOpacity style={styles.addChip} onPress={() => setIsAddingCategory(true)}>
-                    <Text style={styles.addChipText}>+ Nueva</Text>
+                  <TouchableOpacity className="border border-dashed border-fogon-amber px-4 py-2 rounded-full mr-2 mb-2 bg-fogon-amber/5" onPress={() => setIsAddingCategory(true)}>
+                    <Text className="text-fogon-amber font-bold text-xs">+ Nueva</Text>
                   </TouchableOpacity>
                 )}
 
@@ -313,311 +236,66 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
                   return (
                     <TouchableOpacity
                       key={cat.id}
-                      style={[styles.chip, isSelected && styles.selectedChip]}
+                      className={`px-4 py-2 rounded-full mr-2 mb-2 border shadow-sm ${isSelected ? 'bg-fogon-amber border-fogon-amber' : 'bg-fogon-white border-fogon-gray/20'}`}
                       onPress={() => {
                         const current = draftRecipe.categories || [];
-                        const newCats = current.includes(cat.id)
-                          ? current.filter(id => id !== cat.id)
-                          : [...current, cat.id];
+                        const newCats = current.includes(cat.id) ? current.filter(id => id !== cat.id) : [...current, cat.id];
                         setDraftRecipe({ ...draftRecipe, categories: newCats });
                       }}
                     >
-                      <Text style={[styles.chipText, isSelected && styles.selectedChipText]}>{cat.name}</Text>
+                      <Text className={`font-semibold text-xs ${isSelected ? 'text-fogon-brown' : 'text-fogon-gray'}`}>{cat.name}</Text>
                     </TouchableOpacity>
                   );
                 })}
               </View>
 
               {/* INGREDIENTES */}
-              <Text style={[globalStyles.label, { marginTop: SPACING.m }]}>Ingredientes</Text>
+              <Text className="text-fogon-brown text-xl font-bold font-serif mb-4 mt-2">Ingredientes</Text>
               {draftRecipe.ingredients.map((ing, index) => (
-                <View key={index} style={styles.ingredientRow}>
-                  <TextInput
-                    placeholder="100g"
-                    style={[styles.ingQtyInput]}
-                    value={ing.quantity}
-                    onChangeText={t => {
-                      const newIngs = [...draftRecipe.ingredients];
-                      newIngs[index].quantity = t;
-                      setDraftRecipe({ ...draftRecipe, ingredients: newIngs });
-                    }}
-                  />
-                  <TextInput
-                    placeholder="Nombre del ingrediente"
-                    style={[styles.ingNameInput]}
-                    value={ing.name}
-                    onChangeText={t => {
-                      const newIngs = [...draftRecipe.ingredients];
-                      newIngs[index].name = t;
-                      setDraftRecipe({ ...draftRecipe, ingredients: newIngs });
-                    }}
-                  />
-                  <TouchableOpacity onPress={() => {
-                    const newIngs = draftRecipe.ingredients.filter((_, i) => i !== index);
-                    setDraftRecipe({ ...draftRecipe, ingredients: newIngs });
-                  }}>
-                    <Text style={{ fontSize: 18, color: COLORS.danger }}>✕</Text>
+                <View key={index} className="flex-row items-center mb-3">
+                  <TextInput className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-3 text-fogon-brown text-base w-24 mr-3 shadow-sm text-center" placeholder="100g" placeholderTextColor="#A89070" value={ing.quantity} onChangeText={t => { const n = [...draftRecipe.ingredients]; n[index].quantity = t; setDraftRecipe({ ...draftRecipe, ingredients: n }); }} />
+                  <TextInput className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-3 text-fogon-brown text-base flex-1 mr-3 shadow-sm" placeholder="Nombre (ej: Harina, Huevos)" placeholderTextColor="#A89070" value={ing.name} onChangeText={t => { const n = [...draftRecipe.ingredients]; n[index].name = t; setDraftRecipe({ ...draftRecipe, ingredients: n }); }} />
+                  <TouchableOpacity onPress={() => { const n = draftRecipe.ingredients.filter((_, i) => i !== index); setDraftRecipe({ ...draftRecipe, ingredients: n }); }} className="p-2">
+                    <Trash2 size={20} color="#EF4444" />
                   </TouchableOpacity>
                 </View>
               ))}
-              <TouchableOpacity style={styles.smallAddBtn} onPress={addIngredient}>
-                <Text style={styles.smallAddBtnText}>+ Agregar Ingrediente</Text>
+              <TouchableOpacity className="my-2 py-3 items-center border border-dashed border-fogon-gray/40 rounded-[12px] bg-fogon-white/50" onPress={addIngredient}>
+                <Text className="text-fogon-gray font-bold text-sm">+ Agregar Ingrediente</Text>
               </TouchableOpacity>
 
               {/* PASOS */}
-              <Text style={[globalStyles.label, { marginTop: SPACING.l }]}>Pasos de preparación</Text>
+              <Text className="text-fogon-brown text-xl font-bold font-serif mb-4 mt-8">Pasos de Preparación</Text>
               {draftRecipe.steps.map((step, index) => (
-                <View key={index} style={styles.stepContainer}>
-                  <View style={styles.stepHeader}>
-                    <View style={styles.stepNumberBadge}>
-                      <Text style={styles.stepNumberText}>{index + 1}</Text>
+                <View key={index} className="bg-fogon-white rounded-[16px] p-4 mb-4 shadow-sm border border-fogon-gray/10 relative">
+                  <View className="flex-row items-center justify-between mb-3">
+                    <View className="flex-row items-center">
+                      <View className="w-6 h-6 bg-fogon-amber rounded-full items-center justify-center mr-2">
+                         <Text className="text-fogon-brown font-bold text-xs">{index + 1}</Text>
+                      </View>
+                      <Text className="text-fogon-brown font-bold flex-1">Paso {index + 1}</Text>
                     </View>
-                    <Text style={styles.stepTitle}>Paso {index + 1}</Text>
-                    <TouchableOpacity onPress={() => removeStep(index)}>
-                      <Text style={{ color: COLORS.danger, fontWeight: '600', fontSize: 12 }}>ELIMINAR</Text>
+                    <TouchableOpacity onPress={() => removeStep(index)} className="px-2 py-1 bg-red-50 rounded-lg">
+                      <Text className="text-red-500 font-bold text-[10px] uppercase">Eliminar</Text>
                     </TouchableOpacity>
                   </View>
-
-                  <TextInput
-                    placeholder={`Describe el paso ${index + 1}...`}
-                    multiline
-                    style={styles.stepInput}
-                    value={step.instruction}
-                    onChangeText={t => {
-                      const newSteps = [...draftRecipe.steps];
-                      newSteps[index].instruction = t;
-                      setDraftRecipe({ ...draftRecipe, steps: newSteps });
-                    }}
-                  />
-
-
+                  
+                  <TextInput className="bg-fogon-cream border border-fogon-gray/20 rounded-[12px] p-4 text-fogon-brown text-base min-h-[80px]" placeholder="Trituramos las galletas hasta hacerlas polvo..." placeholderTextColor="#A89070" multiline textAlignVertical="top" value={step.instruction} onChangeText={t => { const n = [...draftRecipe.steps]; n[index].instruction = t; setDraftRecipe({ ...draftRecipe, steps: n }); }} />
                 </View>
               ))}
-              <TouchableOpacity style={styles.smallAddBtn} onPress={addStep}>
-                <Text style={styles.smallAddBtnText}>+ Agregar Paso</Text>
+              <TouchableOpacity className="my-2 py-3 items-center border border-dashed border-fogon-gray/40 rounded-[12px] bg-fogon-white/50" onPress={addStep}>
+                <Text className="text-fogon-gray font-bold text-sm">+ Agregar Paso</Text>
               </TouchableOpacity>
 
-              {/* FOOTER */}
-              <View style={styles.footerButtons}>
-                {saving ? (
-                  <ActivityIndicator size="large" color={COLORS.primary} />
-                ) : (
-                  <TouchableOpacity style={globalStyles.primaryButton} onPress={handleSaveInternal}>
-                    <Text style={globalStyles.primaryButtonText}>GUARDAR RECETA</Text>
-                  </TouchableOpacity>
-                )}
+              {/* BOTON FINAL DE GUARDADO */}
+              <View className="mt-10">
+                <Button title="Guardar Receta en el Fogón" onPress={handleSaveInternal} loading={saving} />
               </View>
             </View>
           )}
+
         </ScrollView>
       </SafeAreaView>
     </Modal>
   );
 };
-
-const styles = StyleSheet.create({
-  modalContainer: { flex: 1, backgroundColor: COLORS.background },
-  modalHeader: {
-    marginTop: SPACING.l,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: SPACING.l,
-    paddingVertical: SPACING.m,
-    backgroundColor: COLORS.card,
-    borderBottomWidth: 1,
-    borderColor: COLORS.border
-  },
-  modalContent: { padding: SPACING.l },
-
-  // Import Styles
-  importContainer: { marginTop: 40, alignItems: 'center' },
-  labelLarge: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: COLORS.text.primary,
-    marginBottom: SPACING.m,
-    textAlign: 'center'
-  },
-  loadingBox: { alignItems: 'center', marginVertical: 20 },
-  separator: { marginTop: 40, alignItems: 'center', width: '100%' },
-  separatorText: { color: COLORS.text.secondary, marginBottom: SPACING.m },
-  secondaryButton: {
-    paddingVertical: SPACING.m,
-    paddingHorizontal: SPACING.l,
-    borderRadius: RADIUS.m,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    width: '100%',
-    alignItems: 'center'
-  },
-  secondaryButtonText: { color: COLORS.text.primary, fontWeight: '600' },
-
-  // Form Styles
-  formContainer: { paddingBottom: 100 },
-  successBanner: { backgroundColor: COLORS.success + '20', padding: SPACING.m, borderRadius: RADIUS.s, marginBottom: SPACING.l },
-  successText: { color: COLORS.success, textAlign: 'center', fontWeight: 'bold' },
-
-  // Cover
-  coverSection: { alignItems: 'center', marginBottom: SPACING.l },
-  coverPlaceholder: {
-    width: '100%',
-    height: 180,
-    backgroundColor: COLORS.inputBackground,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: RADIUS.m,
-    borderWidth: 2,
-    borderColor: COLORS.border,
-    borderStyle: 'dashed'
-  },
-  imagePreviewWrapper: {
-    width: '100%',
-    height: 200,
-    borderRadius: RADIUS.m,
-    overflow: 'hidden',
-    position: 'relative'
-  },
-  coverImage: { width: '100%', height: '100%' },
-  deleteImageBtn: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    justifyContent: 'center',
-    alignItems: 'center'
-  },
-  changeImageBtn: { marginTop: 10 },
-  changeImageText: { color: COLORS.primary, fontWeight: '600' },
-
-  // Chips
-  chipsContainer: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginBottom: SPACING.m },
-  chip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: RADIUS.xl,
-    backgroundColor: COLORS.card,
-    marginRight: 8,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: COLORS.border
-  },
-  selectedChip: { backgroundColor: COLORS.primary, borderColor: COLORS.primary },
-  chipText: { color: COLORS.text.secondary, fontWeight: '600', fontSize: 13 },
-  selectedChipText: { color: 'white' },
-
-  addChip: {
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    borderStyle: 'dashed',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: RADIUS.xl,
-    marginRight: 8,
-    marginBottom: 8
-  },
-  addChipText: { color: COLORS.primary, fontWeight: '600', fontSize: 13 },
-
-  inputChipContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: COLORS.primary,
-    borderRadius: RADIUS.xl,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    marginRight: 8,
-    marginBottom: 8,
-    backgroundColor: 'white'
-  },
-  inputChip: { minWidth: 60, color: COLORS.text.primary },
-  okBtn: { backgroundColor: COLORS.primary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, marginLeft: 5 },
-  okText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
-
-  // Ingredients
-  ingredientRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
-  ingQtyInput: {
-    width: 80,
-    backgroundColor: COLORS.card,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: 10,
-    borderRadius: RADIUS.s,
-    marginRight: 10,
-    textAlign: 'center'
-  },
-  ingNameInput: {
-    flex: 1,
-    backgroundColor: COLORS.card,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    padding: 10,
-    borderRadius: RADIUS.s,
-    marginRight: 10
-  },
-  smallAddBtn: { marginVertical: 10, padding: 10, alignItems: 'center', borderWidth: 1, borderColor: COLORS.border, borderRadius: RADIUS.s, borderStyle: 'dashed' },
-  smallAddBtnText: { color: COLORS.text.secondary, fontWeight: '600' },
-
-  // Steps
-  stepContainer: {
-    marginBottom: SPACING.m,
-    padding: SPACING.m,
-    backgroundColor: COLORS.card,
-    borderRadius: RADIUS.m,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  stepHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: SPACING.s },
-  stepNumberBadge: {
-    width: 24,
-    height: 24,
-    backgroundColor: COLORS.primary,
-    borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 10
-  },
-  stepNumberText: { color: 'white', fontWeight: 'bold', fontSize: 12 },
-  stepTitle: { fontWeight: 'bold', fontSize: 16, color: COLORS.text.primary, flex: 1 },
-
-  stepInput: {
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.background,
-    borderRadius: RADIUS.s,
-    padding: 10,
-    minHeight: 60,
-    textAlignVertical: 'top',
-    marginBottom: 10
-  },
-  stepFooter: { flexDirection: 'row', alignItems: 'center' },
-  stepPhotoBtn: {
-    backgroundColor: COLORS.inputBackground,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: RADIUS.s
-  },
-  stepPhotoText: { fontSize: 12, fontWeight: '600', color: COLORS.text.secondary },
-  removeStepImgBtn: {
-    position: 'absolute',
-    top: -5,
-    right: -5,
-    backgroundColor: COLORS.danger,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: 'white'
-  },
-
-  // Footer
-  footerButtons: { marginTop: SPACING.xl, alignItems: 'center' },
-});

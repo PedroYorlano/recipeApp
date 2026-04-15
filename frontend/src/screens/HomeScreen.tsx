@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
-import { View, FlatList, ActivityIndicator, Text, StyleSheet, TouchableOpacity, ScrollView, StatusBar as RNStatusBar, TextInput } from 'react-native';
+import { View, FlatList, ActivityIndicator, Text, TouchableOpacity, ScrollView, StatusBar as RNStatusBar, TextInput, Image, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '../context/AppContext';
 import { RecipeCard } from '../components/recipes/RecipeCard';
 import { RecipeDetailModal } from '../components/recipes/RecipeDetailModal';
 import { LoginScreen } from './LoginScreen';
 import { Recipe } from '../types';
-
-// IMPORTAMOS EL TEMA
-import { COLORS, SPACING, RADIUS, globalStyles } from '../theme';
+import { Search, X, Plus, UtensilsCrossed } from 'lucide-react-native';
 
 export default function HomeScreen() {
     const {
@@ -23,21 +21,35 @@ export default function HomeScreen() {
         isAuthLoading,
         setEditingRecipe,
         setFormModalVisible,
-        deleteRecipe
+        deleteRecipe,
+        setCreateMenuVisible
     } = useApp();
 
     const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
 
-    // AUTH CHECKS RESTORED
+    const { width } = useWindowDimensions();
+    // Determinamos número de columnas dinámico según ancho de pantalla (para web/tablets)
+    const getNumColumns = () => {
+        if (width >= 1536) return 6;
+        if (width >= 1280) return 5;
+        if (width >= 1024) return 4;
+        if (width >= 768) return 3;
+        return 2;
+    };
+    const numCols = getNumColumns();
+
+    // Calculamos el ancho máximo que debería tener la tarjeta para no estirarse cuando hay 1 solo resultado.
+    // paddingHorizontal 24 a cada lado = 48 total. Gap de 16 entre columnas.
+    const cardMaxWidth = (width - 48 - ((numCols - 1) * 16)) / numCols;
+
     if (isAuthLoading) return (
-        <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color={COLORS.primary} />
+        <View className="flex-1 justify-center items-center bg-fogon-cream">
+            <ActivityIndicator size="large" color="#EF9F27" />
         </View>
     );
 
     if (!isAuthenticated) return <LoginScreen />;
 
-    // Componente interno para Categorías (Chips)
     const renderCategoryItem = (category: any) => {
         const isAll = category === null;
         const isActive = isAll ? selectedCategory === null : selectedCategory === category.id;
@@ -45,16 +57,10 @@ export default function HomeScreen() {
         return (
             <TouchableOpacity
                 key={isAll ? 'all' : category.id}
-                style={[
-                    styles.categoryChip,
-                    isActive && styles.categoryChipActive // Estilo condicional
-                ]}
+                className={`px-5 py-2 mr-3 rounded-full border ${isActive ? 'bg-fogon-amber border-fogon-amber' : 'bg-fogon-white border-fogon-gray/30'} shadow-sm flex-row items-center`}
                 onPress={() => setSelectedCategory(isAll ? null : category.id)}
             >
-                <Text style={[
-                    styles.categoryText,
-                    isActive && styles.categoryTextActive
-                ]}>
+                <Text className={`font-semibold ${isActive ? 'text-fogon-brown' : 'text-fogon-gray'}`}>
                     {isAll ? 'Todas' : category.name}
                 </Text>
             </TouchableOpacity>
@@ -62,39 +68,43 @@ export default function HomeScreen() {
     };
 
     return (
-        <SafeAreaView style={styles.container}>
-            <RNStatusBar barStyle="dark-content" backgroundColor={COLORS.card} />
+        <SafeAreaView className="flex-1 bg-fogon-cream">
+            <RNStatusBar barStyle="dark-content" backgroundColor="#FAEEDA" />
 
-            {/* 1. HEADER Y BÚSQUEDA */}
-            <View style={styles.header}>
-                <View style={styles.headerTitleContainer}>
-                    <Text style={styles.greeting}>Hola, Chef 👋</Text>
-                    <Text style={styles.title}>¿Qué cocinamos hoy?</Text>
+            {/* 1. HEADER FIJO */}
+            <View className="px-6 py-4 bg-fogon-cream z-10 border-b border-fogon-gray/10">
+                <View className="flex-row justify-between items-center mb-4">
+                    <Text className="text-[32px] font-bold text-fogon-brown tracking-tight">Fogón</Text>
+                    {/* Placeholder Avatar */}
+                    <View className="w-10 h-10 rounded-full bg-fogon-amber/20 items-center justify-center border border-fogon-amber overflow-hidden">
+                        <Text className="text-xl">👨‍🍳</Text>
+                    </View>
                 </View>
                 
-                <View style={styles.searchContainer}>
-                    <Text style={styles.searchIcon}>🔍</Text>
+                {/* BARRA DE BÚSQUEDA */}
+                <View className="flex-row items-center bg-fogon-white rounded-[12px] px-4 min-h-[48px] shadow-sm border border-fogon-gray/20">
+                    <Search size={20} color="#A89070" className="mr-2" />
                     <TextInput
-                        style={styles.searchInput}
-                        placeholder="Buscar por nombre..."
-                        placeholderTextColor={COLORS.text.secondary}
+                        className="flex-1 text-fogon-brown text-base"
+                        placeholder="¿Qué se te antoja hoy?"
+                        placeholderTextColor="#A89070"
                         value={searchQuery}
                         onChangeText={setSearchQuery}
                     />
                     {searchQuery.length > 0 && (
-                        <TouchableOpacity onPress={() => setSearchQuery('')}>
-                            <Text style={styles.clearSearchText}>✕</Text>
+                        <TouchableOpacity onPress={() => setSearchQuery('')} className="p-1">
+                            <X size={18} color="#A89070" />
                         </TouchableOpacity>
                     )}
                 </View>
             </View>
 
             {/* 2. FILTROS DE CATEGORÍA */}
-            <View style={styles.categoriesWrapper}>
+            <View className="py-4">
                 <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.categoriesContent}
+                    contentContainerStyle={{ paddingHorizontal: 24 }}
                 >
                     {renderCategoryItem(null)}
                     {categories.map((cat) => renderCategoryItem(cat))}
@@ -103,35 +113,40 @@ export default function HomeScreen() {
 
             {/* 3. LISTA DE RECETAS */}
             {loading ? (
-                <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color={COLORS.primary} />
+                <View className="flex-1 justify-center items-center">
+                    <ActivityIndicator size="large" color="#EF9F27" />
                 </View>
             ) : (
                 <FlatList
                     data={recipes}
-                    key={2}
-                    numColumns={2}
+                    key={numCols} // key change re-renders list correctly when numCols changes
+                    numColumns={numCols}
                     keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
-                    contentContainerStyle={styles.listContent}
-                    columnWrapperStyle={styles.columnWrapper}
+                    contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120 }}
+                    columnWrapperStyle={{ justifyContent: 'flex-start', gap: 16 }}
                     showsVerticalScrollIndicator={false}
                     renderItem={({ item }) => (
                         <RecipeCard
                             item={item}
                             onPress={(recipe) => setSelectedRecipe(recipe)}
+                            maxWidth={cardMaxWidth}
                         />
                     )}
                     ListEmptyComponent={
-                        <View style={styles.emptyState}>
-                            <Text style={{ fontSize: 40 }}>🍳</Text>
-                            <Text style={styles.emptyText}>No hay recetas aquí.</Text>
-                            <Text style={styles.emptySubtext}>Intenta con otra categoría.</Text>
+                        <View className="items-center mt-20 opacity-80 px-8">
+                            <View className="bg-fogon-white/50 p-6 rounded-full border border-fogon-amber/20 mb-6">
+                                <UtensilsCrossed size={48} color="#EF9F27" strokeWidth={1} />
+                            </View>
+                            <Text className="text-xl font-bold text-fogon-brown text-center mb-2">Tu recetario está vacío por ahora.</Text>
+                            <Text className="text-base text-fogon-gray items-center text-center">¡Animate y agregá tu primera receta al fogón!</Text>
                         </View>
                     }
                 />
             )}
 
-            {/* MODAL DE DETALLE (Mantenemos la lógica igual) */}
+
+
+            {/* MODAL DE DETALLE (Mantenemos por ahora la lógica igual visualmente será refactorizado en Fase 6) */}
             <RecipeDetailModal
                 visible={!!selectedRecipe}
                 recipe={selectedRecipe}
@@ -151,126 +166,3 @@ export default function HomeScreen() {
         </SafeAreaView>
     );
 }
-
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: COLORS.background // Gris suave profesional
-    },
-
-    // Header
-    header: {
-        paddingHorizontal: SPACING.l,
-        paddingVertical: SPACING.m,
-        backgroundColor: COLORS.card,
-        borderBottomWidth: 1,
-        borderColor: 'transparent',
-    },
-    headerTitleContainer: {
-        marginBottom: SPACING.m,
-    },
-    searchContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.background,
-        borderRadius: RADIUS.m,
-        paddingHorizontal: SPACING.m,
-        paddingVertical: 8,
-    },
-    searchIcon: {
-        marginRight: 8,
-        fontSize: 16,
-    },
-    searchInput: {
-        flex: 1,
-        fontSize: 15,
-        color: COLORS.text.primary,
-        paddingVertical: 4,
-    },
-    clearSearchText: {
-        color: COLORS.text.secondary,
-        fontSize: 16,
-        padding: 4,
-        fontWeight: 'bold',
-    },
-    greeting: {
-        fontSize: 14,
-        color: COLORS.text.secondary,
-        fontWeight: '600',
-        marginBottom: 4
-    },
-    title: {
-        fontSize: 26,
-        fontWeight: '800',
-        color: COLORS.text.primary,
-        letterSpacing: -0.5
-    },
-
-    // Categorías
-    categoriesWrapper: {
-        paddingVertical: SPACING.m,
-    },
-    categoriesContent: {
-        paddingHorizontal: SPACING.l,
-    },
-    categoryChip: {
-        paddingHorizontal: SPACING.m,
-        paddingVertical: 8,
-        backgroundColor: COLORS.card,
-        borderRadius: RADIUS.xl, // Completamente redondo
-        marginRight: SPACING.s,
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        // Sombra suave
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
-        elevation: 2,
-    },
-    categoryChipActive: {
-        backgroundColor: COLORS.primary, // Azul Activo
-        borderColor: COLORS.primary,
-    },
-    categoryText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: COLORS.text.secondary,
-    },
-    categoryTextActive: {
-        color: COLORS.text.light, // Blanco
-    },
-
-    // Lista
-    listContent: {
-        paddingHorizontal: SPACING.l,
-        paddingBottom: 100,
-        paddingTop: SPACING.l,
-    },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center'
-    },
-    columnWrapper: {
-        justifyContent: 'space-between',
-        gap: SPACING.m,
-    },
-
-    // Empty State
-    emptyState: {
-        alignItems: 'center',
-        marginTop: 50,
-        opacity: 0.6
-    },
-    emptyText: {
-        fontSize: 18,
-        fontWeight: 'bold',
-        color: COLORS.text.primary,
-        marginTop: SPACING.m
-    },
-    emptySubtext: {
-        fontSize: 14,
-        color: COLORS.text.secondary
-    }
-});

@@ -1,24 +1,38 @@
 import React from 'react';
 import { Tabs } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { TouchableOpacity, View } from 'react-native';
 import { useApp } from '../../src/context/AppContext';
+import { Home, Plus, Settings } from 'lucide-react-native';
+import { COLORS } from '../../src/theme';
 
 export default function TabsLayout() {
   const { setCreateMenuVisible } = useApp();
 
   return (
     <Tabs screenOptions={{
-      tabBarActiveTintColor: '#007bff',
+      tabBarActiveTintColor: COLORS.primary,
+      tabBarInactiveTintColor: COLORS.text.secondary,
       tabBarShowLabel: false,
       headerShown: false,
+      tabBarStyle: {
+        backgroundColor: COLORS.background,
+        borderTopWidth: 1,
+        borderTopColor: 'rgba(168, 144, 112, 0.2)', // fogon-gray/20
+        height: 80,
+        paddingTop: 10,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: -2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+        elevation: 10,
+      }
     }}>
       {/* 1. HOME */}
       <Tabs.Screen
         name="index"
         options={{
           title: "Inicio",
-          tabBarIcon: ({ color }) => <Ionicons name="home" size={24} color={color} />,
+          tabBarIcon: ({ color }) => <Home size={26} color={color} strokeWidth={2.5} />,
         }}
       />
 
@@ -27,19 +41,15 @@ export default function TabsLayout() {
         name="create"
         options={{
           tabBarIcon: () => (
-            <View style={{
-              backgroundColor: '#007bff',
-              width: 50, height: 50, borderRadius: 25,
-              justifyContent: 'center', alignItems: 'center', marginBottom: 20,
-              shadowColor: '#000', shadowOpacity: 0.3, shadowOffset: { width: 0, height: 2 }
-            }}>
-              <Ionicons name="add" size={32} color="white" />
+            <View className="bg-fogon-amber w-14 h-14 rounded-[20px] justify-center items-center -mt-6 border-[3px] border-fogon-cream shadow-sm">
+              <Plus size={30} color="#633806" strokeWidth={3} />
             </View>
           ),
           tabBarButton: (props) => (
             <TouchableOpacity
               style={props.style}
               onPress={() => setCreateMenuVisible(true)}
+              activeOpacity={0.9}
             >
               {props.children}
             </TouchableOpacity>
@@ -52,7 +62,7 @@ export default function TabsLayout() {
         name="settings"
         options={{
           title: "Ajustes",
-          tabBarIcon: ({ color }) => <Ionicons name="settings-outline" size={24} color={color} />,
+          tabBarIcon: ({ color }) => <Settings size={26} color={color} strokeWidth={2.5} />,
         }}
       />
     </Tabs>
