@@ -2,28 +2,28 @@
 
 import { StyleSheet } from 'react-native';
 
-// 1. PALETA DE COLORES
+// 1. PALETA DE COLORES (Fogón Identity)
 export const COLORS = {
-    primary: '#007AFF',      // Azul iOS moderno (Botones principales, Links)
-    secondary: '#5AC8FA',    // Azul claro (Acentos suaves)
-    success: '#34C759',      // Verde (Guardado exitoso)
-    danger: '#FF3B30',       // Rojo (Borrar, Errores, Cerrar sesión)
-    warning: '#FF9500',      // Naranja
+    primary: '#EF9F27',      // fogon-amber (Botones principales, acentos)
+    secondary: '#633806',    // fogon-brown (Headers, acentos pesados)
+    success: '#3B6D11',      // fogon-green (Guardado exitoso, etiquetas)
+    danger: '#FF3B30',       // Mantenemos rojo para validaciones críticas
+    warning: '#FF9500',      
 
-    background: '#F2F2F7',   // Fondo general (Gris muy suave estilo iOS)
-    card: '#FFFFFF',         // Fondo de tarjetas/modales
+    background: '#FAEEDA',   // fogon-cream (Fondos principales)
+    card: '#FFF8F0',         // fogon-white (Fondos de tarjetas/modales)
 
     text: {
-        primary: '#000000',    // Títulos
-        secondary: '#8E8E93',  // Subtítulos, descripciones
-        light: '#FFFFFF',      // Texto sobre botones oscuros
+        primary: '#633806',    // fogon-brown (Títulos)
+        secondary: '#A89070',  // fogon-gray (Subtítulos, placeholders)
+        light: '#FFF8F0',      // fogon-white (Texto sobre botones oscuros)
     },
 
-    border: '#C6C6C8',       // Líneas separadoras
-    inputBackground: '#E5E5EA' // Fondo de inputs
+    border: '#A89070',       // fogon-gray (Líneas sutiles)
+    inputBackground: '#FFFFFF' 
 };
 
-// 2. ESPACIADO Y BORDES
+// 2. ESPACIADO Y BORDES (Diseño Cálido)
 export const SPACING = {
     xs: 4,
     s: 8,
@@ -33,9 +33,9 @@ export const SPACING = {
 };
 
 export const RADIUS = {
-    s: 8,
-    m: 12,
-    l: 20, // Para tarjetas y modales
+    s: 12, // Para inputs
+    m: 16, // Para tarjetas y modales
+    l: 24, 
     xl: 50, // Para botones redondos
 };
 
