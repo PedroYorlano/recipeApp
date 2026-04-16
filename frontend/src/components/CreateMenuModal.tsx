@@ -1,11 +1,11 @@
 import React from "react";
 import { Modal, View, Text, TouchableOpacity, TouchableWithoutFeedback } from 'react-native';
-import { Pencil, Link, Video, Mic, Sparkles } from 'lucide-react-native';
+import { Pencil, Link as LinkIcon, Video, Mic, Sparkles } from 'lucide-react-native';
 
 interface Props {
     visible: boolean;
     onClose: () => void;
-    onSelect: (option: 'manual' | 'video' | 'audio' | 'text') => void;
+    onSelect: (option: 'manual' | 'video' | 'audio' | 'text' | 'link-web') => void;
 }
 
 export const CreateMenuModal = ({ visible, onClose, onSelect }: Props) => {
@@ -23,7 +23,13 @@ export const CreateMenuModal = ({ visible, onClose, onSelect }: Props) => {
 
                             {/* Opciones con Inteligencia Artificial */}
                             <Text className="text-sm font-bold text-fogon-gray uppercase tracking-widest mb-4 ml-2">Importar con IA</Text>
-                            <View className="flex-row justify-around mb-8 px-2">
+                            <View className="flex-row justify-between mb-8 px-2">
+                                <Option
+                                    icon={<LinkIcon size={24} color="#FFF8F0" />}
+                                    label="Web"
+                                    bgColor="bg-fogon-amber"
+                                    onPress={() => onSelect('link-web')}
+                                />
                                 <Option
                                     icon={<Video size={24} color="#FFF8F0" />}
                                     label="Video"
@@ -69,7 +75,7 @@ export const CreateMenuModal = ({ visible, onClose, onSelect }: Props) => {
 };
 
 const Option = ({ icon, label, bgColor, onPress }: {icon: React.ReactNode, label: string, bgColor: string, onPress: () => void}) => (
-    <TouchableOpacity className="items-center w-1/3" onPress={onPress} activeOpacity={0.8}>
+    <TouchableOpacity className="items-center w-1/4" onPress={onPress} activeOpacity={0.8}>
         <View className={`${bgColor} w-14 h-14 rounded-full justify-center items-center mb-2 shadow-sm`}>
             {icon}
         </View>

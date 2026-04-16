@@ -2,7 +2,7 @@ import React, { createContext, useState, useEffect, useContext } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Category, Recipe } from '../types';
-import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, importRecipeServiceAudio, importRecipeServiceText, loginService, logoutService, getCategoriesService, createCategoryService } from '../services/api';
+import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, importRecipeServiceAudio, importRecipeServiceText, importRecipeServiceWeb, loginService, logoutService, getCategoriesService, createCategoryService } from '../services/api';
 
 interface AppContextType {
     recipes: Recipe[];
@@ -22,11 +22,12 @@ interface AppContextType {
     importRecipeAI: (url: string) => Promise<Recipe>;
     importRecipeAIAudio: (fileUri: string, fileName: string, fileType: string) => Promise<Recipe>;
     importRecipeAIText: (text: string) => Promise<Recipe>;
+    importRecipeAIWeb: (url: string) => Promise<Recipe>;
     login: (u: string, p: string) => Promise<void>;
     logout: () => Promise<void>;
 
-    createMode: 'manual' | 'video' | 'audio' | 'text' | null;
-    setCreateMode: (mode: 'manual' | 'video' | 'audio' | 'text' | null) => void;
+    createMode: 'manual' | 'video' | 'audio' | 'text' | 'link-web' | null;
+    setCreateMode: (mode: 'manual' | 'video' | 'audio' | 'text' | 'link-web' | null) => void;
 
     // Control de Modales Globales
     isCreateMenuVisible: boolean;
@@ -53,7 +54,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const [isCreateMenuVisible, setCreateMenuVisible] = useState(false);
     const [formModalVisible, setFormModalVisible] = useState(false);
     const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
-    const [createMode, setCreateMode] = useState<'manual' | 'video' | 'audio' | 'text' | null>(null);
+    const [createMode, setCreateMode] = useState<'manual' | 'video' | 'audio' | 'text' | 'link-web' | null>(null);
 
     // Inicialización
     useEffect(() => {
@@ -155,6 +156,11 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         return data.recipe || data;
     };
 
+    const importRecipeAIWeb = async (url: string) => {
+        const data = await importRecipeServiceWeb(url);
+        return data.recipe || data;
+    };
+
     const createCategory = async (name: string) => {
         try {
             const newCategory = await createCategoryService(name);
@@ -187,7 +193,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
             recipes: filteredRecipes, categories, selectedCategory, setSelectedCategory, 
             searchQuery, setSearchQuery,
             loading, isAuthenticated, isAuthLoading, user,
-            fetchRecipes, saveRecipe, deleteRecipe, importRecipeAI, importRecipeAIAudio, importRecipeAIText, login, logout, createCategory,
+            fetchRecipes, saveRecipe, deleteRecipe, importRecipeAI, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, login, logout, createCategory,
             isCreateMenuVisible, setCreateMenuVisible,
             formModalVisible, setFormModalVisible,
             editingRecipe, setEditingRecipe,

@@ -152,6 +152,21 @@ export const importRecipeServiceText = async (text: string) => {
     return await response.json();
 };
 
+export const importRecipeServiceWeb = async (url: string) => {
+    const headers = await getHeaders();
+    const response = await fetch(`${API_BASE}/importar-web/`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ url }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(JSON.stringify(errorData));
+    }
+    return await response.json();
+};
+
 export const getSharedRecipeService = async (uuid: string) => {
     const response = await fetch(`${API_BASE}/compartidas/${uuid}/`);
     if (!response.ok) throw new Error('Receta no encontrada');

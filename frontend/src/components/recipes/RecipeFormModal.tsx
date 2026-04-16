@@ -26,7 +26,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
   const [isImported, setIsImported] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const { createMode, setCreateMode, createCategory, importRecipeAIAudio, importRecipeAIText } = useApp();
+  const { createMode, setCreateMode, createCategory, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb } = useApp();
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
 
@@ -69,6 +69,20 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
       setIsImported(true);
     } catch (e) {
       Alert.alert("Error", "La IA no pudo entender o extraer la receta del texto.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleImportWeb = async () => {
+    if (!importUrl) return Alert.alert("Error", "Ingresa una URL de blog o sitio web");
+    setIsProcessing(true);
+    try {
+      const recipe = await importRecipeAIWeb(importUrl);
+      setDraftRecipe({ ...recipe, original_url: importUrl });
+      setIsImported(true);
+    } catch (e) {
+      Alert.alert("Error", "No se pudo extraer la receta, prueba de otra manera.");
     } finally {
       setIsProcessing(false);
     }
@@ -186,6 +200,23 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
                   {!isProcessing && (
                     <View className="w-full mt-2">
                        <Button title="Extraer con IA" onPress={handleImport} icon={<Sparkles color="#633806" size={20} />} />
+                    </View>
+                  )}
+                </>
+              ) : createMode === 'link-web' ? (
+                <>
+                  <Text className="text-xl font-bold text-fogon-brown mb-2 text-center px-4">
+                    Pegá el link del Blog Web
+                  </Text>
+                  <Text className="text-xs text-fogon-gray mb-6 text-center px-4">
+                    Extraemos la receta eliminando todas las historias y publicidades del sitio
+                  </Text>
+                  <View className="w-full">
+                    <Input placeholder="https://..." value={importUrl} onChangeText={setImportUrl} autoCapitalize="none" />
+                  </View>
+                  {!isProcessing && (
+                    <View className="w-full mt-2">
+                       <Button title="Analizar Blog" onPress={handleImportWeb} icon={<Sparkles color="#633806" size={20} />} />
                     </View>
                   )}
                 </>

@@ -9,6 +9,8 @@ import os
 from .utils import download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text
 from django_filters.rest_framework import DjangoFilterBackend
 import tempfile
+import requests
+from bs4 import BeautifulSoup
 
 # Create your views here.
 
@@ -112,4 +114,43 @@ def import_recipe_from_text_view(request):
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+@api_view(['POST'])
+def import_recipe_from_web_view(request):
+    target_url = request.data.get('url')
     
+    if not target_url:
+        return Response({'error': 'No se proporcionó URL'}, status=status.HTTP_400_BAD_REQUEST)
+        
+    try:
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        }
+        res = requests.get(target_url, headers=headers, timeout=10)
+        res.raise_for_status()
+
+        soup = BeautifulSoup(res.text, 'html.parser')
+
+        # Remover scripts y estilos visuales ruidosos
+        for script in soup(["script", "style", "noscript", "header", "footer"]):
+            script.decompose()
+
+        cleaned_text = soup.get_text(separator=' ', strip=True)
+
+        # Enviar 100k limit
+        cleaned_text = cleaned_text[:100000]
+
+        recipe_data = extract_recipe_from_text(f"Por favor extrae la receta estructurada del siguiente contenido de una página web. Elimina las historias/publicidades/comentarios del blog:\n\n{cleaned_text}")
+        
+        if not recipe_data:
+            return Response({'error': 'IA falló al extraer la receta'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        og_image = soup.find('meta', property='og:image')
+        if og_image and og_image.get('content'):
+            recipe_data['image_url'] = og_image['content']
+
+        return Response({'message': 'Receta generada a partir de blog web', 'recipe': recipe_data}, status=status.HTTP_201_CREATED)
+    
+    except requests.exceptions.RequestException as e:
+        return Response({"error": f"Fallo al acceder al sitio web: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as e:
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -44,6 +44,7 @@ const MainLayout = () => {
     else if (option === 'video') setCreateMode('video');
     else if (option === 'audio') setCreateMode('audio');
     else if (option === 'text') setCreateMode('text');
+    else if (option === 'link-web') setCreateMode('link-web');
     setEditingRecipe(null);
     setFormModalVisible(true);
   };
