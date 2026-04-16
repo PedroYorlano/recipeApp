@@ -193,9 +193,9 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
               {/* PORTADA */}
               <Text className="text-fogon-gray uppercase text-xs font-bold tracking-wider mb-2 mt-4 ml-1">Foto de portada</Text>
               <View className="mb-6">
-                {draftRecipe.localImage || draftRecipe.image ? (
+                {draftRecipe.localImage || draftRecipe.image || draftRecipe.image_url ? (
                   <View className="w-full aspect-[4/3] rounded-[16px] overflow-hidden relative shadow-sm border border-fogon-gray/10">
-                    <Image source={{ uri: draftRecipe.localImage || draftRecipe.image }} className="w-full h-full" resizeMode="cover" />
+                    <Image source={{ uri: draftRecipe.localImage || draftRecipe.image || draftRecipe.image_url }} className="w-full h-full" resizeMode="cover" />
                     <TouchableOpacity className="absolute top-3 right-3 bg-black/50 w-8 h-8 rounded-full items-center justify-center border border-white/20" onPress={removeCoverImage}>
                       <X size={16} color="white" />
                     </TouchableOpacity>
@@ -273,7 +273,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
                       <View className="w-6 h-6 bg-fogon-amber rounded-full items-center justify-center mr-2">
                          <Text className="text-fogon-brown font-bold text-xs">{index + 1}</Text>
                       </View>
-                      <Text className="text-fogon-brown font-bold flex-1">Paso {index + 1}</Text>
+                      <Text className="text-fogon-brown font-bold">Paso {index + 1}</Text>
                     </View>
                     <TouchableOpacity onPress={() => removeStep(index)} className="px-2 py-1 bg-red-50 rounded-lg">
                       <Text className="text-red-500 font-bold text-[10px] uppercase">Eliminar</Text>
