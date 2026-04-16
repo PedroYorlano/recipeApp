@@ -6,7 +6,7 @@ from rest_framework.generics import RetrieveAPIView
 from .models import Recipe, Category
 from .serializers import RecipeSerializer, CategorySerializer
 import os
-from .utils import download_audio_from_url, extract_recipe_from_audio
+from .utils import download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text
 from django_filters.rest_framework import DjangoFilterBackend
 import tempfile
 
@@ -93,6 +93,23 @@ def import_recipe_from_file_view(request):
     except Exception as e:
         if 'temp_path' in locals() and os.path.exists(temp_path):
             os.remove(temp_path)
+        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['POST'])
+def import_recipe_from_text_view(request):
+    text_data = request.data.get('text')
+    
+    if not text_data or len(text_data.strip()) == 0:
+        return Response({'error': 'No se proporcionó texto de receta'}, status=status.HTTP_400_BAD_REQUEST)
+        
+    try:
+        recipe_data = extract_recipe_from_text(text_data)
+        if not recipe_data:
+            return Response({'error': 'IA falló al extraer la receta'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({'message': 'Receta generada a partir de texto', 'recipe': recipe_data}, status=status.HTTP_201_CREATED)
+    
+    except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     

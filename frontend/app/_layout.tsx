@@ -41,12 +41,9 @@ const MainLayout = () => {
     setCreateMenuVisible(false);
 
     if (option === 'manual') setCreateMode('manual');
-    else if (option === 'link') setCreateMode('link');
     else if (option === 'video') setCreateMode('video');
-    else if (option === 'audio') {
-      alert("Próximamente");
-      return;
-    }
+    else if (option === 'audio') setCreateMode('audio');
+    else if (option === 'text') setCreateMode('text');
     setEditingRecipe(null);
     setFormModalVisible(true);
   };

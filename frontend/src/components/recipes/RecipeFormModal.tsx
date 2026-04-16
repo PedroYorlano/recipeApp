@@ -3,11 +3,12 @@ import { Modal, View, Text, TextInput, ScrollView, TouchableOpacity, ActivityInd
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
+import * as DocumentPicker from 'expo-document-picker';
 import { useApp } from '../../context/AppContext';
 import { Recipe, Category } from '../../types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Camera, X, Plus, Trash2, ArrowLeft, Wand2, ChefHat, Sparkles } from 'lucide-react-native';
+import { Camera, X, Plus, Trash2, ArrowLeft, Wand2, ChefHat, Sparkles, Mic } from 'lucide-react-native';
 
 const emptyRecipe: Recipe = {
   uuid: '', title: '', description: '', ingredients: [], steps: [], categories: [], categories_details: [], servings: 1,
@@ -20,11 +21,12 @@ interface Props {
 export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initialData, categories }: Props) => {
   const [draftRecipe, setDraftRecipe] = useState<Recipe | null>(null);
   const [importUrl, setImportUrl] = useState('');
+  const [importText, setImportText] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isImported, setIsImported] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const { createMode, setCreateMode, createCategory } = useApp();
+  const { createMode, setCreateMode, createCategory, importRecipeAIAudio, importRecipeAIText } = useApp();
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
 
@@ -55,6 +57,37 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
       Alert.alert("Error", "No se pudo extraer la receta.");
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleImportText = async () => {
+    if (!importText.trim()) return Alert.alert("Error", "Ingresa el texto de la receta.");
+    setIsProcessing(true);
+    try {
+      const recipe = await importRecipeAIText(importText);
+      setDraftRecipe({ ...recipe });
+      setIsImported(true);
+    } catch (e) {
+      Alert.alert("Error", "La IA no pudo entender o extraer la receta del texto.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleImportAudio = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*' });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        setIsProcessing(true);
+        const file = result.assets[0];
+        const recipe = await importRecipeAIAudio(file.uri, file.name, file.mimeType || 'audio/mp3');
+        setDraftRecipe({ ...recipe });
+        setIsImported(true);
+      }
+    } catch (e) {
+       Alert.alert("Error", "Fallo al subir o procesar el audio.");
+    } finally {
+       setIsProcessing(false);
     }
   };
 
@@ -142,27 +175,64 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
               <View className="bg-fogon-white p-6 rounded-full shadow-sm border border-fogon-amber/20 mb-6">
                 <Wand2 size={48} color="#EF9F27" />
               </View>
-              <Text className="text-xl font-bold text-fogon-brown mb-6 text-center px-4">
-                {createMode === 'video' ? 'Pegá el link del video (YouTube o Instagram)' : 'Pegá el link de la receta'}
-              </Text>
+              {createMode === 'video' ? (
+                <>
+                  <Text className="text-xl font-bold text-fogon-brown mb-6 text-center px-4">
+                    Pegá el link del video (YouTube o TikTok)
+                  </Text>
+                  <View className="w-full">
+                    <Input placeholder="https://..." value={importUrl} onChangeText={setImportUrl} autoCapitalize="none" />
+                  </View>
+                  {!isProcessing && (
+                    <View className="w-full mt-2">
+                       <Button title="Extraer con IA" onPress={handleImport} icon={<Sparkles color="#633806" size={20} />} />
+                    </View>
+                  )}
+                </>
+              ) : createMode === 'text' ? (
+                <>
+                  <Text className="text-xl font-bold text-fogon-brown mb-2 text-center px-4">
+                    Escribí la receta a tu manera
+                  </Text>
+                  <Text className="text-xs text-fogon-gray mb-6 text-center px-4">
+                    Recuerda ser súper específico con las cantidades y pasos. La IA intentará intuir mágicamente toda la información faltante.
+                  </Text>
+                  <View className="w-full">
+                    <TextInput 
+                      className="bg-fogon-white border border-fogon-amber/30 rounded-[12px] p-4 text-fogon-brown text-base mb-4 shadow-sm text-left align-top min-h-[150px]" 
+                      multiline 
+                      placeholder="Ejemplo: Mezclar 200g de harina con 1 huevo, hornear por 20 minutos..." 
+                      placeholderTextColor="#A89070" 
+                      value={importText} 
+                      onChangeText={setImportText} 
+                    />
+                  </View>
+                  {!isProcessing && (
+                    <View className="w-full mt-2">
+                       <Button title="Analizar Texto" onPress={handleImportText} icon={<Sparkles color="#633806" size={20} />} />
+                    </View>
+                  )}
+                </>
+              ) : createMode === 'audio' ? (
+                <>
+                  <Text className="text-xl font-bold text-fogon-brown mb-6 text-center px-4">
+                    Subir Nota de Voz (Audio)
+                  </Text>
+                  <Text className="text-xs text-fogon-gray mb-6 text-center px-4">
+                    Sube un archivo de audio relatando la receta y la IA la transcribirá.
+                  </Text>
+                  {!isProcessing && (
+                    <View className="w-full mt-2">
+                       <Button title="Seleccionar Audio" onPress={handleImportAudio} icon={<Mic color="#633806" size={20} />} />
+                    </View>
+                  )}
+                </>
+              ) : null}
 
-              <View className="w-full">
-                <Input
-                  placeholder="https://..."
-                  value={importUrl}
-                  onChangeText={setImportUrl}
-                  autoCapitalize="none"
-                />
-              </View>
-
-              {isProcessing ? (
+              {isProcessing && (
                 <View className="items-center my-6">
                   <ActivityIndicator size="large" color="#EF9F27" />
-                  <Text className="mt-4 text-fogon-gray font-semibold">Cocinando la magia... La IA está leyendo la receta.</Text>
-                </View>
-              ) : (
-                <View className="w-full mt-2">
-                  <Button title="Extraer con IA" onPress={handleImport} icon={<Sparkles color="#633806" size={20} />} />
+                  <Text className="mt-4 text-fogon-gray font-semibold text-center">Cocinando la magia...{'\n'}La IA está procesando los datos.</Text>
                 </View>
               )}
 

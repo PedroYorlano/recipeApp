@@ -115,6 +115,43 @@ export const importRecipeService = async (url: string) => {
     return await response.json();
 };
 
+export const importRecipeServiceAudio = async (fileUri: string, fileName: string, fileType: string) => {
+    const headers = await getHeaders(true); // isMultiPart = true, omit Content-Type json
+    const formData = new FormData();
+    formData.append('file', {
+        uri: fileUri,
+        name: fileName,
+        type: fileType,
+    } as any);
+
+    const response = await fetch(`${API_BASE}/importar-archivo/`, {
+        method: 'POST',
+        headers,
+        body: formData,
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(JSON.stringify(errorData));
+    }
+    return await response.json();
+};
+
+export const importRecipeServiceText = async (text: string) => {
+    const headers = await getHeaders();
+    const response = await fetch(`${API_BASE}/importar-texto/`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(JSON.stringify(errorData));
+    }
+    return await response.json();
+};
+
 export const getSharedRecipeService = async (uuid: string) => {
     const response = await fetch(`${API_BASE}/compartidas/${uuid}/`);
     if (!response.ok) throw new Error('Receta no encontrada');

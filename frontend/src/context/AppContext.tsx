@@ -2,7 +2,7 @@ import React, { createContext, useState, useEffect, useContext } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Category, Recipe } from '../types';
-import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, loginService, logoutService, getCategoriesService, createCategoryService } from '../services/api';
+import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, importRecipeServiceAudio, importRecipeServiceText, loginService, logoutService, getCategoriesService, createCategoryService } from '../services/api';
 
 interface AppContextType {
     recipes: Recipe[];
@@ -20,11 +20,13 @@ interface AppContextType {
     saveRecipe: (recipe: Recipe) => Promise<void>;
     deleteRecipe: (id: number) => Promise<void>;
     importRecipeAI: (url: string) => Promise<Recipe>;
+    importRecipeAIAudio: (fileUri: string, fileName: string, fileType: string) => Promise<Recipe>;
+    importRecipeAIText: (text: string) => Promise<Recipe>;
     login: (u: string, p: string) => Promise<void>;
     logout: () => Promise<void>;
 
-    createMode: 'manual' | 'link' | 'video' | 'audio' | null;
-    setCreateMode: (mode: 'manual' | 'link' | 'video' | 'audio' | null) => void;
+    createMode: 'manual' | 'video' | 'audio' | 'text' | null;
+    setCreateMode: (mode: 'manual' | 'video' | 'audio' | 'text' | null) => void;
 
     // Control de Modales Globales
     isCreateMenuVisible: boolean;
@@ -51,7 +53,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const [isCreateMenuVisible, setCreateMenuVisible] = useState(false);
     const [formModalVisible, setFormModalVisible] = useState(false);
     const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
-    const [createMode, setCreateMode] = useState<'manual' | 'link' | 'video' | 'audio' | null>(null);
+    const [createMode, setCreateMode] = useState<'manual' | 'video' | 'audio' | 'text' | null>(null);
 
     // Inicialización
     useEffect(() => {
@@ -143,6 +145,16 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         return data.recipe || data;
     };
 
+    const importRecipeAIAudio = async (fileUri: string, fileName: string, fileType: string) => {
+        const data = await importRecipeServiceAudio(fileUri, fileName, fileType);
+        return data.recipe || data;
+    };
+    
+    const importRecipeAIText = async (text: string) => {
+        const data = await importRecipeServiceText(text);
+        return data.recipe || data;
+    };
+
     const createCategory = async (name: string) => {
         try {
             const newCategory = await createCategoryService(name);
@@ -175,7 +187,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
             recipes: filteredRecipes, categories, selectedCategory, setSelectedCategory, 
             searchQuery, setSearchQuery,
             loading, isAuthenticated, isAuthLoading, user,
-            fetchRecipes, saveRecipe, deleteRecipe, importRecipeAI, login, logout, createCategory,
+            fetchRecipes, saveRecipe, deleteRecipe, importRecipeAI, importRecipeAIAudio, importRecipeAIText, login, logout, createCategory,
             isCreateMenuVisible, setCreateMenuVisible,
             formModalVisible, setFormModalVisible,
             editingRecipe, setEditingRecipe,

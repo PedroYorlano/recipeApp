@@ -154,3 +154,51 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
 
     print("Error: Se agotaron los reintentos. Intenta más tarde.")
     return None
+
+def extract_recipe_from_text(description_text: str):
+    """
+    Envía texto plano libre escrito por el usuario a Gemini para organizar
+    en formato de Receta JSON. Autocompleta detalles faltantes si es necesario.
+    """
+    print("Analizando receta desde texto libre con Gemini...")
+    model = genai.GenerativeModel("gemini-flash-latest")
+
+    prompt = f"""
+    Actúa como un chef experto transcribiendo y estructurando una receta.
+    
+    TIENES LA SIGUIENTE INFORMACIÓN DE REFERENCIA O TEXTO INGRESADO POR EL USUARIO:
+    "{description_text}"
+    
+    TU TAREA:
+    Analiza este texto y estructúralo en un formato de receta. 
+    ADVERTENCIA: El texto provisto por el usuario puede estar muy incompleto. Si las cantidades, proporciones o pasos están ausentes, INFIÉRELOS LÓGICAMENTE usando tu vasta inteligencia culinaria para completar la receta de manera que el plato quede funcional y apetecible. Asegúrate de inventar las cantidades e instrucciones que lógicamente falten y asume ingredientes fundamentales si el usuario solo describió el núcleo.
+    
+    FORMATO JSON REQUERIDO:
+    {{
+        "title": "Título atractivo (si no hay, invéntalo lógico)",
+        "description": "Breve resumen",
+        "ingredients": [
+            {{"name": "ingrediente", "quantity": "cantidad exacta"}}
+        ],
+        "steps": [
+            {{"order": 1, "instruction": "Paso detallado y bien explicado"}}
+        ]
+    }}
+    
+    Devuelve SOLO el JSON limpio.
+    """
+
+    for attempt in range(3):
+        try:
+            print(f"Intento {attempt + 1} de Texto con modelo {model.model_name}...")
+            result = model.generate_content(
+                prompt,
+                generation_config={"response_mime_type": "application/json"}
+            )
+            result_json = json.loads(result.text)
+            return result_json
+        except Exception as e:
+            print(f"Error parseando texto: {e}")
+            time.sleep(3)
+
+    return None
