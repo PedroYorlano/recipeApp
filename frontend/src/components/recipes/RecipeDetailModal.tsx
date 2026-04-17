@@ -1,9 +1,10 @@
 import * as Linking from 'expo-linking';
 import React, { useEffect, useState } from 'react';
-import { Image, Modal, SafeAreaView, ScrollView, Share, Text, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, ScrollView, Share, Text, TouchableOpacity, View } from 'react-native';
 import { Recipe } from '../../types';
-import { formatQuantity, getRecipeImage, parseQuantity } from '../../utils';
-import { Share as ShareIcon, Edit2, Trash2, X, Plus, Minus, ExternalLink } from 'lucide-react-native';
+import { formatQuantity, scaleQuantity, getRecipeImage } from '../../utils';
+import { useApp } from '../../context/AppContext';
+import { Share as ShareIcon, Edit2, Trash2, X, Plus, Minus, ExternalLink, Heart } from 'lucide-react-native';
 
 interface Props {
   visible: boolean;
@@ -15,6 +16,7 @@ interface Props {
 
 export const RecipeDetailModal = ({ visible, recipe, onClose, onEdit, onDelete }: Props) => {
   const [currentServings, setCurrentServings] = useState(1);
+  const { toggleFavorite } = useApp();
 
   useEffect(() => {
     if (recipe) {
@@ -34,6 +36,12 @@ export const RecipeDetailModal = ({ visible, recipe, onClose, onEdit, onDelete }
     }
   };
 
+  const handleToggleFavorite = async () => {
+    if (recipe?.id) {
+      await toggleFavorite(recipe.id);
+    }
+  };
+
   return (
     <Modal animationType="slide" visible={visible} onRequestClose={onClose}>
       <View className="flex-1 bg-fogon-cream">
@@ -47,6 +55,9 @@ export const RecipeDetailModal = ({ visible, recipe, onClose, onEdit, onDelete }
           </TouchableOpacity>
 
           <View className="flex-row space-x-3">
+            <TouchableOpacity onPress={handleToggleFavorite} className={`w-10 h-10 rounded-full items-center justify-center shadow-sm mr-2 ${recipe.is_favorite ? 'bg-red-50' : 'bg-fogon-white/95'}`}>
+              <Heart size={18} color={recipe.is_favorite ? "#EF4444" : "#633806"} fill={recipe.is_favorite ? "#EF4444" : "none"} />
+            </TouchableOpacity>
             <TouchableOpacity onPress={handleShare} className="w-10 h-10 bg-fogon-white/95 rounded-full items-center justify-center shadow-sm mr-2">
               <ShareIcon size={18} color="#633806" />
             </TouchableOpacity>
@@ -110,19 +121,21 @@ export const RecipeDetailModal = ({ visible, recipe, onClose, onEdit, onDelete }
 
               <View>
                 {recipe.ingredients?.map((ing, index) => {
-                  let displayQuantity = ing.quantity;
-                  if (recipe.servings && currentServings !== recipe.servings) {
-                    const { value, unit } = parseQuantity(ing.quantity);
-                    if (value !== null) {
-                      const newValue = (value / recipe.servings) * currentServings;
-                      displayQuantity = formatQuantity(newValue, unit);
-                    }
+                  let displayQuantity: string;
+                  
+                  if (recipe.servings && currentServings !== recipe.servings && ing.quantity !== null) {
+                    // Escalar proporcionalmente
+                    const scaled = scaleQuantity(ing.quantity, recipe.servings, currentServings);
+                    displayQuantity = formatQuantity(scaled, ing.unit);
+                  } else {
+                    displayQuantity = formatQuantity(ing.quantity, ing.unit);
                   }
+
                   return (
                     <View key={index} className="flex-row items-center mb-3">
                       <View className="w-2 h-2 rounded-full bg-fogon-amber mr-3" />
                       <Text className="text-base text-fogon-brown flex-1">
-                         <Text className="font-bold">{displayQuantity} </Text>
+                         {displayQuantity ? <Text className="font-bold">{displayQuantity} </Text> : null}
                          {ing.name}
                       </Text>
                     </View>

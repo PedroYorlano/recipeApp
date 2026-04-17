@@ -137,8 +137,19 @@ REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
+    ),
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'user': '60/minute',      # CRUD general: 60 requests/min por usuario
+        'import': '5/minute',     # Importaciones IA: 5/min por usuario
+    }
 }
+
+# --- Fogón: Límites de uso ---
+FOGON_MAX_IMPORTS_PER_USER_PER_DAY = 10   # Importaciones por usuario por día
+FOGON_MAX_GEMINI_REQUESTS_PER_DAY = 15    # Requests a Gemini globales por día (de 20 RPD disponibles)
 
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True

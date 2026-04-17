@@ -2,7 +2,7 @@ import React, { createContext, useState, useEffect, useContext } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Category, Recipe } from '../types';
-import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, importRecipeServiceAudio, importRecipeServiceText, importRecipeServiceWeb, loginService, logoutService, getCategoriesService, createCategoryService } from '../services/api';
+import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, importRecipeServiceAudio, importRecipeServiceText, importRecipeServiceWeb, loginService, logoutService, getCategoriesService, createCategoryService, toggleFavoriteService } from '../services/api';
 
 interface AppContextType {
     recipes: Recipe[];
@@ -11,6 +11,8 @@ interface AppContextType {
     setSelectedCategory: (catId: number | null) => void;
     searchQuery: string;
     setSearchQuery: (query: string) => void;
+    showFavorites: boolean;
+    setShowFavorites: (show: boolean) => void;
     loading: boolean;
     isAuthenticated: boolean;
     isAuthLoading: boolean;
@@ -19,6 +21,7 @@ interface AppContextType {
     createCategory: (name: string) => Promise<void>;
     saveRecipe: (recipe: Recipe) => Promise<void>;
     deleteRecipe: (id: number) => Promise<void>;
+    toggleFavorite: (recipeId: number) => Promise<void>;
     importRecipeAI: (url: string) => Promise<Recipe>;
     importRecipeAIAudio: (fileUri: string, fileName: string, fileType: string) => Promise<Recipe>;
     importRecipeAIText: (text: string) => Promise<Recipe>;
@@ -45,6 +48,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const [categories, setCategories] = useState<Category[]>([]);
     const [selectedCategory, setSelectedCategory] = useState<number | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
+    const [showFavorites, setShowFavorites] = useState(false);
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -141,6 +145,20 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         fetchRecipes();
     };
 
+    const toggleFavorite = async (recipeId: number) => {
+        try {
+            const result = await toggleFavoriteService(recipeId);
+            // Actualizar el estado local inmediatamente (optimistic UI)
+            setRecipes(prev => prev.map(r => 
+                r.id === recipeId 
+                    ? { ...r, is_favorite: result.is_favorite }
+                    : r
+            ));
+        } catch (e) {
+            console.error("Error toggling favorite:", e);
+        }
+    };
+
     const importRecipeAI = async (url: string) => {
         const data = await importRecipeService(url);
         return data.recipe || data;
@@ -169,6 +187,11 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     const filteredRecipes = recipes.filter((recipe) => {
+        // Filtro por Favoritos
+        if (showFavorites && !recipe.is_favorite) {
+            return false;
+        }
+
         // Filtro por Categoría
         let matchesCategory = true;
         if (selectedCategory) {
@@ -192,8 +215,10 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         <AppContext.Provider value={{
             recipes: filteredRecipes, categories, selectedCategory, setSelectedCategory, 
             searchQuery, setSearchQuery,
+            showFavorites, setShowFavorites,
             loading, isAuthenticated, isAuthLoading, user,
-            fetchRecipes, saveRecipe, deleteRecipe, importRecipeAI, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, login, logout, createCategory,
+            fetchRecipes, saveRecipe, deleteRecipe, toggleFavorite,
+            importRecipeAI, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, login, logout, createCategory,
             isCreateMenuVisible, setCreateMenuVisible,
             formModalVisible, setFormModalVisible,
             editingRecipe, setEditingRecipe,

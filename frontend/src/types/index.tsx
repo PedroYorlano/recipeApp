@@ -1,9 +1,13 @@
 export interface Ingredient {
+  id?: number;
   name: string;
-  quantity: string;
+  quantity: number | null;
+  unit: string;
+  order?: number;
 }
 
 export interface Step {
+  id?: number;
   order: number;
   instruction: string;
 }
@@ -15,6 +19,7 @@ export interface Recipe {
   description: string;
   ingredients: Ingredient[];
   servings: number;
+  prep_time?: number | null;
   steps: Step[];
   categories: number[];
   categories_details: { id: number; name: string }[];
@@ -24,6 +29,9 @@ export interface Recipe {
   localImage?: string; // URI local (seleccionada por usuario)
   image_base64?: string; // Imagen en base64 para el upload
   remove_image?: boolean; // Bandera para marcar imagen para eliminación
+  is_favorite?: boolean; // Si el usuario actual marcó como favorita
+  favorite_count?: number; // Total de likes (para futuro módulo social)
+  is_public?: boolean;
 }
 
 export interface Category {

@@ -1,32 +1,31 @@
 import { SERVER_URL } from "../constants";
 import { Recipe } from "../types";
 
-export const parseQuantity = (quantityStr: string) => {
-  // Regex que busca números al principio (enteros o decimales)
-  const match = quantityStr.match(/^(\d+(\.\d+)?|\d+\/\d+)\s*(.*)$/);
-  
-  if (!match) return { value: null, unit: quantityStr };
-
-  let value = 0;
-  const numPart = match[1];
-  const unitPart = match[3];
-
-  // Manejo de fracciones simples "1/2"
-  if (numPart.includes('/')) {
-    const [num, den] = numPart.split('/').map(Number);
-    value = num / den;
-  } else {
-    value = parseFloat(numPart);
-  }
-
-  return { value, unit: unitPart };
+/**
+ * Formatea una cantidad numérica + unidad para mostrar.
+ * Ej: formatQuantity(200, "g") → "200 g"
+ *     formatQuantity(0.5, "taza") → "0.5 taza"
+ *     formatQuantity(null, "") → ""
+ */
+export const formatQuantity = (value: number | null, unit: string): string => {
+  if (value === null || value === undefined) return unit || '';
+  // Redondeamos para no tener "333.33333g"
+  const rounded = Math.round(value * 100) / 100;
+  return `${rounded} ${unit}`.trim();
 };
 
-// Función para formatear de nuevo (ej: 1000 -> "1k" si quisieras, o simple)
-export const formatQuantity = (value: number, unit: string) => {
-  // Redondeamos para no tener "333.33333g"
-  const rounded = Math.round(value * 100) / 100; 
-  return `${rounded} ${unit}`;
+/**
+ * Escala una cantidad proporcionalmente según porciones.
+ * Ej: scaleQuantity(200, 4, 8) → 400 (doble de porciones)
+ */
+export const scaleQuantity = (
+  value: number | null,
+  originalServings: number,
+  currentServings: number
+): number | null => {
+  if (value === null || value === undefined) return null;
+  if (originalServings === 0) return value;
+  return (value / originalServings) * currentServings;
 };
 
 export const getRecipeImage = (item: Recipe) => {

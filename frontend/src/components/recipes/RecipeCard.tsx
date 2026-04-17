@@ -3,7 +3,8 @@ import { View, Text, Image, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Recipe } from '../../types';
 import { getRecipeImage } from '../../utils';
-import { Clock, Users, UtensilsCrossed } from 'lucide-react-native';
+import { Users, UtensilsCrossed, Heart } from 'lucide-react-native';
+import { useApp } from '../../context/AppContext';
 
 interface Props {
   item: Recipe;
@@ -13,7 +14,15 @@ interface Props {
 
 export const RecipeCard = ({ item, onPress, maxWidth }: Props) => {
   const imageSource = getRecipeImage(item);
-  const categoryName = item.categories && item.categories.length > 0 ? item.categories_details[0].name : '';
+  const categoryName = item.categories && item.categories.length > 0 ? item.categories_details[0]?.name : '';
+  const { toggleFavorite } = useApp();
+
+  const handleToggleFavorite = async (e: any) => {
+    e.stopPropagation?.();
+    if (item.id) {
+      await toggleFavorite(item.id);
+    }
+  };
 
   return (
     <TouchableOpacity
@@ -41,10 +50,23 @@ export const RecipeCard = ({ item, onPress, maxWidth }: Props) => {
         />
 
         {categoryName && (
-          <View className="absolute top-3 left-3 bg-fogon-white/95 px-3 py-1 rounded-full shadow-sm max-w-[90%]">
-            <Text className="text-[11px] font-bold text-fogon-brown uppercase tracking-wider">{categoryName}</Text>
+          <View className="absolute top-3 left-3 bg-fogon-white/95 px-3 py-1 rounded-full shadow-sm max-w-[70%]">
+            <Text className="text-[11px] font-bold text-fogon-brown uppercase tracking-wider" numberOfLines={1}>{categoryName}</Text>
           </View>
         )}
+
+        {/* Botón de Favorito */}
+        <TouchableOpacity 
+          onPress={handleToggleFavorite}
+          className="absolute top-3 right-3 w-8 h-8 bg-fogon-white/90 rounded-full items-center justify-center shadow-sm"
+          activeOpacity={0.7}
+        >
+          <Heart 
+            size={16} 
+            color={item.is_favorite ? "#EF4444" : "#A89070"} 
+            fill={item.is_favorite ? "#EF4444" : "none"} 
+          />
+        </TouchableOpacity>
 
         <View className="absolute bottom-4 left-4 right-4">
           <Text className="text-[20px] font-bold text-fogon-white mb-2 leading-tight shadow-sm" numberOfLines={2}>

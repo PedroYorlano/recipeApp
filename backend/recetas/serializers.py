@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Category, Recipe, Ingredient, Step
+from .models import Category, Recipe, Ingredient, Step, Favorite
 from django.db import transaction
 import base64
 import uuid
@@ -30,7 +30,7 @@ class CategorySerializer(serializers.ModelSerializer):
 class IngredientSerializer(serializers.ModelSerializer):
     class Meta:
         model = Ingredient
-        fields = ['id', 'name', 'quantity']
+        fields = ['id', 'name', 'quantity', 'unit', 'order']
 
 class StepSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
@@ -53,12 +53,30 @@ class RecipeSerializer(serializers.ModelSerializer):
     image_url = serializers.URLField(write_only=True, required=False, allow_null=True)
     remove_image = serializers.BooleanField(write_only=True, required=False)
 
+    # Campos computados para favoritos
+    is_favorite = serializers.SerializerMethodField()
+    favorite_count = serializers.SerializerMethodField()
+
     class Meta:
         model = Recipe
-        fields = ['uuid', 'id', 'title', 'description', 'servings', 'categories', 'categories_details', 'original_url', 'ingredients', 'steps', 'image','image_base64', 'image_url', 'remove_image']
+        fields = [
+            'uuid', 'id', 'title', 'description', 'servings', 'prep_time',
+            'categories', 'categories_details', 'original_url',
+            'ingredients', 'steps', 'image', 'image_base64', 'image_url', 'remove_image',
+            'is_favorite', 'favorite_count', 'is_public',
+        ]
         extra_kwargs = {
             'image': {'read_only': True}
         }
+
+    def get_is_favorite(self, obj):
+        request = self.context.get('request')
+        if request and request.user and request.user.is_authenticated:
+            return Favorite.objects.filter(user=request.user, recipe=obj).exists()
+        return False
+
+    def get_favorite_count(self, obj):
+        return obj.favorited_by.count()
 
     def create(self, validated_data):
         ingredients_data = validated_data.pop('ingredients')
@@ -78,7 +96,8 @@ class RecipeSerializer(serializers.ModelSerializer):
 
             recipe.categories.set(categories_data)
             
-            for ingredient in ingredients_data:
+            for i, ingredient in enumerate(ingredients_data):
+                ingredient.setdefault('order', i)
                 Ingredient.objects.create(recipe=recipe, **ingredient)
 
             for step in steps_data:
@@ -92,16 +111,20 @@ class RecipeSerializer(serializers.ModelSerializer):
         steps_data = validated_data.pop('steps', None)
         categories_data = validated_data.pop('categories', None)
         img_b64 = validated_data.pop('image_base64', None)
+        img_url = validated_data.pop('image_url', None)
         remove_image = validated_data.pop('remove_image', False)
 
         # 2. Actualizar campos simples de la receta
         instance.title = validated_data.get('title', instance.title)
         instance.description = validated_data.get('description', instance.description)
         instance.servings = validated_data.get('servings', instance.servings)
+        instance.prep_time = validated_data.get('prep_time', instance.prep_time)
 
         # 3. Actualizar Imagen de Portada (Si hay nueva)
         if img_b64:
             instance.image = decode_base64_file(img_b64)
+        elif img_url:
+            instance.image = download_image_from_url(img_url)
         if remove_image:
             instance.image = None
         
@@ -111,10 +134,11 @@ class RecipeSerializer(serializers.ModelSerializer):
         if categories_data is not None:
             instance.categories.set(categories_data)
 
-        # 5. Actualizar Ingredientes (Aquí sí podemos borrar y recrear porque son texto simple)
+        # 5. Actualizar Ingredientes (borrar y recrear — son texto simple con cantidad)
         if ingredients_data is not None:
             instance.ingredients.all().delete()
-            for item in ingredients_data:
+            for i, item in enumerate(ingredients_data):
+                item.setdefault('order', i)
                 Ingredient.objects.create(recipe=instance, **item)
 
         # 6. ACTUALIZACIÓN DE PASOS

@@ -1,6 +1,6 @@
-from enum import unique
 from django.db import models
 from django.contrib.auth.models import User
+from datetime import date
 import uuid
 
 # Create your models here.
@@ -22,7 +22,9 @@ class Recipe(models.Model):
     image = models.ImageField(upload_to='recipes/%Y/%m', blank=True, null=True)
     original_url = models.URLField(blank=True, null=True)
     servings = models.PositiveIntegerField(blank=True, null=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='recipes')    
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='recipes') 
+    is_public = models.BooleanField(default=False)
+    prep_time = models.PositiveIntegerField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -30,12 +32,18 @@ class Recipe(models.Model):
         return self.title
 
 class Ingredient(models.Model):
-    name = models.CharField(max_length=100)
     recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE, related_name='ingredients')
-    quantity = models.CharField(max_length=100)
+    name = models.CharField(max_length=100)
+    quantity = models.DecimalField(max_digits=8, decimal_places=2, blank=True, null=True)
+    unit = models.CharField(max_length=50, blank=True, default='')
+    order = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ['order']
 
     def __str__(self):
-        return f"{self.name} - {self.quantity}"
+        qty = self.quantity if self.quantity is not None else ''
+        return f"{qty} {self.unit} {self.name}".strip()
 
 class Step(models.Model):
     recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE, related_name='steps')
@@ -47,6 +55,62 @@ class Step(models.Model):
 
     def __str__(self):
         return f"Step {self.order} - {self.instruction}"
-    
 
 
+class Favorite(models.Model):
+    """Tabla intermedia para favoritos/likes. Cada fila = 'User X marcó Recipe Y como favorita'."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='favorites')
+    recipe = models.ForeignKey(Recipe, on_delete=models.CASCADE, related_name='favorited_by')
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('user', 'recipe')
+
+    def __str__(self):
+        return f"{self.user.username} ♥ {self.recipe.title}"
+
+
+class UserUsage(models.Model):
+    """Uso diario por usuario — limita importaciones de IA por día."""
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='usage')
+    import_count = models.PositiveIntegerField(default=0)
+    last_reset = models.DateField(auto_now_add=True)
+
+    def reset_if_new_day(self):
+        if self.last_reset < date.today():
+            self.import_count = 0
+            self.last_reset = date.today()
+            self.save()
+
+    def can_import(self, max_daily):
+        self.reset_if_new_day()
+        return self.import_count < max_daily
+
+    def record_import(self):
+        self.reset_if_new_day()
+        self.import_count += 1
+        self.save()
+
+    def __str__(self):
+        return f"{self.user.username}: {self.import_count} imports ({self.last_reset})"
+
+
+class GlobalUsage(models.Model):
+    """Uso global diario de la API de Gemini (compartido entre todos los usuarios)."""
+    date = models.DateField(unique=True)
+    gemini_requests = models.PositiveIntegerField(default=0)
+
+    @classmethod
+    def get_today(cls):
+        obj, _ = cls.objects.get_or_create(date=date.today())
+        return obj
+
+    def can_request(self, max_daily):
+        return self.gemini_requests < max_daily
+
+    def record_request(self):
+        self.gemini_requests += 1
+        self.save()
+
+    def __str__(self):
+        return f"Gemini {self.date}: {self.gemini_requests} requests"

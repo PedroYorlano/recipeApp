@@ -5,7 +5,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
 import * as DocumentPicker from 'expo-document-picker';
 import { useApp } from '../../context/AppContext';
-import { Recipe, Category } from '../../types';
+import { Recipe, Category, Ingredient } from '../../types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Camera, X, Plus, Trash2, ArrowLeft, Wand2, ChefHat, Sparkles, Mic } from 'lucide-react-native';
@@ -13,6 +13,8 @@ import { Camera, X, Plus, Trash2, ArrowLeft, Wand2, ChefHat, Sparkles, Mic } fro
 const emptyRecipe: Recipe = {
   uuid: '', title: '', description: '', ingredients: [], steps: [], categories: [], categories_details: [], servings: 1,
 };
+
+const emptyIngredient: Ingredient = { name: '', quantity: null, unit: '', order: 0 };
 
 interface Props {
   visible: boolean; onClose: () => void; onSubmit: (recipe: any) => Promise<void>; onImportAI: (url: string) => Promise<any>; initialData: Recipe | null; categories: Category[];
@@ -143,7 +145,26 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
     setDraftRecipe(prev => prev ? ({ ...prev, remove_image: true, localImage: undefined, image: undefined }) : null);
   };
 
-  const addIngredient = () => setDraftRecipe(prev => prev ? ({ ...prev, ingredients: [...prev.ingredients, { name: '', quantity: '' }] }) : null);
+  const addIngredient = () => setDraftRecipe(prev => prev ? ({ 
+    ...prev, 
+    ingredients: [...prev.ingredients, { ...emptyIngredient, order: prev.ingredients.length }] 
+  }) : null);
+  
+  const removeIngredient = (index: number) => setDraftRecipe(prev => {
+    if (!prev) return null;
+    const newIngredients = prev.ingredients.filter((_, i) => i !== index).map((ing, i) => ({ ...ing, order: i }));
+    return { ...prev, ingredients: newIngredients };
+  });
+
+  const updateIngredient = (index: number, field: keyof Ingredient, value: any) => {
+    setDraftRecipe(prev => {
+      if (!prev) return null;
+      const newIngredients = [...prev.ingredients];
+      newIngredients[index] = { ...newIngredients[index], [field]: value };
+      return { ...prev, ingredients: newIngredients };
+    });
+  };
+
   const addStep = () => setDraftRecipe(prev => prev ? ({ ...prev, steps: [...prev.steps, { order: prev.steps.length + 1, instruction: '' }] }) : null);
   const removeStep = (index: number) => setDraftRecipe(prev => {
     if (!prev) return null;
@@ -350,13 +371,39 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
                 })}
               </View>
 
-              {/* INGREDIENTES */}
+              {/* INGREDIENTES - 3 campos: cantidad, unidad, nombre */}
               <Text className="text-fogon-brown text-xl font-bold font-serif mb-4 mt-2">Ingredientes</Text>
               {draftRecipe.ingredients.map((ing, index) => (
                 <View key={index} className="flex-row items-center mb-3">
-                  <TextInput className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-3 text-fogon-brown text-base w-24 mr-3 shadow-sm text-center" placeholder="100g" placeholderTextColor="#A89070" value={ing.quantity} onChangeText={t => { const n = [...draftRecipe.ingredients]; n[index].quantity = t; setDraftRecipe({ ...draftRecipe, ingredients: n }); }} />
-                  <TextInput className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-3 text-fogon-brown text-base flex-1 mr-3 shadow-sm" placeholder="Nombre (ej: Harina, Huevos)" placeholderTextColor="#A89070" value={ing.name} onChangeText={t => { const n = [...draftRecipe.ingredients]; n[index].name = t; setDraftRecipe({ ...draftRecipe, ingredients: n }); }} />
-                  <TouchableOpacity onPress={() => { const n = draftRecipe.ingredients.filter((_, i) => i !== index); setDraftRecipe({ ...draftRecipe, ingredients: n }); }} className="p-2">
+                  {/* Cantidad (numérica) */}
+                  <TextInput 
+                    className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-3 text-fogon-brown text-base w-[70px] mr-2 shadow-sm text-center" 
+                    placeholder="200" 
+                    placeholderTextColor="#A89070" 
+                    keyboardType="decimal-pad"
+                    value={ing.quantity !== null && ing.quantity !== undefined ? String(ing.quantity) : ''} 
+                    onChangeText={t => {
+                      const num = t === '' ? null : parseFloat(t);
+                      updateIngredient(index, 'quantity', isNaN(num as number) ? null : num);
+                    }} 
+                  />
+                  {/* Unidad */}
+                  <TextInput 
+                    className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-3 text-fogon-brown text-base w-[65px] mr-2 shadow-sm text-center" 
+                    placeholder="g" 
+                    placeholderTextColor="#A89070" 
+                    value={ing.unit} 
+                    onChangeText={t => updateIngredient(index, 'unit', t)} 
+                  />
+                  {/* Nombre */}
+                  <TextInput 
+                    className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-3 text-fogon-brown text-base flex-1 mr-2 shadow-sm" 
+                    placeholder="Harina, Huevos..." 
+                    placeholderTextColor="#A89070" 
+                    value={ing.name} 
+                    onChangeText={t => updateIngredient(index, 'name', t)} 
+                  />
+                  <TouchableOpacity onPress={() => removeIngredient(index)} className="p-2">
                     <Trash2 size={20} color="#EF4444" />
                   </TouchableOpacity>
                 </View>

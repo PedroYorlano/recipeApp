@@ -89,7 +89,7 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
     print("2. Analizando receta con Gemini...")
 
     # Usamos el modelo Flash que es rápido y barato
-    model = genai.GenerativeModel("gemini-flash-latest")
+    model = genai.GenerativeModel("gemini-flash-lite-latest")
 
     prompt = f"""
     Actúa como un chef experto transcribiendo y estructurando una receta.
@@ -113,12 +113,19 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
         "title": "Título atractivo",
         "description": "Breve resumen",
         "ingredients": [
-            {{"name": "ingrediente", "quantity": "cantidad exacta"}}
+            {{"name": "ingrediente", "quantity": 200, "unit": "g"}}
         ],
         "steps": [
             {{"order": 1, "instruction": "Paso detallado"}}
         ]
     }}
+    
+    REGLAS PARA INGREDIENTES:
+    - "quantity" DEBE ser un número decimal (ej: 200, 0.5, 1.5). Si no hay cantidad, usa null.
+    - "unit" es la unidad de medida como string (ej: "g", "ml", "cucharada", "taza", "unidad", "pizca"). Si no hay unidad, usa "".
+    - Siempre separa la cantidad numérica de la unidad. Ejemplo: "200g de harina" → quantity: 200, unit: "g", name: "harina"
+    - Para cantidades como "3 huevos" → quantity: 3, unit: "unidad", name: "huevos"
+    - Para "sal a gusto" → quantity: null, unit: "", name: "sal a gusto"
     
     Devuelve SOLO el JSON limpio.
     """
@@ -178,12 +185,19 @@ def extract_recipe_from_text(description_text: str):
         "title": "Título atractivo (si no hay, invéntalo lógico)",
         "description": "Breve resumen",
         "ingredients": [
-            {{"name": "ingrediente", "quantity": "cantidad exacta"}}
+            {{"name": "ingrediente", "quantity": 200, "unit": "g"}}
         ],
         "steps": [
             {{"order": 1, "instruction": "Paso detallado y bien explicado"}}
         ]
     }}
+    
+    REGLAS PARA INGREDIENTES:
+    - "quantity" DEBE ser un número decimal (ej: 200, 0.5, 1.5). Si no hay cantidad, usa null.
+    - "unit" es la unidad de medida como string (ej: "g", "ml", "cucharada", "taza", "unidad", "pizca"). Si no hay unidad, usa "".
+    - Siempre separa la cantidad numérica de la unidad. Ejemplo: "200g de harina" → quantity: 200, unit: "g", name: "harina"
+    - Para cantidades como "3 huevos" → quantity: 3, unit: "unidad", name: "huevos"
+    - Para "sal a gusto" → quantity: null, unit: "", name: "sal a gusto"
     
     Devuelve SOLO el JSON limpio.
     """

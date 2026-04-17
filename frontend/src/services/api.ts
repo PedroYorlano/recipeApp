@@ -42,12 +42,13 @@ export const getCategoriesService = async () => {
     return await response.json();
 };
 
-// Obtener Recetas (Con filtros de búsqueda y categoría)
-export const getRecipesService = async (categoryId?: number | null, search?: string) => {
+// Obtener Recetas (Con filtros de búsqueda, categoría y favoritos)
+export const getRecipesService = async (categoryId?: number | null, search?: string, favorites?: boolean) => {
     // Construimos la URL con parámetros limpios
     const params = new URLSearchParams();
     if (categoryId) params.append('categories', categoryId.toString());
     if (search) params.append('search', search);
+    if (favorites) params.append('favorites', 'true');
 
     const headers = await getHeaders();
     const response = await fetch(`${API_BASE}/recetas/?${params.toString()}`, { headers });
@@ -180,6 +181,21 @@ export const createCategoryService = async (name: string) => {
         method: 'POST',
         headers,
         body: JSON.stringify({ name }),
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(JSON.stringify(errorData));
+    }
+    return await response.json();
+};
+
+// Toggle Favorito (like/unlike)
+export const toggleFavoriteService = async (recipeId: number) => {
+    const headers = await getHeaders();
+    const response = await fetch(`${API_BASE}/recetas/${recipeId}/favorite/`, {
+        method: 'POST',
+        headers,
     });
 
     if (!response.ok) {

@@ -6,7 +6,7 @@ import { RecipeCard } from '../components/recipes/RecipeCard';
 import { RecipeDetailModal } from '../components/recipes/RecipeDetailModal';
 import { LoginScreen } from './LoginScreen';
 import { Recipe } from '../types';
-import { Search, X, Plus, UtensilsCrossed } from 'lucide-react-native';
+import { Search, X, UtensilsCrossed, Heart } from 'lucide-react-native';
 
 export default function HomeScreen() {
     const {
@@ -16,6 +16,8 @@ export default function HomeScreen() {
         setSelectedCategory,
         searchQuery,
         setSearchQuery,
+        showFavorites,
+        setShowFavorites,
         loading,
         isAuthenticated,
         isAuthLoading,
@@ -50,15 +52,31 @@ export default function HomeScreen() {
 
     if (!isAuthenticated) return <LoginScreen />;
 
+    const handleFavoritesToggle = () => {
+        if (showFavorites) {
+            setShowFavorites(false);
+        } else {
+            setShowFavorites(true);
+            setSelectedCategory(null); // Deseleccionar categoría al filtrar por favoritos
+        }
+    };
+
+    const handleCategorySelect = (catId: number | null) => {
+        setSelectedCategory(catId);
+        setShowFavorites(false); // Deseleccionar favoritos al filtrar por categoría
+    };
+
     const renderCategoryItem = (category: any) => {
         const isAll = category === null;
-        const isActive = isAll ? selectedCategory === null : selectedCategory === category.id;
+        const isActive = isAll 
+            ? selectedCategory === null && !showFavorites 
+            : selectedCategory === category.id;
 
         return (
             <TouchableOpacity
                 key={isAll ? 'all' : category.id}
                 className={`px-5 py-2 mr-3 rounded-full border ${isActive ? 'bg-fogon-amber border-fogon-amber' : 'bg-fogon-white border-fogon-gray/30'} shadow-sm flex-row items-center`}
-                onPress={() => setSelectedCategory(isAll ? null : category.id)}
+                onPress={() => handleCategorySelect(isAll ? null : category.id)}
             >
                 <Text className={`font-semibold ${isActive ? 'text-fogon-brown' : 'text-fogon-gray'}`}>
                     {isAll ? 'Todas' : category.name}
@@ -99,13 +117,24 @@ export default function HomeScreen() {
                 </View>
             </View>
 
-            {/* 2. FILTROS DE CATEGORÍA */}
+            {/* 2. FILTROS DE CATEGORÍA + FAVORITOS */}
             <View className="py-4">
                 <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={{ paddingHorizontal: 24 }}
                 >
+                    {/* Pill de Favoritos */}
+                    <TouchableOpacity
+                        className={`px-5 py-2 mr-3 rounded-full border flex-row items-center ${showFavorites ? 'bg-red-50 border-red-300' : 'bg-fogon-white border-fogon-gray/30'} shadow-sm`}
+                        onPress={handleFavoritesToggle}
+                    >
+                        <Heart size={14} color={showFavorites ? "#EF4444" : "#A89070"} fill={showFavorites ? "#EF4444" : "none"} />
+                        <Text className={`font-semibold ml-1.5 ${showFavorites ? 'text-red-500' : 'text-fogon-gray'}`}>
+                            Favoritos
+                        </Text>
+                    </TouchableOpacity>
+
                     {renderCategoryItem(null)}
                     {categories.map((cat) => renderCategoryItem(cat))}
                 </ScrollView>
@@ -135,10 +164,22 @@ export default function HomeScreen() {
                     ListEmptyComponent={
                         <View className="items-center mt-20 opacity-80 px-8">
                             <View className="bg-fogon-white/50 p-6 rounded-full border border-fogon-amber/20 mb-6">
-                                <UtensilsCrossed size={48} color="#EF9F27" strokeWidth={1} />
+                                {showFavorites ? (
+                                    <Heart size={48} color="#EF4444" strokeWidth={1} />
+                                ) : (
+                                    <UtensilsCrossed size={48} color="#EF9F27" strokeWidth={1} />
+                                )}
                             </View>
-                            <Text className="text-xl font-bold text-fogon-brown text-center mb-2">Tu recetario está vacío por ahora.</Text>
-                            <Text className="text-base text-fogon-gray items-center text-center">¡Animate y agregá tu primera receta al fogón!</Text>
+                            <Text className="text-xl font-bold text-fogon-brown text-center mb-2">
+                                {showFavorites 
+                                    ? 'Aún no tenés favoritos.' 
+                                    : 'Tu recetario está vacío por ahora.'}
+                            </Text>
+                            <Text className="text-base text-fogon-gray items-center text-center">
+                                {showFavorites
+                                    ? 'Marcá recetas con el ❤️ para encontrarlas rápido.'
+                                    : '¡Animate y agregá tu primera receta al fogón!'}
+                            </Text>
                         </View>
                     }
                 />
@@ -146,7 +187,7 @@ export default function HomeScreen() {
 
 
 
-            {/* MODAL DE DETALLE (Mantenemos por ahora la lógica igual visualmente será refactorizado en Fase 6) */}
+            {/* MODAL DE DETALLE */}
             <RecipeDetailModal
                 visible={!!selectedRecipe}
                 recipe={selectedRecipe}
