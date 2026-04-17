@@ -6,7 +6,7 @@
 
 ## 1. Visión General del Producto
 
-**Fogón** es un recetario personal inteligente que permite importar, crear, organizar y escalar recetas de cocina. Su diferenciador principal es la capacidad de **importar recetas automáticamente desde videos, audio, texto libre y blogs usando IA** (Gemini + Whisper).
+**Fogón** es un recetario personal inteligente que permite importar, crear, organizar y escalar recetas de cocina. Su diferenciador principal es la capacidad de **importar recetas automáticamente desde videos, audio, texto libre y blogs usando IA** (Gemini Flash).
 
 El nombre "Fogón" evoca la cocina hogareña latinoamericana. La estética busca transmitir calidez, como un cuaderno de recetas familiar digitalizado.
 
@@ -61,8 +61,7 @@ Pendiente. Actualmente se usa el ícono `Flame` de Lucide como placeholder.
 | CORS              | `django-cors-headers` (allow all en dev)    |
 | Config            | `python-decouple` (`.env`)                  |
 | DB                | SQLite (desarrollo), pendiente migrar       |
-| IA - Estructurar  | Google Gemini (`gemini-flash-latest`)        |
-| IA - Transcripción| Groq Whisper (`whisper-large-v3`)           |
+| IA - Audio + Texto| Google Gemini Flash (`gemini-flash-latest`) — procesa audio nativo + estructura recetas |
 | Descarga video    | `yt-dlp` + `ffmpeg`                         |
 | Scraping web      | `requests` + `BeautifulSoup4`               |
 
@@ -289,8 +288,8 @@ El token `access` se envía como `Authorization: Bearer <token>` en todas las re
 
 | Método | Endpoint                | Input                      | Pipeline                                   |
 |--------|-------------------------|----------------------------|--------------------------------------------|
-| POST   | `/api/importar/`        | `{url}`                   | URL whitelist → yt-dlp → Groq Whisper → Gemini → JSON |
-| POST   | `/api/importar-archivo/`| FormData con `file` (audio)| Groq Whisper → Gemini → JSON               |
+| POST   | `/api/importar/`        | `{url}`                   | URL whitelist → yt-dlp → Gemini Flash (audio nativo) → JSON |
+| POST   | `/api/importar-archivo/`| FormData con `file` (audio)| Gemini Flash (audio nativo) → JSON          |
 | POST   | `/api/importar-texto/`  | `{text}`                  | Gemini directo → JSON                      |
 | POST   | `/api/importar-web/`    | `{url}`                   | SSRF check → requests+BS4 → limpieza → Gemini → JSON |
 
@@ -362,17 +361,18 @@ El token `access` se envía como `Authorization: Bearer <token>` en todas las re
 ```
 1. Usuario pega URL          
 2. Backend: yt-dlp descarga audio (.mp3) + extrae metadata (título, descripción, thumbnail)
-3. Backend: Groq Whisper transcribe audio a texto
-4. Backend: Gemini Flash recibe [transcripción + descripción] → genera JSON estructurado
+3. Backend: Audio se sube a Gemini Flash (procesamiento nativo, sin transcripción intermedia)
+4. Backend: Gemini recibe [audio + descripción] → genera JSON estructurado
 5. Frontend recibe JSON → muestra formulario pre-llenado para revisión
 6. Usuario revisa, edita si necesita, y guarda
+   → Si Gemini falla con audio (cuota agotada), reintenta solo con texto de descripción
 ```
 
 ### Flujo: Audio (archivo subido)
 
 ```
 1. Usuario sube archivo de audio desde el dispositivo (DocumentPicker)
-2. Backend: archivo temporal → Groq Whisper transcribe → Gemini estructura → JSON
+2. Backend: archivo temporal se sube a Gemini Flash (audio nativo) → JSON
 3. Se elimina archivo temporal
 4. Frontend muestra formulario pre-llenado
 ```
@@ -714,7 +714,7 @@ npx expo start
 - Todo está en `backend/recetas/utils.py`
 - Los prompts son f-strings en español que piden JSON como output
 - Gemini se configura con `response_mime_type: "application/json"` para forzar JSON válido
-- La transcripción usa Groq Whisper (`whisper-large-v3`), no la API de Gemini
+- Gemini Flash procesa el audio de forma nativa (sin transcripción intermedia). Si falla por cuota, reintenta solo con el texto de descripción como fallback.
 
 ### Si necesitas cambiar colores/estilos:
 

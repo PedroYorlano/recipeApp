@@ -5,7 +5,6 @@ import json
 import time
 import google.api_core.exceptions as exceptions
 from decouple import config
-from groq import Groq
 
 def download_audio_from_url(video_url):
     """
@@ -49,7 +48,7 @@ def download_audio_from_url(video_url):
             video_id = info['id']
             filename = f"{video_id}.mp3"
             
-            # Devolvemos la ruta absoluta para que luego Whisper la encuentre
+            # Devolvemos la ruta absoluta para que luego Gemini la encuentre
             return os.path.abspath(filename), video_description, thumbnail_url
 
     except Exception as e:
@@ -59,54 +58,39 @@ def download_audio_from_url(video_url):
 GENAI_API_KEY = config('GENAI_API_KEY')
 genai.configure(api_key=GENAI_API_KEY)
 
-GROQ_API_KEY = config('GROQ_API_KEY')
-groq_client = Groq(api_key=GROQ_API_KEY)
-
 def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
     """
-    Transcribe el audio a texto con Groq Whisper y luego usa Gemini
-    para extraer la receta estructurada en JSON.
+    Sube el audio a Gemini directamente y extrae la receta estructurada en JSON.
+    No usa Groq Whisper — Gemini procesa el audio nativo.
     """
-    print("1. Transcribiendo audio con Groq Whisper...")
-    audio_transcript = ""
-    
-    if audio_path and os.path.exists(audio_path):
-        try:
-            with open(audio_path, "rb") as file:
-                transcription = groq_client.audio.transcriptions.create(
-                    file=(os.path.basename(audio_path), file.read()),
-                    model="whisper-large-v3", # Modelo base fuerte para transcripción rápida
-                    response_format="text"
-                )
-            audio_transcript = transcription
-            print("Transcripción completada con éxito.")
-        except Exception as e:
-            print(f"Error transcribiendo audio con Groq: {e}. Pasando a modo Solo-Texto.")
-            audio_transcript = ""
-    else:
-        print("No se encontró o no se proveyó archivo de audio.")
+    print("1. Subiendo audio a la IA...")
 
-    print("2. Analizando receta con Gemini...")
+    try:
+        myfile = genai.upload_file(audio_path)
+        while myfile.state.name == "PROCESSING":
+            time.sleep(1)
+            myfile = genai.get_file(myfile.name)
+    except Exception as e:
+        print(f"Error subiendo audio: {e}. Pasando a modo Solo-Texto.")
+        myfile = None
+
+    print("2. Analizando receta...")
 
     # Usamos el modelo Flash que es rápido y barato
-    model = genai.GenerativeModel("gemini-flash-lite-latest")
+    model = genai.GenerativeModel("gemini-flash-latest")
 
     prompt = f"""
-    Actúa como un chef experto transcribiendo y estructurando una receta.
+    Actúa como un chef experto transcribiendo una receta.
     
     TIENES DOS FUENTES DE INFORMACIÓN:
-    1. Un texto de TRANSCRIPCIÓN de AUDIO (proveniente de otra IA que transcribió lo que dice el cocinero).
-       IMPORTANTE: Al ser una transcripción de otra IA, puede contener errores gramaticales, palabras confundidas o texto de relleno. Usa tu sentido común lógico de cocina para corregirlos o interpretarlos al vuelo.
-    2. Un texto de DESCRIPCIÓN del video original (que suele tener las cantidades exactas).
+    1. Un archivo de AUDIO (lo que dice el cocinero).
+    2. Un texto de DESCRIPCIÓN del video (que suele tener las cantidades exactas).
     
-    TEXTO DE DESCRIPCIÓN ORIGINAL:
-    "{description_text if description_text else 'Sin información adicional.'}"
-    
-    TRANSCRIPCIÓN DEL AUDIO:
-    "{audio_transcript if audio_transcript else 'No hay audio disponible.'}"
+    TEXTO DE DESCRIPCIÓN:
+    "{description_text}"
     
     TU TAREA:
-    Combina ambas fuentes. Si la transcripción dice "agrega azúcar" pero la descripción dice "20g de azúcar", USA LA CANTIDAD EXACTA de la descripción. La descripción tiene prioridad para las cantidades y tiempos.
+    Combina ambas fuentes. Si el audio dice "agrega azúcar" pero la descripción dice "20g de azúcar", USA LA CANTIDAD EXACTA de la descripción. La descripción tiene prioridad para las cantidades.
     
     FORMATO JSON REQUERIDO:
     {{
@@ -135,10 +119,25 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
 
     for attempt in range(max_retries):
         try:
+            contenido = []
+            
+            # Si tenemos descripción, la agregamos
+            if description_text:
+                contenido.append(f"DESCRIPCIÓN DEL VIDEO (Prioridad para cantidades): {description_text}")
+            
+            # Si el archivo de audio cargó bien, lo agregamos
+            if myfile:
+                contenido.append(myfile)
+            else:
+                # Si no hay audio, avisamos a la IA que dependa del texto
+                contenido.append("No hay audio disponible. Extrae la receta basándote SOLO en la descripción proporcionada arriba.")
+
+            contenido.append(prompt)
+
             # LLAMADA A LA IA
             print(f"Intento {attempt + 1} con modelo {model.model_name}...")
             result = model.generate_content(
-                prompt,
+                contenido,
                 generation_config={"response_mime_type": "application/json"}
             )
             result_json = json.loads(result.text)
@@ -148,19 +147,35 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
                 result_json['image_url'] = thumbnail_url
 
             return result_json
-            
         except exceptions.ResourceExhausted:
             print(f"⚠️ Cuota excedida (Intento {attempt+1}). Esperando {retry_delay}s...")
             time.sleep(retry_delay)
+            
+            # ESTRATEGIA DE EMERGENCIA:
+            # Si falló el último intento y teníamos audio, probamos UNA vez más SOLO con texto
+            if attempt == max_retries - 1 and myfile:
+                print("🚨 Último recurso: Intentando sin audio para ahorrar cuota...")
+                myfile = None # Quitamos el audio
+                max_retries += 1
+
         except (exceptions.InternalServerError, exceptions.ServiceUnavailable):
             print(f"⚠️ Error temporal de Google (Intento {attempt+1}). Esperando {retry_delay}s...")
             time.sleep(retry_delay)
+            
+            # La misma lógica de emergencia: si es el último intento, probamos solo texto
+            if attempt == max_retries - 1 and myfile:
+                print("🚨 Último recurso: Intentando sin audio...")
+                myfile = None 
+                max_retries += 1
+            
         except Exception as e:
+            # Si es otro error (ej: internet caído), fallamos de una vez
             print(f"Error inesperado: {e}")
             return None
 
     print("Error: Se agotaron los reintentos. Intenta más tarde.")
     return None
+
 
 def extract_recipe_from_text(description_text: str):
     """
