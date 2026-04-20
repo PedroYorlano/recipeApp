@@ -2,12 +2,84 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE } from '../constants';
 import { Category, Recipe } from '../types';
 
-// Helper: obtener cabeceras con token
-const getHeaders = async (isMultiPart: boolean = false) => {
+// --- Token Refresh con mutex ---
+// Evita múltiples refresh simultáneos cuando varias requests reciben 401 al mismo tiempo
+let isRefreshing = false;
+let refreshPromise: Promise<string | null> | null = null;
+
+/**
+ * Intenta refrescar el access token usando el refresh token almacenado.
+ * Retorna el nuevo access token o null si falla (sesión expirada).
+ */
+const refreshAccessToken = async (): Promise<string | null> => {
+    const refreshToken = await AsyncStorage.getItem('refreshToken');
+    if (!refreshToken) return null;
+
+    try {
+        const response = await fetch(`${API_BASE}/token/refresh/`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh: refreshToken }),
+        });
+
+        if (!response.ok) {
+            // Refresh token también expiró → limpiar todo
+            await AsyncStorage.removeItem('authToken');
+            await AsyncStorage.removeItem('refreshToken');
+            return null;
+        }
+
+        const data = await response.json();
+        await AsyncStorage.setItem('authToken', data.access);
+        return data.access;
+    } catch {
+        return null;
+    }
+};
+
+/**
+ * Wrapper de fetch que maneja token refresh automáticamente.
+ * Si recibe 401, refresca el token y reintenta la request original UNA vez.
+ */
+const authenticatedFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
+    // Primera request con el token actual
     const token = await AsyncStorage.getItem('authToken');
-    const headers: any = {
-        'Authorization': token ? `Bearer ${token}` : '',
-    };
+    const headers = new Headers(options.headers || {});
+    if (token) {
+        headers.set('Authorization', `Bearer ${token}`);
+    }
+
+    let response = await fetch(url, { ...options, headers });
+
+    // Si no es 401, devolver directamente
+    if (response.status !== 401) {
+        return response;
+    }
+
+    // 401 → Intentar refresh (con mutex para evitar múltiples refresh simultáneos)
+    if (!isRefreshing) {
+        isRefreshing = true;
+        refreshPromise = refreshAccessToken().finally(() => {
+            isRefreshing = false;
+            refreshPromise = null;
+        });
+    }
+
+    const newToken = await (refreshPromise || refreshAccessToken());
+
+    if (!newToken) {
+        // Refresh falló → sesión expirada, propagar el 401
+        throw new Error('Sesión expirada');
+    }
+
+    // Reintentar con el nuevo token
+    headers.set('Authorization', `Bearer ${newToken}`);
+    return fetch(url, { ...options, headers });
+};
+
+// Helper: construir headers (para requests que no usan authenticatedFetch)
+const buildHeaders = (isMultiPart: boolean = false): Record<string, string> => {
+    const headers: Record<string, string> = {};
     if (!isMultiPart) {
         headers['Content-Type'] = 'application/json';
     }
@@ -56,12 +128,11 @@ export const getRecipesService = async (
     favorites?: boolean,
     cursorUrl?: string | null,
 ): Promise<PaginatedResponse<Recipe>> => {
-    const headers = await getHeaders();
-
     // Si tenemos cursorUrl, usarla directamente (ya incluye filtros + cursor)
     if (cursorUrl) {
-        const response = await fetch(cursorUrl, { headers });
-        if (response.status === 401) throw new Error('No autorizado');
+        const response = await authenticatedFetch(cursorUrl, {
+            headers: buildHeaders(),
+        });
         if (!response.ok) throw new Error('Error al cargar recetas');
         return await response.json();
     }
@@ -72,11 +143,9 @@ export const getRecipesService = async (
     if (search) params.append('search', search);
     if (favorites) params.append('favorites', 'true');
 
-    const response = await fetch(`${API_BASE}/recetas/?${params.toString()}`, { headers });
-
-    if (response.status === 401) {
-        throw new Error('No autorizado');
-    }
+    const response = await authenticatedFetch(`${API_BASE}/recetas/?${params.toString()}`, {
+        headers: buildHeaders(),
+    });
 
     if (!response.ok) {
         console.error('Error fetching recipes:', response.status, response.statusText);
@@ -93,10 +162,9 @@ export const saveRecipeService = async (recipe: Recipe) => {
     const url = isEditing ? `${API_BASE}/recetas/${recipe.id}/` : `${API_BASE}/recetas/`;
     const method = isEditing ? 'PUT' : 'POST';
 
-    const headers = await getHeaders();
-    const response = await fetch(url, {
+    const response = await authenticatedFetch(url, {
         method,
-        headers,
+        headers: buildHeaders(),
         body: JSON.stringify(recipe),
     });
 
@@ -111,10 +179,9 @@ export const saveRecipeService = async (recipe: Recipe) => {
 
 // Borrar Receta
 export const deleteRecipeService = async (id: number) => {
-    const headers = await getHeaders();
-    const response = await fetch(`${API_BASE}/recetas/${id}/`, {
+    const response = await authenticatedFetch(`${API_BASE}/recetas/${id}/`, {
         method: 'DELETE',
-        headers,
+        headers: buildHeaders(),
     });
 
     if (!response.ok) throw new Error('Error al eliminar la receta');
@@ -123,10 +190,9 @@ export const deleteRecipeService = async (id: number) => {
 
 // Importar desde IA
 export const importRecipeService = async (url: string) => {
-    const headers = await getHeaders();
-    const response = await fetch(`${API_BASE}/importar/`, {
+    const response = await authenticatedFetch(`${API_BASE}/importar/`, {
         method: 'POST',
-        headers,
+        headers: buildHeaders(),
         body: JSON.stringify({ url }),
     });
 
@@ -138,7 +204,6 @@ export const importRecipeService = async (url: string) => {
 };
 
 export const importRecipeServiceAudio = async (fileUri: string, fileName: string, fileType: string) => {
-    const headers = await getHeaders(true); // isMultiPart = true, omit Content-Type json
     const formData = new FormData();
     formData.append('file', {
         uri: fileUri,
@@ -146,9 +211,9 @@ export const importRecipeServiceAudio = async (fileUri: string, fileName: string
         type: fileType,
     } as any);
 
-    const response = await fetch(`${API_BASE}/importar-archivo/`, {
+    const response = await authenticatedFetch(`${API_BASE}/importar-archivo/`, {
         method: 'POST',
-        headers,
+        headers: buildHeaders(true),
         body: formData,
     });
 
@@ -160,10 +225,9 @@ export const importRecipeServiceAudio = async (fileUri: string, fileName: string
 };
 
 export const importRecipeServiceText = async (text: string) => {
-    const headers = await getHeaders();
-    const response = await fetch(`${API_BASE}/importar-texto/`, {
+    const response = await authenticatedFetch(`${API_BASE}/importar-texto/`, {
         method: 'POST',
-        headers,
+        headers: buildHeaders(),
         body: JSON.stringify({ text }),
     });
 
@@ -175,10 +239,9 @@ export const importRecipeServiceText = async (text: string) => {
 };
 
 export const importRecipeServiceWeb = async (url: string) => {
-    const headers = await getHeaders();
-    const response = await fetch(`${API_BASE}/importar-web/`, {
+    const response = await authenticatedFetch(`${API_BASE}/importar-web/`, {
         method: 'POST',
-        headers,
+        headers: buildHeaders(),
         body: JSON.stringify({ url }),
     });
 
@@ -197,10 +260,9 @@ export const getSharedRecipeService = async (uuid: string) => {
 
 // crear categoria
 export const createCategoryService = async (name: string) => {
-    const headers = await getHeaders();
-    const response = await fetch(`${API_BASE}/categorias/`, {
+    const response = await authenticatedFetch(`${API_BASE}/categorias/`, {
         method: 'POST',
-        headers,
+        headers: buildHeaders(),
         body: JSON.stringify({ name }),
     });
 
@@ -213,10 +275,9 @@ export const createCategoryService = async (name: string) => {
 
 // Toggle Favorito (like/unlike)
 export const toggleFavoriteService = async (recipeId: number) => {
-    const headers = await getHeaders();
-    const response = await fetch(`${API_BASE}/recetas/${recipeId}/favorite/`, {
+    const response = await authenticatedFetch(`${API_BASE}/recetas/${recipeId}/favorite/`, {
         method: 'POST',
-        headers,
+        headers: buildHeaders(),
     });
 
     if (!response.ok) {

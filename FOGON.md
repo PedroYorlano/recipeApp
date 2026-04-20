@@ -631,7 +631,7 @@ npx expo start
 
 - ~~`SettingsScreen` mostraba "ChefAI App"~~ → ✅ corregido a "Fogón"
 - ~~`SettingsScreen` usaba `StyleSheet`~~ → ✅ migrado a NativeWind
-- Falta token refresh automático (si el access token expira, se hace logout)
+- ~~Falta token refresh automático (si el access token expira, se hace logout)~~ → ✅ Implementado con `authenticatedFetch` wrapper (intercepta 401 → refresh → retry, con mutex)
 - `ALLOWED_HOSTS = ['*']` y `CORS_ALLOW_ALL_ORIGINS = True` — inseguro para producción
 - No hay registro de usuario desde el frontend (solo login con usuario creado via `createsuperuser`)
 - Google OAuth está como placeholder (botón sin funcionalidad)

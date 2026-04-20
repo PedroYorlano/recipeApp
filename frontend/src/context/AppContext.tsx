@@ -138,7 +138,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
             setCategories(catData);
         } catch (e: any) {
             console.log("Error al cargar datos:", e.message);
-            if (e.message === 'No autorizado' || e.message.includes('401')) {
+            if (e.message === 'Sesión expirada') {
                 await logout();
             } else {
                 Alert.alert('Error', 'No se pudieron cargar los datos');
@@ -160,7 +160,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
             setNextCursor(data.next);
         } catch (e: any) {
             console.error("Error fetching recipes:", e);
-            if (e.message === 'No autorizado' || e.message.includes('401')) {
+            if (e.message === 'Sesión expirada') {
                 await logout();
             }
         }
