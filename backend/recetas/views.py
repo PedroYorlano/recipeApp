@@ -29,7 +29,7 @@ class ImportRateThrottle(UserRateThrottle):
 # --- Whitelist de hosts para video ---
 ALLOWED_VIDEO_HOSTS = [
     'youtube.com', 'www.youtube.com', 'youtu.be', 'm.youtube.com',
-    'tiktok.com', 'www.tiktok.com', 'vm.tiktok.com',
+    'tiktok.com', 'www.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com',
     'instagram.com', 'www.instagram.com',
 ]
 
@@ -118,7 +118,7 @@ class RecipeViewSet(viewsets.ModelViewSet):
     search_fields = ['title', 'description', 'ingredients__name']
 
     def get_queryset(self):
-        qs = Recipe.objects.filter(user=self.request.user).order_by('-id')
+        qs = Recipe.objects.filter(user=self.request.user).order_by('-created_at')
         
         # Filtro de favoritos
         if self.request.query_params.get('favorites') == 'true':
@@ -161,6 +161,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
+    pagination_class = None  # Categorías son pocas, no paginar
 
 
 @api_view(['POST'])
@@ -185,7 +186,7 @@ def import_recipe_view(request):
     audio_path, description_text, thumbnail_url = download_audio_from_url(target_url)
 
     if not audio_path or not description_text:
-        return Response({'error': 'Error al descargar el audio'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return Response({'error': 'Error al descargar el audio'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         recipe_data = extract_recipe_from_audio(audio_path, description_text, thumbnail_url)

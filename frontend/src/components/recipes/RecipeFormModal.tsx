@@ -55,8 +55,14 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
       const recipe = await onImportAI(importUrl);
       setDraftRecipe({ ...recipe, original_url: importUrl });
       setIsImported(true);
-    } catch (e) {
-      Alert.alert("Error", "No se pudo extraer la receta.");
+    } catch (e: any) {
+      console.error("Error importando receta:", e);
+      let errorMsg = "No se pudo extraer la receta.";
+      try {
+        const parsed = JSON.parse(e.message);
+        if (parsed.error) errorMsg = parsed.error;
+      } catch {}
+      Alert.alert("Error", errorMsg);
     } finally {
       setIsProcessing(false);
     }

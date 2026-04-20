@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Category, Recipe } from '../types';
@@ -14,10 +14,13 @@ interface AppContextType {
     showFavorites: boolean;
     setShowFavorites: (show: boolean) => void;
     loading: boolean;
+    loadingMore: boolean;
+    hasMore: boolean;
     isAuthenticated: boolean;
     isAuthLoading: boolean;
     user: any;
-    fetchRecipes: (catId?: number | null, search?: string) => Promise<void>;
+    fetchRecipes: () => Promise<void>;
+    fetchMoreRecipes: () => Promise<void>;
     createCategory: (name: string) => Promise<void>;
     saveRecipe: (recipe: Recipe) => Promise<void>;
     deleteRecipe: (id: number) => Promise<void>;
@@ -50,6 +53,8 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const [searchQuery, setSearchQuery] = useState('');
     const [showFavorites, setShowFavorites] = useState(false);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [nextCursor, setNextCursor] = useState<string | null>(null);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isAuthLoading, setIsAuthLoading] = useState(true);
     const [user, setUser] = useState(null);
@@ -60,16 +65,52 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
     const [createMode, setCreateMode] = useState<'manual' | 'video' | 'audio' | 'text' | 'link-web' | null>(null);
 
+    // Ref para debounce de búsqueda
+    const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    // Ref para evitar fetch duplicados al montar
+    const initialFetchDone = useRef(false);
+
     // Inicialización
     useEffect(() => {
         checkAuth();
     }, []);
 
+    // Carga inicial cuando se autentica
     useEffect(() => {
-        if (isAuthenticated) {
-            fetchData();
+        if (isAuthenticated && !initialFetchDone.current) {
+            initialFetchDone.current = true;
+            fetchInitialData();
+        }
+        if (!isAuthenticated) {
+            initialFetchDone.current = false;
         }
     }, [isAuthenticated]);
+
+    // Re-fetch cuando cambian filtros (categoría o favoritos)
+    useEffect(() => {
+        if (isAuthenticated && initialFetchDone.current) {
+            fetchRecipes();
+        }
+    }, [selectedCategory, showFavorites]);
+
+    // Debounce para búsqueda server-side (400ms)
+    useEffect(() => {
+        if (!isAuthenticated || !initialFetchDone.current) return;
+
+        if (searchTimerRef.current) {
+            clearTimeout(searchTimerRef.current);
+        }
+
+        searchTimerRef.current = setTimeout(() => {
+            fetchRecipes();
+        }, 400);
+
+        return () => {
+            if (searchTimerRef.current) {
+                clearTimeout(searchTimerRef.current);
+            }
+        };
+    }, [searchQuery]);
 
     const checkAuth = async () => {
         try {
@@ -85,11 +126,15 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         }
     };
 
-    const fetchData = async () => {
+    const fetchInitialData = async () => {
         setLoading(true);
         try {
-            const [recData, catData] = await Promise.all([getRecipesService(), getCategoriesService()]);
-            setRecipes(recData);
+            const [recData, catData] = await Promise.all([
+                getRecipesService(),
+                getCategoriesService()
+            ]);
+            setRecipes(recData.results);
+            setNextCursor(recData.next);
             setCategories(catData);
         } catch (e: any) {
             console.log("Error al cargar datos:", e.message);
@@ -102,21 +147,45 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         finally { setLoading(false); }
     };
 
-    const fetchRecipes = async (catId?: number | null, search?: string) => {
+    // Fetch primera página (resetea lista) — se usa con filtros actuales
+    const fetchRecipes = useCallback(async () => {
         setLoading(true);
         try {
-            const data = await getRecipesService(catId, search);
-            setRecipes(data);
-        } catch (e) { console.error(e); }
+            const data = await getRecipesService(
+                selectedCategory,
+                searchQuery || undefined,
+                showFavorites || undefined,
+            );
+            setRecipes(data.results);
+            setNextCursor(data.next);
+        } catch (e: any) {
+            console.error("Error fetching recipes:", e);
+            if (e.message === 'No autorizado' || e.message.includes('401')) {
+                await logout();
+            }
+        }
         finally { setLoading(false); }
-    };
+    }, [selectedCategory, searchQuery, showFavorites]);
+
+    // Fetch siguiente página (append a la lista) — para infinite scroll
+    const fetchMoreRecipes = useCallback(async () => {
+        if (!nextCursor || loadingMore) return;
+        setLoadingMore(true);
+        try {
+            const data = await getRecipesService(null, undefined, undefined, nextCursor);
+            setRecipes(prev => [...prev, ...data.results]);
+            setNextCursor(data.next);
+        } catch (e) {
+            console.error("Error loading more recipes:", e);
+        }
+        finally { setLoadingMore(false); }
+    }, [nextCursor, loadingMore]);
 
     const login = async (u: string, p: string) => {
         const data = await loginService(u, p);
         if (data && data.access) {
             await AsyncStorage.setItem('authToken', data.access);
             setIsAuthenticated(true);
-            fetchData();
         } else {
             throw new Error("Login fallido: No se recibió token");
         }
@@ -132,6 +201,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         setIsAuthenticated(false);
         setRecipes([]);
         setCategories([]);
+        setNextCursor(null);
     };
 
     const saveRecipe = async (recipe: Recipe) => {
@@ -186,38 +256,15 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         } catch (e) { console.error(e); }
     };
 
-    const filteredRecipes = recipes.filter((recipe) => {
-        // Filtro por Favoritos
-        if (showFavorites && !recipe.is_favorite) {
-            return false;
-        }
-
-        // Filtro por Categoría
-        let matchesCategory = true;
-        if (selectedCategory) {
-            if (!recipe.categories || !Array.isArray(recipe.categories)) {
-                matchesCategory = false;
-            } else {
-                matchesCategory = recipe.categories.some((catId: number) => catId === selectedCategory);
-            }
-        }
-
-        // Filtro por Búsqueda (ignorando acentos y mayúsculas)
-        let matchesSearch = true;
-        if (searchQuery.trim() !== '') {
-            matchesSearch = recipe.title.toLowerCase().includes(searchQuery.toLowerCase().trim());
-        }
-
-        return matchesCategory && matchesSearch;
-    });
-
     return (
         <AppContext.Provider value={{
-            recipes: filteredRecipes, categories, selectedCategory, setSelectedCategory, 
+            recipes, categories, selectedCategory, setSelectedCategory, 
             searchQuery, setSearchQuery,
             showFavorites, setShowFavorites,
-            loading, isAuthenticated, isAuthLoading, user,
-            fetchRecipes, saveRecipe, deleteRecipe, toggleFavorite,
+            loading, loadingMore, hasMore: !!nextCursor,
+            isAuthenticated, isAuthLoading, user,
+            fetchRecipes, fetchMoreRecipes,
+            saveRecipe, deleteRecipe, toggleFavorite,
             importRecipeAI, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, login, logout, createCategory,
             isCreateMenuVisible, setCreateMenuVisible,
             formModalVisible, setFormModalVisible,

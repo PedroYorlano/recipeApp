@@ -450,7 +450,7 @@ El `AppContext` centraliza:
 | `createMode`              | Modo actual: `'manual'|'video'|'audio'|'text'|'link-web'|null` |
 | Modal states              | `isCreateMenuVisible`, `formModalVisible`, `editingRecipe` |
 
-**Filtrado client-side**: Las recetas se filtran en el contexto combinando `showFavorites` + `selectedCategory` + `searchQuery` antes de exponerlas.
+**Filtrado server-side**: Los filtros `showFavorites`, `selectedCategory` y `searchQuery` se envían como query params al backend. Al cambiar cualquier filtro, se recarga la primera página. La búsqueda tiene un debounce de 400ms para no hacer un request por cada tecla. El listado soporta **infinite scroll** con cursor-based pagination (12 recetas por página).
 
 ### Componentes Principales
 
@@ -635,8 +635,8 @@ npx expo start
 - `ALLOWED_HOSTS = ['*']` y `CORS_ALLOW_ALL_ORIGINS = True` — inseguro para producción
 - No hay registro de usuario desde el frontend (solo login con usuario creado via `createsuperuser`)
 - Google OAuth está como placeholder (botón sin funcionalidad)
-- No hay manejo de paginación en el listado de recetas
-- El filtrado por búsqueda se hace client-side después de cargar todas las recetas (aunque el backend soporta `search` param)
+- ~~No hay manejo de paginación en el listado de recetas~~ → ✅ Implementado cursor-based pagination (DRF CursorPagination) con infinite scroll
+- ~~El filtrado por búsqueda se hace client-side después de cargar todas las recetas~~ → ✅ Migrado a búsqueda server-side con debounce 400ms
 
 ---
 

@@ -25,6 +25,7 @@ def download_audio_from_url(video_url):
         # Evitar que imprima demasiada basura en la consola
         'quiet': True,
         'no_warnings': True,
+        'cookies_from_browser': ['chrome'],
     }
 
     try:

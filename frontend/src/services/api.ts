@@ -42,15 +42,36 @@ export const getCategoriesService = async () => {
     return await response.json();
 };
 
-// Obtener Recetas (Con filtros de búsqueda, categoría y favoritos)
-export const getRecipesService = async (categoryId?: number | null, search?: string, favorites?: boolean) => {
-    // Construimos la URL con parámetros limpios
+// Tipo de respuesta paginada del backend (DRF CursorPagination)
+export interface PaginatedResponse<T> {
+    next: string | null;
+    previous: string | null;
+    results: T[];
+}
+
+// Obtener Recetas con paginación por cursor (con filtros de búsqueda, categoría y favoritos)
+export const getRecipesService = async (
+    categoryId?: number | null,
+    search?: string,
+    favorites?: boolean,
+    cursorUrl?: string | null,
+): Promise<PaginatedResponse<Recipe>> => {
+    const headers = await getHeaders();
+
+    // Si tenemos cursorUrl, usarla directamente (ya incluye filtros + cursor)
+    if (cursorUrl) {
+        const response = await fetch(cursorUrl, { headers });
+        if (response.status === 401) throw new Error('No autorizado');
+        if (!response.ok) throw new Error('Error al cargar recetas');
+        return await response.json();
+    }
+
+    // Primera carga: construir URL con filtros
     const params = new URLSearchParams();
     if (categoryId) params.append('categories', categoryId.toString());
     if (search) params.append('search', search);
     if (favorites) params.append('favorites', 'true');
 
-    const headers = await getHeaders();
     const response = await fetch(`${API_BASE}/recetas/?${params.toString()}`, { headers });
 
     if (response.status === 401) {

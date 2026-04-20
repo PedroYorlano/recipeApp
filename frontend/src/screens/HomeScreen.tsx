@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, FlatList, ActivityIndicator, Text, TouchableOpacity, ScrollView, StatusBar as RNStatusBar, TextInput, Image, useWindowDimensions } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '../context/AppContext';
@@ -19,6 +19,9 @@ export default function HomeScreen() {
         showFavorites,
         setShowFavorites,
         loading,
+        loadingMore,
+        hasMore,
+        fetchMoreRecipes,
         isAuthenticated,
         isAuthLoading,
         setEditingRecipe,
@@ -154,6 +157,8 @@ export default function HomeScreen() {
                     contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120 }}
                     columnWrapperStyle={{ justifyContent: 'flex-start', gap: 16 }}
                     showsVerticalScrollIndicator={false}
+                    onEndReached={fetchMoreRecipes}
+                    onEndReachedThreshold={0.5}
                     renderItem={({ item }) => (
                         <RecipeCard
                             item={item}
@@ -161,6 +166,13 @@ export default function HomeScreen() {
                             maxWidth={cardMaxWidth}
                         />
                     )}
+                    ListFooterComponent={
+                        loadingMore ? (
+                            <View className="py-4 items-center">
+                                <ActivityIndicator size="small" color="#EF9F27" />
+                            </View>
+                        ) : null
+                    }
                     ListEmptyComponent={
                         <View className="items-center mt-20 opacity-80 px-8">
                             <View className="bg-fogon-white/50 p-6 rounded-full border border-fogon-amber/20 mb-6">

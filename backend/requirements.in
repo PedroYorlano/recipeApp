@@ -1,0 +1,11 @@
+Django
+djangorestframework
+djangorestframework-simplejwt
+django-cors-headers
+django-filter
+google-generativeai
+pillow
+python-decouple
+yt-dlp>=2026.3.17
+beautifulsoup4
+drf-spectacular
