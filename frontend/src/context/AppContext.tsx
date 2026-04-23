@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { Alert } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import { Category, Recipe, User } from '../types';
 import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, importRecipeServiceAudio, importRecipeServiceText, importRecipeServiceWeb, loginService, registerService, logoutService, getCategoriesService, createCategoryService, toggleFavoriteService, getCurrentUserService } from '../services/api';
 
@@ -115,12 +115,16 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
 
     const checkAuth = async () => {
         try {
-            const token = await AsyncStorage.getItem('authToken');
-            if (token) {
-                setIsAuthenticated(!!token);
+            const token = await SecureStore.getItemAsync('authToken');
+            if (!token) {
+                setIsAuthenticated(false);
+                return;
             }
+            const response = await fetch('/api/me/', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+            setIsAuthenticated(response.ok);
         } catch (e) {
-            console.error(e);
             setIsAuthenticated(false);
         } finally {
             setIsAuthLoading(false);
@@ -187,7 +191,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const login = async (u: string, p: string) => {
         const data = await loginService(u, p);
         if (data && data.access) {
-            await AsyncStorage.setItem('authToken', data.access);
+            await SecureStore.setItemAsync('authToken', data.access);
             setIsAuthenticated(true);
         } else {
             throw new Error("Login fallido: No se recibió token");
@@ -198,7 +202,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         const data = await registerService(u, e, p);
         if (data && data.access) {
             // registerService already called loginService which sets AsyncStorage, but we set it again to be safe
-            await AsyncStorage.setItem('authToken', data.access);
+            await SecureStore.setItemAsync('authToken', data.access);
             setIsAuthenticated(true);
         } else {
             throw new Error("Registro fallido: No se pudo iniciar sesión automáticamente");
@@ -211,7 +215,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         } catch (e) {
             console.log("Error en logout service", e);
         }
-        await AsyncStorage.removeItem('authToken');
+        await SecureStore.deleteItemAsync('authToken');
         setIsAuthenticated(false);
         setUser(null);
         setRecipes([]);
@@ -234,8 +238,8 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         try {
             const result = await toggleFavoriteService(recipeId);
             // Actualizar el estado local inmediatamente (optimistic UI)
-            setRecipes(prev => prev.map(r => 
-                r.id === recipeId 
+            setRecipes(prev => prev.map(r =>
+                r.id === recipeId
                     ? { ...r, is_favorite: result.is_favorite }
                     : r
             ));
@@ -253,7 +257,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         const data = await importRecipeServiceAudio(fileUri, fileName, fileType);
         return data.recipe || data;
     };
-    
+
     const importRecipeAIText = async (text: string) => {
         const data = await importRecipeServiceText(text);
         return data.recipe || data;
@@ -273,7 +277,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
 
     return (
         <AppContext.Provider value={{
-            recipes, categories, selectedCategory, setSelectedCategory, 
+            recipes, categories, selectedCategory, setSelectedCategory,
             searchQuery, setSearchQuery,
             showFavorites, setShowFavorites,
             loading, loadingMore, hasMore: !!nextCursor,
