@@ -320,10 +320,13 @@ def import_recipe_from_web_view(request):
         # Enviar 100k limit
         cleaned_text = cleaned_text[:100000]
 
-        recipe_data = extract_recipe_from_text(f"Por favor extrae la receta estructurada del siguiente contenido de una página web. Elimina las historias/publicidades/comentarios del blog:\n\n{cleaned_text}")
+        recipe_data = extract_recipe_from_text(
+            f"Por favor extrae la receta estructurada del siguiente contenido de una página web. Elimina las historias/publicidades/comentarios del blog:\n\n{cleaned_text}",
+            strict_mode=True
+        )
         
         if not recipe_data:
-            return Response({'error': 'IA falló al extraer la receta'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': 'No pudimos extraer la receta automáticamente porque este sitio web bloquea los sistemas automáticos (protección anti-scrapers). Por favor, copiá el texto de la receta desde tu navegador y usá la opción "Pegar Texto" en la app.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Registrar uso exitoso
         record_usage(request.user)

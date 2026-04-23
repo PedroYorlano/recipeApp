@@ -178,13 +178,18 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
     return None
 
 
-def extract_recipe_from_text(description_text: str):
+def extract_recipe_from_text(description_text: str, strict_mode: bool = False):
     """
     Envía texto plano libre escrito por el usuario a Gemini para organizar
     en formato de Receta JSON. Autocompleta detalles faltantes si es necesario.
     """
     print("Analizando receta desde texto libre con Gemini...")
     model = genai.GenerativeModel("gemini-flash-latest")
+
+    if strict_mode:
+        behavior = 'ADVERTENCIA: Extrae ÚNICAMENTE la información presente en el texto. NO inventes recetas, ingredientes, cantidades ni pasos que no existan. Si el texto claramente no contiene una receta (por ejemplo, es un mensaje de error, acceso denegado, Incapsula, Cloudflare, etc.), devuelve exactamente esto en el JSON: {"title": "ERROR_NO_RECIPE"}'
+    else:
+        behavior = "ADVERTENCIA: El texto provisto por el usuario puede estar muy incompleto. Si las cantidades, proporciones o pasos están ausentes, INFIÉRELOS LÓGICAMENTE usando tu vasta inteligencia culinaria para completar la receta de manera que el plato quede funcional y apetecible. Asegúrate de inventar las cantidades e instrucciones que lógicamente falten y asume ingredientes fundamentales si el usuario solo describió el núcleo."
 
     prompt = f"""
     Actúa como un chef experto transcribiendo y estructurando una receta.
@@ -194,7 +199,7 @@ def extract_recipe_from_text(description_text: str):
     
     TU TAREA:
     Analiza este texto y estructúralo en un formato de receta. 
-    ADVERTENCIA: El texto provisto por el usuario puede estar muy incompleto. Si las cantidades, proporciones o pasos están ausentes, INFIÉRELOS LÓGICAMENTE usando tu vasta inteligencia culinaria para completar la receta de manera que el plato quede funcional y apetecible. Asegúrate de inventar las cantidades e instrucciones que lógicamente falten y asume ingredientes fundamentales si el usuario solo describió el núcleo.
+    {behavior}
     
     FORMATO JSON REQUERIDO:
     {{
@@ -226,6 +231,11 @@ def extract_recipe_from_text(description_text: str):
                 generation_config={"response_mime_type": "application/json"}
             )
             result_json = json.loads(result.text)
+            
+            if result_json.get('title') == 'ERROR_NO_RECIPE':
+                print("Gemini determinó que el texto no contenía una receta válida.")
+                return None
+                
             return result_json
         except Exception as e:
             print(f"Error parseando texto: {e}")

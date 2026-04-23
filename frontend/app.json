@@ -1,11 +1,11 @@
 {
   "expo": {
-    "name": "mi-recetario-app",
-    "slug": "mi-recetario-app",
+    "name": "FOGON",
+    "slug": "fogon",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "recetario",
+    "scheme": "fogon",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
