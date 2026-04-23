@@ -4,6 +4,7 @@ import { useApp } from '../context/AppContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Flame, EyeOff, Eye } from 'lucide-react-native';
+import { useRouter } from 'expo-router';
 
 export const LoginScreen = () => {
     const [username, setUsername] = useState('');
@@ -12,6 +13,7 @@ export const LoginScreen = () => {
     const [loading, setLoading] = useState(false);
 
     const login = useApp();
+    const router = useRouter();
 
     const handleLogin = async () => {
         if (!username || !password) {
@@ -68,9 +70,9 @@ export const LoginScreen = () => {
                     />
 
                     <View className="mt-4">
-                        <Button 
-                            title="Ingresar" 
-                            onPress={handleLogin} 
+                        <Button
+                            title="Ingresar"
+                            onPress={handleLogin}
                             loading={loading}
                         />
                     </View>
@@ -83,14 +85,14 @@ export const LoginScreen = () => {
                     </View>
 
                     {/* Botón Google outline */}
-                    <Button 
-                        title="Continuar con Google" 
+                    <Button
+                        title="Continuar con Google"
                         variant="outline"
                         onPress={() => Alert.alert("Próximamente", "Esta función estará disponible muy pronto.")}
                     />
 
-                    {/* Fake link for demo purposes */}
-                    <TouchableOpacity className="mt-8 mb-2 items-center">
+                    {/* Link a registro */}
+                    <TouchableOpacity className="mt-8 mb-2 items-center" onPress={() => router.push('/register')}>
                         <Text className="text-fogon-amber text-[15px] font-bold">¿No tenés cuenta? Registrate</Text>
                     </TouchableOpacity>
                 </View>

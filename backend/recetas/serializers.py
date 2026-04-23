@@ -5,6 +5,25 @@ import base64
 import uuid
 from django.core.files.base import ContentFile
 import requests
+from django.contrib.auth.models import User
+
+class UserRegistrationSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
+
+    class Meta:
+        model = User
+        fields = ['username', 'email', 'password']
+        extra_kwargs = {
+            'email': {'required': True}
+        }
+
+    def create(self, validated_data):
+        user = User.objects.create_user(
+            username=validated_data['username'],
+            email=validated_data['email'],
+            password=validated_data['password']
+        )
+        return user
 
 def decode_base64_file(data):
     if not data:

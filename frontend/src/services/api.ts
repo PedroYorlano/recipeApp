@@ -102,9 +102,32 @@ export const loginService = async (username: string, password: string) => {
     return data;
 };
 
+export const registerService = async (username: string, email: string, password: string) => {
+    const response = await fetch(`${API_BASE}/register/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, email, password }),
+    });
+    if (!response.ok) {
+        const errorData = await response.json();
+        // Return first error message or generic string
+        const errorMsg = Object.values(errorData).flat().join(', ');
+        throw new Error(errorMsg || 'Error al registrar usuario');
+    }
+    
+    // Auto-login on success
+    return await loginService(username, password);
+};
+
 export const logoutService = async () => {
     await AsyncStorage.removeItem('authToken');
     await AsyncStorage.removeItem('refreshToken');
+};
+
+export const getCurrentUserService = async () => {
+    const response = await authenticatedFetch(`${API_BASE}/me/`);
+    if (!response.ok) throw new Error('Error al cargar el usuario');
+    return await response.json();
 };
 
 // Obtener Categorías

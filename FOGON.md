@@ -633,8 +633,8 @@ npx expo start
 - ~~`SettingsScreen` usaba `StyleSheet`~~ → ✅ migrado a NativeWind
 - ~~Falta token refresh automático (si el access token expira, se hace logout)~~ → ✅ Implementado con `authenticatedFetch` wrapper (intercepta 401 → refresh → retry, con mutex)
 - `ALLOWED_HOSTS = ['*']` y `CORS_ALLOW_ALL_ORIGINS = True` — inseguro para producción
-- No hay registro de usuario desde el frontend (solo login con usuario creado via `createsuperuser`)
-- Google OAuth está como placeholder (botón sin funcionalidad)
+- ~~No hay registro de usuario desde el frontend~~ → ✅ Implementado registro clásico (email/password) con custom DRF endpoint compatible con tabla `User`.
+- Google OAuth está como placeholder (botón sin funcionalidad). Se documenta planificar implementación con `dj-rest-auth` + `django-allauth` en futuras versiones para mejorar la fricción de onboarding.
 - ~~No hay manejo de paginación en el listado de recetas~~ → ✅ Implementado cursor-based pagination (DRF CursorPagination) con infinite scroll
 - ~~El filtrado por búsqueda se hace client-side después de cargar todas las recetas~~ → ✅ Migrado a búsqueda server-side con debounce 400ms
 

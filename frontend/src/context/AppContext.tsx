@@ -1,8 +1,8 @@
 import React, { createContext, useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Category, Recipe } from '../types';
-import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, importRecipeServiceAudio, importRecipeServiceText, importRecipeServiceWeb, loginService, logoutService, getCategoriesService, createCategoryService, toggleFavoriteService } from '../services/api';
+import { Category, Recipe, User } from '../types';
+import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, importRecipeServiceAudio, importRecipeServiceText, importRecipeServiceWeb, loginService, registerService, logoutService, getCategoriesService, createCategoryService, toggleFavoriteService, getCurrentUserService } from '../services/api';
 
 interface AppContextType {
     recipes: Recipe[];
@@ -18,7 +18,7 @@ interface AppContextType {
     hasMore: boolean;
     isAuthenticated: boolean;
     isAuthLoading: boolean;
-    user: any;
+    user: User | null;
     fetchRecipes: () => Promise<void>;
     fetchMoreRecipes: () => Promise<void>;
     createCategory: (name: string) => Promise<void>;
@@ -30,6 +30,7 @@ interface AppContextType {
     importRecipeAIText: (text: string) => Promise<Recipe>;
     importRecipeAIWeb: (url: string) => Promise<Recipe>;
     login: (u: string, p: string) => Promise<void>;
+    register: (u: string, e: string, p: string) => Promise<void>;
     logout: () => Promise<void>;
 
     createMode: 'manual' | 'video' | 'audio' | 'text' | 'link-web' | null;
@@ -57,7 +58,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const [nextCursor, setNextCursor] = useState<string | null>(null);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [isAuthLoading, setIsAuthLoading] = useState(true);
-    const [user, setUser] = useState(null);
+    const [user, setUser] = useState<User | null>(null);
 
     // Estados para modales globales
     const [isCreateMenuVisible, setCreateMenuVisible] = useState(false);
@@ -129,13 +130,15 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const fetchInitialData = async () => {
         setLoading(true);
         try {
-            const [recData, catData] = await Promise.all([
+            const [recData, catData, userData] = await Promise.all([
                 getRecipesService(),
-                getCategoriesService()
+                getCategoriesService(),
+                getCurrentUserService()
             ]);
             setRecipes(recData.results);
             setNextCursor(recData.next);
             setCategories(catData);
+            setUser(userData);
         } catch (e: any) {
             console.log("Error al cargar datos:", e.message);
             if (e.message === 'Sesión expirada') {
@@ -191,6 +194,17 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         }
     };
 
+    const register = async (u: string, e: string, p: string) => {
+        const data = await registerService(u, e, p);
+        if (data && data.access) {
+            // registerService already called loginService which sets AsyncStorage, but we set it again to be safe
+            await AsyncStorage.setItem('authToken', data.access);
+            setIsAuthenticated(true);
+        } else {
+            throw new Error("Registro fallido: No se pudo iniciar sesión automáticamente");
+        }
+    };
+
     const logout = async () => {
         try {
             await logoutService();
@@ -199,6 +213,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         }
         await AsyncStorage.removeItem('authToken');
         setIsAuthenticated(false);
+        setUser(null);
         setRecipes([]);
         setCategories([]);
         setNextCursor(null);
@@ -265,7 +280,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
             isAuthenticated, isAuthLoading, user,
             fetchRecipes, fetchMoreRecipes,
             saveRecipe, deleteRecipe, toggleFavorite,
-            importRecipeAI, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, login, logout, createCategory,
+            importRecipeAI, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, login, register, logout, createCategory,
             isCreateMenuVisible, setCreateMenuVisible,
             formModalVisible, setFormModalVisible,
             editingRecipe, setEditingRecipe,

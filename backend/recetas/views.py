@@ -6,10 +6,11 @@ from rest_framework import viewsets, status, filters
 from rest_framework.decorators import api_view, permission_classes, throttle_classes, action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.generics import RetrieveAPIView
+from rest_framework.generics import RetrieveAPIView, CreateAPIView
 from rest_framework.throttling import UserRateThrottle
+from django.contrib.auth.models import User
 from .models import Recipe, Category, Favorite, UserUsage, GlobalUsage
-from .serializers import RecipeSerializer, CategorySerializer
+from .serializers import RecipeSerializer, CategorySerializer, UserRegistrationSerializer
 import os
 from .utils import download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text
 from django_filters.rest_framework import DjangoFilterBackend
@@ -162,6 +163,12 @@ class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
     pagination_class = None  # Categorías son pocas, no paginar
+
+
+class RegisterView(CreateAPIView):
+    queryset = User.objects.all()
+    permission_classes = [AllowAny]
+    serializer_class = UserRegistrationSerializer
 
 
 @api_view(['POST'])
@@ -341,3 +348,13 @@ def import_recipe_from_web_view(request):
         return Response({"error": f"Fallo al acceder al sitio web: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
     except Exception as e:
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def current_user_view(request):
+    user = request.user
+    return Response({
+        'id': user.id,
+        'username': user.username,
+        'email': user.email
+    })
