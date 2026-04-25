@@ -9,3 +9,9 @@ python-decouple
 yt-dlp>=2026.3.17
 beautifulsoup4
 drf-spectacular
+dj-database-url
+whitenoise
+gunicorn
+django-storages
+boto3
+psycopg2-binary
