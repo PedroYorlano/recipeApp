@@ -9,8 +9,9 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.generics import RetrieveAPIView, CreateAPIView
 from rest_framework.throttling import UserRateThrottle
 from django.contrib.auth.models import User
-from .models import Recipe, Category, Favorite, UserUsage, GlobalUsage
-from .serializers import RecipeSerializer, CategorySerializer, UserRegistrationSerializer
+from .models import Recipe, Category, Favorite, UserUsage, GlobalUsage, MealPlan, ShoppingListItem
+from .serializers import RecipeSerializer, CategorySerializer, UserRegistrationSerializer, MealPlanSerializer, ShoppingListItemSerializer
+from datetime import date, timedelta
 import os
 from .utils import download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text
 from django_filters.rest_framework import DjangoFilterBackend
@@ -33,6 +34,34 @@ ALLOWED_VIDEO_HOSTS = [
     'tiktok.com', 'www.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com',
     'instagram.com', 'www.instagram.com',
 ]
+
+INGREDIENT_CATEGORIES = {
+    'Verduras y frescos': [
+        'lechuga', 'tomate', 'cebolla', 'zanahoria', 'palta', 'pimiento',
+        'zapallo', 'berenjena', 'espinaca', 'brócoli', 'ajo', 'papa',
+        'batata', 'limón', 'naranja', 'manzana', 'verdeo', 'apio'
+    ],
+    'Carnes y proteínas': [
+        'pollo', 'carne', 'cerdo', 'pescado', 'atún', 'huevo', 'tofu',
+        'nalga', 'milanesa', 'chorizo', 'salchicha', 'jamón', 'lomo'
+    ],
+    'Lácteos': [
+        'leche', 'queso', 'crema', 'manteca', 'yogur', 'ricota',
+        'mozzarella', 'cheddar', 'mantequilla'
+    ],
+    'Despensa': [
+        'arroz', 'fideos', 'harina', 'azúcar', 'sal', 'aceite',
+        'vinagre', 'soja', 'mirin', 'salsa', 'caldo', 'lenteja',
+        'garbanzo', 'frijol', 'pasta', 'avena'
+    ],
+    'Panadería': [
+        'pan', 'tostada', 'galletita', 'bizcocho', 'factura'
+    ],
+    'Especias y condimentos': [
+        'pimienta', 'comino', 'orégano', 'pimentón', 'curry', 'jengibre',
+        'cúrcuma', 'canela', 'mostaza', 'mayonesa', 'ketchup'
+    ],
+}
 
 
 def validate_video_url(url):
@@ -162,7 +191,7 @@ class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
     permission_classes = [AllowAny]
-    pagination_class = None  # Categorías son pocas, no paginar
+    pagination_class = None
 
 
 class RegisterView(CreateAPIView):
@@ -170,6 +199,127 @@ class RegisterView(CreateAPIView):
     permission_classes = [AllowAny]
     serializer_class = UserRegistrationSerializer
 
+
+class MealPlanViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = MealPlanSerializer
+    pagination_class = None
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
+
+    def get_queryset(self):
+        return MealPlan.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
+
+    def perform_update(self, serializer):
+        serializer.save(user=self.request.user)
+
+    @staticmethod
+    def categorize_ingredient(name: str) -> str:
+        name_lower = name.lower()
+        for category, keywords in INGREDIENT_CATEGORIES.items():
+            if any(kw in name_lower for kw in keywords):
+                return category
+        return 'Otros'
+
+    @action(detail=False, methods=['get'])
+    def week(self, request):
+        week_start = request.query_params.get('week_start')
+        try:
+            start = date.fromisoformat(week_start)
+        except (ValueError, TypeError):
+            # Si no viene el parámetro, usamos la semana actual
+            today = date.today()
+            start = today - timedelta(days=today.weekday())
+        
+        end = start + timedelta(days=6)
+        plans = self.get_queryset().filter(
+            date__range=(start, end)
+        ).select_related('recipe')
+        
+        serializer = self.get_serializer(plans, many=True)
+        return Response(serializer.data)
+
+    @action(detail=False, methods=['post'])
+    def generate_shopping_list(self, request):
+        week_start = request.data.get('week_start')
+        try:
+            start = date.fromisoformat(week_start)
+        except (ValueError, TypeError):
+            today = date.today()
+            start = today - timedelta(days=today.weekday())
+
+        end = start + timedelta(days=6)
+
+        # Traemos todas las recetas del plan de la semana
+        plans = MealPlan.objects.filter(
+            user=request.user,
+            date__range=(start, end)
+        ).prefetch_related('recipe__ingredients')
+
+        # Consolidamos ingredientes
+        consolidated = {}
+        for plan in plans:
+            if not plan.recipe:
+                continue
+            for ingredient in plan.recipe.ingredients.all():
+                key = ingredient.name.lower().strip()
+                if key not in consolidated:
+                    consolidated[key] = {
+                        'name': ingredient.name,
+                        'quantity': ingredient.quantity,
+                        'unit': ingredient.unit,
+                        'category': self.categorize_ingredient(ingredient.name)
+                    }
+                # Si ya existe, sumamos cantidades si son del mismo unit
+                # Por ahora dejamos la primera cantidad — mejora futura
+
+        # Borramos la lista anterior de esa semana (excepto los ya tachados)
+        # y creamos los nuevos ítems de forma atómica
+        from django.db import transaction
+        with transaction.atomic():
+            ShoppingListItem.objects.filter(
+                user=request.user,
+                week_start=start,
+                is_checked=False
+            ).delete()
+
+            # Creamos los nuevos ítems
+            items = [
+                ShoppingListItem(
+                    user=request.user,
+                    week_start=start,
+                    ingredient_name=v['name'],
+                    quantity=f"{v['quantity']} {v['unit']}".strip() if v['quantity'] is not None else (v['unit'] or ''),
+                    category=v['category'],
+                )
+                for v in consolidated.values()
+            ]
+            ShoppingListItem.objects.bulk_create(items, ignore_conflicts=True)
+
+        # Devolvemos la lista completa actualizada
+        all_items = ShoppingListItem.objects.filter(
+            user=request.user,
+            week_start=start
+        ).order_by('category', 'ingredient_name')
+
+        serializer = ShoppingListItemSerializer(all_items, many=True)
+        return Response(serializer.data)
+
+
+class ShoppingListItemViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ShoppingListItemSerializer
+    pagination_class = None
+    http_method_names = ['get', 'patch', 'delete']  # no POST — se generan automáticamente
+
+    def get_queryset(self):
+        week_start = self.request.query_params.get('week_start')
+        qs = ShoppingListItem.objects.filter(user=self.request.user)
+        if week_start:
+            qs = qs.filter(week_start=week_start)
+        return qs.order_by('category', 'ingredient_name')
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])

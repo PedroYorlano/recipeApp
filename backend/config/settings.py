@@ -151,7 +151,7 @@ REST_FRAMEWORK = {
 
 # --- Fogón: Límites de uso ---
 FOGON_MAX_IMPORTS_PER_USER_PER_DAY = 10   # Importaciones por usuario por día
-FOGON_MAX_GEMINI_REQUESTS_PER_DAY = 15    # Requests a Gemini globales por día (de 20 RPD disponibles)
+FOGON_MAX_GEMINI_REQUESTS_PER_DAY = 490    # Requests a Gemini globales por día (de 500 RPD disponibles)
 
 CORS_ALLOW_ALL_ORIGINS = True
 CORS_ALLOW_CREDENTIALS = True

@@ -114,3 +114,38 @@ class GlobalUsage(models.Model):
 
     def __str__(self):
         return f"Gemini {self.date}: {self.gemini_requests} requests"
+
+
+class MealPlan(models.Model):
+    MEAL_TYPES = [
+        ('breakfast', 'Desayuno'),
+        ('lunch', 'Almuerzo'),
+        ('dinner', 'Cena'),
+    ]
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='meal_plans')
+    date = models.DateField()
+    meal_type = models.CharField(max_length=20, choices=MEAL_TYPES)
+    recipe = models.ForeignKey(Recipe, on_delete=models.SET_NULL, null=True, blank=True)
+
+    class Meta:
+        unique_together = ('user', 'date', 'meal_type')
+        ordering = ['date', 'meal_type']
+
+    def __str__(self):
+        return f"{self.user.username} - {self.date} - {self.meal_type}"
+
+
+class ShoppingListItem(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='shopping_list')
+    week_start = models.DateField()
+    ingredient_name = models.CharField(max_length=100)
+    quantity = models.CharField(max_length=50, blank=True, null=True)
+    category = models.CharField(max_length=50, blank=True, default='')
+    is_checked = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['user', 'week_start', 'ingredient_name']
+
+    def __str__(self):
+        qty = self.quantity if self.quantity is not None else ''
+        return f"{qty} {self.category} {self.ingredient_name}".strip()

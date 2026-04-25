@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Category, Recipe, Ingredient, Step, Favorite
+from .models import Category, Recipe, Ingredient, Step, Favorite, MealPlan, ShoppingListItem
 from django.db import transaction
 import base64
 import uuid
@@ -187,3 +187,50 @@ class RecipeSerializer(serializers.ModelSerializer):
             instance.steps.exclude(id__in=keep_step_ids).delete()
 
         return instance
+
+class MealPlanRecipeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Recipe
+        fields = ['uuid', 'title', 'image', 'prep_time', 'servings']
+
+class MealPlanSerializer(serializers.ModelSerializer):
+    recipe_detail = MealPlanRecipeSerializer(source='recipe', read_only=True)
+
+    class Meta:
+        model = MealPlan
+        fields = ['id', 'date', 'meal_type', 'recipe', 'recipe_detail']
+        extra_kwargs = {'recipe': {'write_only': True}}
+
+    def validate_recipe(self, value):
+        if value and value.user != self.context['request'].user:
+            raise serializers.ValidationError("Solo podés planificar con tus propias recetas.")
+        return value
+
+    def validate_date(self, value):
+        from datetime import date, timedelta
+        today = date.today()
+        max_date = today + timedelta(weeks=4)
+        if value < today:
+            raise serializers.ValidationError("No podés planificar en el pasado.")
+        if value > max_date:
+            raise serializers.ValidationError("Solo podés planificar hasta 4 semanas.")
+        return value
+
+    def validate(self, data):
+        user = self.context['request'].user
+        date_val = data.get('date', getattr(self.instance, 'date', None))
+        if date_val:
+            if MealPlan.objects.filter(
+                user=user, date=date_val
+            ).exclude(pk=self.instance.pk if self.instance else None).exists():
+                raise serializers.ValidationError("Ya tenés una receta en ese slot.")
+        return data
+
+class ShoppingListItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShoppingListItem
+        fields = ['id', 'week_start', 'ingredient_name', 'quantity', 'category', 'is_checked']
+        extra_kwargs = {
+            'week_start': {'read_only': True},
+            'category': {'read_only': True},
+        }
