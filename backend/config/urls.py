@@ -17,7 +17,7 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from recetas.views import RecipeViewSet, CategoryViewSet, MealPlanViewSet, ShoppingListItemViewSet, import_recipe_view, import_recipe_from_file_view, import_recipe_from_text_view, import_recipe_from_web_view, SharedRecipeView, RegisterView, current_user_view
+from recetas.views import RecipeViewSet, CategoryViewSet, MealPlanViewSet, ShoppingListItemViewSet, import_recipe_view, import_recipe_from_file_view, import_recipe_from_text_view, import_recipe_from_web_view, SharedRecipeView, RegisterView, current_user_view, fogoncito
 from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework_simplejwt.views import (
@@ -43,6 +43,7 @@ urlpatterns = [
     path('api/me/', current_user_view, name='current_user'),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('api/fogoncito/', fogoncito, name='fogoncito'),
 ]
 
 if settings.DEBUG:

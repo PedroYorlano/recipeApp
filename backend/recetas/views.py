@@ -13,7 +13,7 @@ from .models import Recipe, Category, Favorite, UserUsage, GlobalUsage, MealPlan
 from .serializers import RecipeSerializer, CategorySerializer, UserRegistrationSerializer, MealPlanSerializer, ShoppingListItemSerializer
 from datetime import date, timedelta
 import os
-from .utils import download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text
+from .utils import download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text, extract_keywords, build_recipes_summary, call_fogoncito
 from django_filters.rest_framework import DjangoFilterBackend
 import tempfile
 import requests
@@ -508,3 +508,35 @@ def current_user_view(request):
         'username': user.username,
         'email': user.email
     })
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+def fogoncito(request):
+    user_message = request.data.get('message', '').strip()
+    if not user_message:
+        return Response({'error': 'Mensaje vacío'}, status=400)
+
+    # 1. Extraer keywords del mensaje
+    keywords = extract_keywords(user_message)
+
+    # 2. Filtrar recetas del usuario
+    recipes_qs = Recipe.objects.filter(user=request.user)
+    if keywords:
+        recipes_qs = recipes_qs.filter(
+            ingredients__name__in=keywords
+        ).distinct()
+    recipes_qs = recipes_qs.prefetch_related('ingredients', 'categories')[:10]
+
+    # 3. Construir contexto compacto
+    recipes_summary = build_recipes_summary(recipes_qs)
+
+    # 4. Llamar a Gemini
+    try:
+        result = call_fogoncito(user_message, recipes_summary)
+    except Exception as e:
+        return Response(
+            {'error': 'Fogoncito no está disponible en este momento. Intentá de nuevo.'},
+            status=503
+        )
+
+    return Response(result)

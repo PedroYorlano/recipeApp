@@ -6,6 +6,15 @@ import time
 import google.api_core.exceptions as exceptions
 from decouple import config
 
+COMMON_INGREDIENTS = [
+    'huevo', 'arroz', 'pollo', 'pasta', 'tomate', 'cebolla', 'ajo',
+    'zanahoria', 'papa', 'carne', 'leche', 'queso', 'harina', 'aceite',
+    'manteca', 'sal', 'pimienta', 'limón', 'palta', 'zapallo', 'fideos',
+    'atún', 'sardina', 'lenteja', 'garbanzo', 'espinaca', 'brócoli',
+    'chocolate', 'dulce de leche', 'banana', 'frutilla', 'arandanos', 'frambuesas',
+    'naranja', 'manzana', 'pera', 'uva', 'sandia', 'melon', 'kiwi', 'mandarina', 'pomelo'
+]
+
 def download_audio_from_url(video_url):
     """
     Descarga el audio de un video de TikTok/Reels/YouTube
@@ -242,3 +251,43 @@ def extract_recipe_from_text(description_text: str, strict_mode: bool = False):
             time.sleep(3)
 
     return None
+
+def extract_keywords(text: str) -> list[str]:
+    """Extrae ingredientes mencionados en el mensaje del usuario."""
+    text_lower = text.lower()
+    return [ing for ing in COMMON_INGREDIENTS if ing in text_lower]
+
+def build_recipes_summary(recipes_qs) -> list[dict]:
+    """Convierte un queryset de recetas en resumen compacto para Gemini."""
+    return [
+        {
+            "uuid": str(r.uuid),
+            "title": r.title,
+            "categories": [c.name for c in r.categories.all()],
+            "ingredients": [i.name for i in r.ingredients.all()],
+            "prep_time": r.prep_time,
+        }
+        for r in recipes_qs
+    ]
+
+def call_fogoncito(user_message: str, recipes_summary: list[dict]) -> dict:
+    """Llama a Gemini y devuelve la respuesta estructurada."""
+    prompt = f"""
+    Sos Fogoncito, el asistente de cocina de Fogón. Sos cálido, breve e informal.
+
+    El usuario dice: "{user_message}"
+
+    Recetas disponibles:
+    {json.dumps(recipes_summary, ensure_ascii=False)}
+
+    Recomendá las 2-3 que mejor encajen. Por cada una: nombre y por qué encaja en una línea.
+    Si ninguna encaja, decíselo honestamente y sugerí que agregue más recetas.
+    Devolvé SOLO un JSON con esta estructura:
+    {{"message": "texto conversacional breve", "suggestions": [{{"uuid": "...", "title": "..."}}]}}
+    """
+    model = genai.GenerativeModel("gemini-flash-latest")
+    result = model.generate_content(
+        prompt,
+        generation_config={"response_mime_type": "application/json"}
+    )
+    return json.loads(result.text)
