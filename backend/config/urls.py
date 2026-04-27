@@ -29,7 +29,7 @@ router = DefaultRouter()
 router.register(r'recetas', RecipeViewSet, basename='receta')
 router.register(r'categorias', CategoryViewSet, basename='categoria')
 router.register(r'planner', MealPlanViewSet, basename='mealplan')
-router.register(r'planner/shopping', ShoppingListItemViewSet, basename='shoppinglistitem')
+router.register(r'shopping', ShoppingListItemViewSet, basename='shoppinglistitem')
 
 urlpatterns = [
     path('admin/', admin.site.urls),

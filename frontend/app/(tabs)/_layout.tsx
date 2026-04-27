@@ -2,7 +2,7 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { TouchableOpacity, View } from 'react-native';
 import { useApp } from '../../src/context/AppContext';
-import { Home, Plus, Settings } from 'lucide-react-native';
+import { Home, Compass, Plus, CalendarDays, User } from 'lucide-react-native';
 import { COLORS } from '../../src/theme';
 
 export default function TabsLayout() {
@@ -15,34 +15,53 @@ export default function TabsLayout() {
       tabBarShowLabel: false,
       headerShown: false,
       tabBarStyle: {
-        backgroundColor: COLORS.background,
+        backgroundColor: COLORS.card,
         borderTopWidth: 1,
-        borderTopColor: 'rgba(168, 144, 112, 0.2)', // fogon-gray/20
+        borderTopColor: 'rgba(168, 144, 112, 0.12)',
         height: 80,
         paddingTop: 10,
-        shadowColor: "#000",
+        shadowColor: '#000',
         shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-        elevation: 10,
+        shadowOpacity: 0.03,
+        shadowRadius: 8,
+        elevation: 8,
       }
     }}>
       {/* 1. HOME */}
       <Tabs.Screen
         name="index"
         options={{
-          title: "Inicio",
-          tabBarIcon: ({ color }) => <Home size={26} color={color} strokeWidth={2.5} />,
+          title: 'Inicio',
+          tabBarIcon: ({ color }) => <Home size={24} color={color} strokeWidth={2} />,
         }}
       />
 
-      {/* 2. BOTÓN CREAR (El signo +) */}
+      {/* 2. EXPLORAR */}
+      <Tabs.Screen
+        name="explore"
+        options={{
+          title: 'Explorar',
+          tabBarIcon: ({ color }) => <Compass size={24} color={color} strokeWidth={2} />,
+        }}
+      />
+
+      {/* 3. BOTÓN CREAR (El signo +) */}
       <Tabs.Screen
         name="create"
         options={{
           tabBarIcon: () => (
-            <View className="bg-fogon-amber w-14 h-14 rounded-[20px] justify-center items-center -mt-6 border-[3px] border-fogon-cream shadow-sm">
-              <Plus size={30} color="#633806" strokeWidth={3} />
+            <View style={{
+              backgroundColor: COLORS.primary,
+              width: 52,
+              height: 52,
+              borderRadius: 18,
+              justifyContent: 'center',
+              alignItems: 'center',
+              marginTop: -20,
+              borderWidth: 3,
+              borderColor: COLORS.card,
+            }}>
+              <Plus size={28} color={COLORS.secondary} strokeWidth={3} />
             </View>
           ),
           tabBarButton: (props) => (
@@ -57,12 +76,21 @@ export default function TabsLayout() {
         }}
       />
 
-      {/* 3. SETTINGS */}
+      {/* 4. PLANIFICAR */}
+      <Tabs.Screen
+        name="planner"
+        options={{
+          title: 'Planificar',
+          tabBarIcon: ({ color }) => <CalendarDays size={24} color={color} strokeWidth={2} />,
+        }}
+      />
+
+      {/* 5. PERFIL */}
       <Tabs.Screen
         name="settings"
         options={{
-          title: "Ajustes",
-          tabBarIcon: ({ color }) => <Settings size={26} color={color} strokeWidth={2.5} />,
+          title: 'Perfil',
+          tabBarIcon: ({ color }) => <User size={24} color={color} strokeWidth={2} />,
         }}
       />
     </Tabs>

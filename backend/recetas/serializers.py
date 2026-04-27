@@ -195,11 +195,17 @@ class MealPlanRecipeSerializer(serializers.ModelSerializer):
 
 class MealPlanSerializer(serializers.ModelSerializer):
     recipe_detail = MealPlanRecipeSerializer(source='recipe', read_only=True)
+    recipe = serializers.SlugRelatedField(
+        slug_field='uuid',
+        queryset=Recipe.objects.all(),
+        write_only=True,
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = MealPlan
         fields = ['id', 'date', 'meal_type', 'recipe', 'recipe_detail']
-        extra_kwargs = {'recipe': {'write_only': True}}
 
     def validate_recipe(self, value):
         if value and value.user != self.context['request'].user:
@@ -219,9 +225,10 @@ class MealPlanSerializer(serializers.ModelSerializer):
     def validate(self, data):
         user = self.context['request'].user
         date_val = data.get('date', getattr(self.instance, 'date', None))
-        if date_val:
+        meal_type_val = data.get('meal_type', getattr(self.instance, 'meal_type', None))
+        if date_val and meal_type_val:
             if MealPlan.objects.filter(
-                user=user, date=date_val
+                user=user, date=date_val, meal_type=meal_type_val
             ).exclude(pk=self.instance.pk if self.instance else None).exists():
                 raise serializers.ValidationError("Ya tenés una receta en ese slot.")
         return data
@@ -230,7 +237,3 @@ class ShoppingListItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShoppingListItem
         fields = ['id', 'week_start', 'ingredient_name', 'quantity', 'category', 'is_checked']
-        extra_kwargs = {
-            'week_start': {'read_only': True},
-            'category': {'read_only': True},
-        }

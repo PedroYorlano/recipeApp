@@ -9,16 +9,17 @@ from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.generics import RetrieveAPIView, CreateAPIView
 from rest_framework.throttling import UserRateThrottle
 from django.contrib.auth.models import User
+from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import Q
+from django.conf import settings
 from .models import Recipe, Category, Favorite, UserUsage, GlobalUsage, MealPlan, ShoppingListItem
 from .serializers import RecipeSerializer, CategorySerializer, UserRegistrationSerializer, MealPlanSerializer, ShoppingListItemSerializer
 from datetime import date, timedelta
 import os
 from .utils import download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text, extract_keywords, build_recipes_summary, call_fogoncito
-from django_filters.rest_framework import DjangoFilterBackend
 import tempfile
 import requests
 from bs4 import BeautifulSoup
-from django.conf import settings
 
 # Create your views here.
 
@@ -52,14 +53,16 @@ INGREDIENT_CATEGORIES = {
     'Despensa': [
         'arroz', 'fideos', 'harina', 'azúcar', 'sal', 'aceite',
         'vinagre', 'soja', 'mirin', 'salsa', 'caldo', 'lenteja',
-        'garbanzo', 'frijol', 'pasta', 'avena'
+        'garbanzo', 'frijol', 'pasta', 'avena', 'mostaza',
+        'mayonesa', 'ketchup', 'barbacoa', 'vino', 'cerveza',
+        'aceite de oliva', 'aceite de girasol'
     ],
     'Panadería': [
         'pan', 'tostada', 'galletita', 'bizcocho', 'factura'
     ],
     'Especias y condimentos': [
         'pimienta', 'comino', 'orégano', 'pimentón', 'curry', 'jengibre',
-        'cúrcuma', 'canela', 'mostaza', 'mayonesa', 'ketchup'
+        'cúrcuma', 'canela', 'ají molido'
     ],
 }
 
@@ -275,17 +278,25 @@ class MealPlanViewSet(viewsets.ModelViewSet):
                 # Si ya existe, sumamos cantidades si son del mismo unit
                 # Por ahora dejamos la primera cantidad — mejora futura
 
-        # Borramos la lista anterior de esa semana (excepto los ya tachados)
-        # y creamos los nuevos ítems de forma atómica
+        # Borramos solo los NO tachados de esa semana y creamos los nuevos
         from django.db import transaction
         with transaction.atomic():
+            # Obtenemos los ingredientes ya tachados para no duplicarlos
+            checked_names = set(
+                ShoppingListItem.objects.filter(
+                    user=request.user,
+                    week_start=start,
+                    is_checked=True
+                ).values_list('ingredient_name', flat=True)
+            )
+
             ShoppingListItem.objects.filter(
                 user=request.user,
                 week_start=start,
                 is_checked=False
             ).delete()
 
-            # Creamos los nuevos ítems
+            # Creamos solo ítems que no estén ya tachados
             items = [
                 ShoppingListItem(
                     user=request.user,
@@ -295,6 +306,7 @@ class MealPlanViewSet(viewsets.ModelViewSet):
                     category=v['category'],
                 )
                 for v in consolidated.values()
+                if v['name'].lower().strip() not in {n.lower().strip() for n in checked_names}
             ]
             ShoppingListItem.objects.bulk_create(items, ignore_conflicts=True)
 
@@ -312,7 +324,7 @@ class ShoppingListItemViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = ShoppingListItemSerializer
     pagination_class = None
-    http_method_names = ['get', 'patch', 'delete']  # no POST — se generan automáticamente
+    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
 
     def get_queryset(self):
         week_start = self.request.query_params.get('week_start')
@@ -320,6 +332,9 @@ class ShoppingListItemViewSet(viewsets.ModelViewSet):
         if week_start:
             qs = qs.filter(week_start=week_start)
         return qs.order_by('category', 'ingredient_name')
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -522,9 +537,10 @@ def fogoncito(request):
     # 2. Filtrar recetas del usuario
     recipes_qs = Recipe.objects.filter(user=request.user)
     if keywords:
-        recipes_qs = recipes_qs.filter(
-            ingredients__name__in=keywords
-        ).distinct()
+        q = Q()
+        for kw in keywords:
+            q |= Q(ingredients__name__icontains=kw)
+        recipes_qs = recipes_qs.filter(q).distinct()
     recipes_qs = recipes_qs.prefetch_related('ingredients', 'categories')[:10]
 
     # 3. Construir contexto compacto

@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE } from '../constants';
-import { Category, Recipe } from '../types';
+import { Category, Recipe, MealPlan, ShoppingListItem, FogoncitoResponse } from '../types';
 
 // --- Token Refresh con mutex ---
 // Evita múltiples refresh simultáneos cuando varias requests reciben 401 al mismo tiempo
@@ -306,6 +306,127 @@ export const toggleFavoriteService = async (recipeId: number) => {
     if (!response.ok) {
         const errorData = await response.json();
         throw new Error(JSON.stringify(errorData));
+    }
+    return await response.json();
+};
+
+// --- PLANNER SERVICES ---
+
+export const getWeekPlans = async (weekStart: string): Promise<MealPlan[]> => {
+    const response = await authenticatedFetch(
+        `${API_BASE}/planner/week/?week_start=${weekStart}`,
+        { headers: buildHeaders() }
+    );
+    if (!response.ok) throw new Error('Error al cargar el plan semanal');
+    return await response.json();
+};
+
+export const createMealPlan = async (data: {
+    date: string;
+    meal_type: string;
+    recipe: string;
+}): Promise<MealPlan> => {
+    const response = await authenticatedFetch(`${API_BASE}/planner/`, {
+        method: 'POST',
+        headers: buildHeaders(),
+        body: JSON.stringify(data),
+    });
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(JSON.stringify(errorData));
+    }
+    return await response.json();
+};
+
+export const deleteMealPlan = async (id: number): Promise<void> => {
+    const response = await authenticatedFetch(`${API_BASE}/planner/${id}/`, {
+        method: 'DELETE',
+        headers: buildHeaders(),
+    });
+    if (!response.ok) throw new Error('Error al eliminar del plan');
+};
+
+// --- SHOPPING LIST SERVICES ---
+
+export const generateShoppingList = async (weekStart: string): Promise<ShoppingListItem[]> => {
+    const response = await authenticatedFetch(`${API_BASE}/planner/generate_shopping_list/`, {
+        method: 'POST',
+        headers: buildHeaders(),
+        body: JSON.stringify({ week_start: weekStart }),
+    });
+    if (!response.ok) throw new Error('Error al generar la lista de compras');
+    return await response.json();
+};
+
+export const getShoppingList = async (weekStart: string): Promise<ShoppingListItem[]> => {
+    const response = await authenticatedFetch(
+        `${API_BASE}/shopping/?week_start=${weekStart}`,
+        { headers: buildHeaders() }
+    );
+    if (!response.ok) throw new Error('Error al cargar la lista de compras');
+    return await response.json();
+};
+
+export const toggleShoppingItem = async (
+    id: number,
+    isChecked: boolean
+): Promise<ShoppingListItem> => {
+    const response = await authenticatedFetch(`${API_BASE}/shopping/${id}/`, {
+        method: 'PATCH',
+        headers: buildHeaders(),
+        body: JSON.stringify({ is_checked: isChecked }),
+    });
+    if (!response.ok) throw new Error('Error al actualizar ítem');
+    return await response.json();
+};
+
+export const createShoppingItem = async (data: {
+    week_start: string;
+    ingredient_name: string;
+    quantity?: string;
+    category?: string;
+}): Promise<ShoppingListItem> => {
+    const response = await authenticatedFetch(`${API_BASE}/shopping/`, {
+        method: 'POST',
+        headers: buildHeaders(),
+        body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Error al agregar ítem');
+    return await response.json();
+};
+
+export const updateShoppingItem = async (
+    id: number,
+    data: Partial<ShoppingListItem>
+): Promise<ShoppingListItem> => {
+    const response = await authenticatedFetch(`${API_BASE}/shopping/${id}/`, {
+        method: 'PATCH',
+        headers: buildHeaders(),
+        body: JSON.stringify(data),
+    });
+    if (!response.ok) throw new Error('Error al editar ítem');
+    return await response.json();
+};
+
+export const deleteShoppingItem = async (id: number): Promise<void> => {
+    const response = await authenticatedFetch(`${API_BASE}/shopping/${id}/`, {
+        method: 'DELETE',
+        headers: buildHeaders(),
+    });
+    if (!response.ok) throw new Error('Error al eliminar ítem');
+};
+
+// --- FOGONCITO SERVICE ---
+
+export const sendFogoncitoMessage = async (message: string): Promise<FogoncitoResponse> => {
+    const response = await authenticatedFetch(`${API_BASE}/fogoncito/`, {
+        method: 'POST',
+        headers: buildHeaders(),
+        body: JSON.stringify({ message }),
+    });
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Fogoncito no está disponible en este momento');
     }
     return await response.json();
 };

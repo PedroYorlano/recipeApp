@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 import { View, ActivityIndicator } from 'react-native';
 import { Slot, useRouter, useSegments, useRootNavigationState } from 'expo-router';
 import { AppProvider, useApp } from '../src/context/AppContext';
+import { PlannerProvider } from '../src/context/PlannerContext';
 import { CreateMenuModal } from '../src/components/CreateMenuModal';
 import { RecipeFormModal } from '../src/components/recipes/RecipeFormModal';
 
@@ -85,7 +86,9 @@ const MainLayout = () => {
 export default function RootLayout() {
   return (
     <AppProvider>
-      <MainLayout />
+      <PlannerProvider>
+        <MainLayout />
+      </PlannerProvider>
     </AppProvider>
   );
 }

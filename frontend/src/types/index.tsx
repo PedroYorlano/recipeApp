@@ -44,3 +44,45 @@ export interface User {
   username: string;
   email: string;
 }
+
+export interface MealPlan {
+  id: number;
+  date: string; // ISO: 'YYYY-MM-DD'
+  meal_type: 'breakfast' | 'lunch' | 'dinner';
+  recipe: string; // uuid — write only
+  recipe_detail: {
+    uuid: string;
+    title: string;
+    image: string | null;
+    prep_time: number | null;
+    servings: number | null;
+  } | null;
+}
+
+export interface ShoppingListItem {
+  id: number;
+  week_start: string;
+  ingredient_name: string;
+  quantity: string;
+  category: string;
+  is_checked: boolean;
+}
+
+export interface FogoncitoSuggestion {
+  uuid: string;
+  title: string;
+}
+
+export interface FogoncitoResponse {
+  message: string;
+  suggestions: FogoncitoSuggestion[];
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'bot';
+  text: string;
+  suggestions?: FogoncitoSuggestion[];
+  isLoading?: boolean;
+  isError?: boolean;
+}

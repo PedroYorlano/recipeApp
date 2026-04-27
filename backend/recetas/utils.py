@@ -1,6 +1,7 @@
 import yt_dlp
 import os
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import json
 import time
 import google.api_core.exceptions as exceptions
@@ -66,7 +67,7 @@ def download_audio_from_url(video_url):
         return None, None, None
 
 GENAI_API_KEY = config('GENAI_API_KEY')
-genai.configure(api_key=GENAI_API_KEY)
+client = genai.Client(api_key=GENAI_API_KEY)
 
 def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
     """
@@ -76,10 +77,10 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
     print("1. Subiendo audio a la IA...")
 
     try:
-        myfile = genai.upload_file(audio_path)
-        while myfile.state.name == "PROCESSING":
+        myfile = client.files.upload(file=audio_path)
+        while myfile.state == "PROCESSING":
             time.sleep(1)
-            myfile = genai.get_file(myfile.name)
+            myfile = client.files.get(name=myfile.name)
     except Exception as e:
         print(f"Error subiendo audio: {e}. Pasando a modo Solo-Texto.")
         myfile = None
@@ -87,7 +88,7 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
     print("2. Analizando receta...")
 
     # Usamos el modelo Flash que es rápido y barato
-    model = genai.GenerativeModel("gemini-flash-latest")
+    model_name = "gemini-2.5-flash"
 
     prompt = f"""
     Actúa como un chef experto transcribiendo una receta.
@@ -145,10 +146,11 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
             contenido.append(prompt)
 
             # LLAMADA A LA IA
-            print(f"Intento {attempt + 1} con modelo {model.model_name}...")
-            result = model.generate_content(
-                contenido,
-                generation_config={"response_mime_type": "application/json"}
+            print(f"Intento {attempt + 1} con modelo {model_name}...")
+            result = client.models.generate_content(
+                model=model_name,
+                contents=contenido,
+                config=types.GenerateContentConfig(response_mime_type="application/json")
             )
             result_json = json.loads(result.text)
             
@@ -193,7 +195,7 @@ def extract_recipe_from_text(description_text: str, strict_mode: bool = False):
     en formato de Receta JSON. Autocompleta detalles faltantes si es necesario.
     """
     print("Analizando receta desde texto libre con Gemini...")
-    model = genai.GenerativeModel("gemini-flash-latest")
+    model_name = "gemini-2.5-flash"
 
     if strict_mode:
         behavior = 'ADVERTENCIA: Extrae ÚNICAMENTE la información presente en el texto. NO inventes recetas, ingredientes, cantidades ni pasos que no existan. Si el texto claramente no contiene una receta (por ejemplo, es un mensaje de error, acceso denegado, Incapsula, Cloudflare, etc.), devuelve exactamente esto en el JSON: {"title": "ERROR_NO_RECIPE"}'
@@ -234,10 +236,11 @@ def extract_recipe_from_text(description_text: str, strict_mode: bool = False):
 
     for attempt in range(3):
         try:
-            print(f"Intento {attempt + 1} de Texto con modelo {model.model_name}...")
-            result = model.generate_content(
-                prompt,
-                generation_config={"response_mime_type": "application/json"}
+            print(f"Intento {attempt + 1} de Texto con modelo {model_name}...")
+            result = client.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(response_mime_type="application/json")
             )
             result_json = json.loads(result.text)
             
@@ -285,9 +288,10 @@ def call_fogoncito(user_message: str, recipes_summary: list[dict]) -> dict:
     Devolvé SOLO un JSON con esta estructura:
     {{"message": "texto conversacional breve", "suggestions": [{{"uuid": "...", "title": "..."}}]}}
     """
-    model = genai.GenerativeModel("gemini-flash-latest")
-    result = model.generate_content(
-        prompt,
-        generation_config={"response_mime_type": "application/json"}
+    model_name = "gemini-2.5-flash"
+    result = client.models.generate_content(
+        model=model_name,
+        contents=prompt,
+        config=types.GenerateContentConfig(response_mime_type="application/json")
     )
     return json.loads(result.text)
