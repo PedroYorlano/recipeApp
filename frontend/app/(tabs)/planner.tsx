@@ -2,8 +2,13 @@ import React, { useState, useMemo } from 'react';
 import {
     View, Text, TouchableOpacity, ScrollView, ActivityIndicator,
     Alert, StyleSheet, StatusBar as RNStatusBar, TextInput,
+    LayoutAnimation, Platform, UIManager, Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+if (Platform.OS === 'android') {
+    UIManager.setLayoutAnimationEnabledExperimental?.(true);
+}
 import { Image } from 'expo-image';
 import { usePlanner, DraftSlot } from '../../src/context/PlannerContext';
 import { COLORS, SPACING, RADIUS } from '../../src/theme';
@@ -12,7 +17,7 @@ import {
     ChevronLeft, ChevronRight, Sun, Coffee, Moon,
     Plus, ShoppingCart, Trash2, Calendar, Save, Edit2, X,
 } from 'lucide-react-native';
-import { MealPlan, Recipe } from '../../src/types';
+import { MealPlan, Recipe, ShoppingListItem } from '../../src/types';
 import { RecipePickerModal } from '../../src/components/planner/RecipePickerModal';
 import { FogoncitoChat } from '../../src/components/planner/FogoncitoChat';
 
@@ -382,6 +387,17 @@ function ShoppingView() {
     const [newItemName, setNewItemName] = useState('');
     const [newItemQty, setNewItemQty] = useState('');
 
+    const [expandedId, setExpandedId] = useState<number | null>(null);
+    const [editValues, setEditValues] = useState<{
+        ingredient_name: string;
+        quantity: string;
+    }>({ ingredient_name: '', quantity: '' });
+    const [originalValues, setOriginalValues] = useState<{
+        ingredient_name: string;
+        quantity: string;
+    }>({ ingredient_name: '', quantity: '' });
+    const [deleteConfirming, setDeleteConfirming] = useState(false);
+
     React.useEffect(() => { fetchShoppingList(); }, [weekStart]);
 
     const grouped = useMemo(() => {
@@ -409,22 +425,59 @@ function ShoppingView() {
         } catch { Alert.alert('Error', 'No pudimos agregar el ítem.'); }
     };
 
-    const handleDelete = (id: number, name: string) => {
-        Alert.alert('Eliminar', `¿Sacamos "${name}" de la lista?`, [
-            { text: 'Cancelar', style: 'cancel' },
-            { text: 'Eliminar', style: 'destructive', onPress: () => removeShoppingItem(id).catch(() => { }) },
-        ]);
+    const collapseAndSave = async () => {
+        if (expandedId === null) return;
+
+        const currentExpandedId = expandedId;
+        const currentEditValues = { ...editValues };
+
+        const hasChanges =
+            currentEditValues.ingredient_name.trim() !== originalValues.ingredient_name ||
+            currentEditValues.quantity.trim() !== originalValues.quantity;
+
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setExpandedId(null);
+        setDeleteConfirming(false);
+        Keyboard.dismiss();
+
+        if (!hasChanges) return;
+
+        try {
+            await editShoppingItem(currentExpandedId, {
+                ingredient_name: currentEditValues.ingredient_name.trim(),
+                quantity: currentEditValues.quantity.trim()
+            });
+        } catch (error) {
+            // Silencioso por requerimiento (el contexto hace optimistic update si falla o la UI solo lo ignora)
+        }
     };
 
-    const handleEdit = (id: number, currentName: string) => {
-        Alert.prompt('Editar ítem', 'Nuevo nombre:', [
-            { text: 'Cancelar', style: 'cancel' },
-            { text: 'Guardar', onPress: (val: any) => { if (val?.trim()) editShoppingItem(id, { ingredient_name: val.trim() }).catch(() => { }); } },
-        ], 'plain-text', currentName);
+    const expandItem = (item: ShoppingListItem) => {
+        if (expandedId === item.id) return;
+
+        if (expandedId !== null) {
+            collapseAndSave();
+        }
+
+        const values = {
+            ingredient_name: item.ingredient_name,
+            quantity: item.quantity || '',
+        };
+        setEditValues(values);
+        setOriginalValues(values);
+        setDeleteConfirming(false);
+
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        setExpandedId(item.id);
     };
 
     return (
-        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
+        <ScrollView
+            style={{ flex: 1 }}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            onScrollBeginDrag={collapseAndSave}
+        >
             {/* Generate Button */}
             <View style={styles.shoppingHeader}>
                 <TouchableOpacity
@@ -497,35 +550,77 @@ function ShoppingView() {
                             <View style={styles.categoryPill}>
                                 <Text style={styles.categoryPillText}>{category}</Text>
                             </View>
-                            {items.map(item => (
-                                <TouchableOpacity
-                                    key={item.id}
-                                    style={styles.shoppingItem}
-                                    onPress={() => toggleItem(item.id, !item.is_checked)}
-                                    onLongPress={() => Alert.alert(
-                                        item.ingredient_name,
-                                        '¿Qué querés hacer?',
-                                        [
-                                            { text: 'Cancelar', style: 'cancel' },
-                                            { text: 'Editar', onPress: () => handleEdit(item.id, item.ingredient_name) },
-                                            { text: 'Eliminar', style: 'destructive', onPress: () => removeShoppingItem(item.id).catch(() => { }) },
-                                        ]
-                                    )}
-                                    activeOpacity={0.7}
-                                >
-                                    <View style={[styles.checkbox, item.is_checked && styles.checkboxChecked]}>
-                                        {item.is_checked && <Text style={styles.checkmark}>✓</Text>}
+                            {items.map(item => {
+                                const isExpanded = expandedId === item.id;
+                                return (
+                                    <View key={item.id}>
+                                        <TouchableOpacity
+                                            style={[styles.shoppingItem, isExpanded && styles.shoppingItemExpandedTop]}
+                                            onPress={() => expandItem(item)}
+                                            activeOpacity={0.7}
+                                        >
+                                            <TouchableOpacity
+                                                style={[styles.checkbox, item.is_checked && styles.checkboxChecked]}
+                                                onPress={() => toggleItem(item.id, !item.is_checked)}
+                                                activeOpacity={0.8}
+                                            >
+                                                {item.is_checked && <Text style={styles.checkmark}>✓</Text>}
+                                            </TouchableOpacity>
+                                            <Text style={[styles.itemName, item.is_checked && styles.itemNameChecked]}>
+                                                {item.ingredient_name}
+                                            </Text>
+                                            {item.quantity ? (
+                                                <Text style={[styles.itemQty, item.is_checked && styles.itemQtyChecked]}>
+                                                    {item.quantity}
+                                                </Text>
+                                            ) : null}
+                                        </TouchableOpacity>
+
+                                        {isExpanded && (
+                                            <View style={styles.expandedPanel}>
+                                                <View style={styles.expandedInputsRow}>
+                                                    <TextInput
+                                                        style={[styles.expandedInput, { flex: 2 }]}
+                                                        value={editValues.ingredient_name}
+                                                        onChangeText={text => setEditValues(v => ({ ...v, ingredient_name: text }))}
+                                                        placeholder="Nombre"
+                                                        placeholderTextColor={COLORS.text.secondary}
+                                                    />
+                                                    <TextInput
+                                                        style={[styles.expandedInput, { flex: 1, marginLeft: 8 }]}
+                                                        value={editValues.quantity}
+                                                        onChangeText={text => setEditValues(v => ({ ...v, quantity: text }))}
+                                                        placeholder="Cant."
+                                                        placeholderTextColor={COLORS.text.secondary}
+                                                    />
+                                                </View>
+                                                <View style={styles.expandedActionsRow}>
+                                                    <TouchableOpacity
+                                                        style={[styles.deleteBtn, deleteConfirming && styles.deleteBtnConfirm]}
+                                                        onPress={() => {
+                                                            if (deleteConfirming) {
+                                                                const idToDelete = item.id;
+                                                                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                                                                setExpandedId(null);
+                                                                setDeleteConfirming(false);
+                                                                removeShoppingItem(idToDelete).catch(() => { });
+                                                            } else {
+                                                                setDeleteConfirming(true);
+                                                                setTimeout(() => setDeleteConfirming(false), 2000);
+                                                            }
+                                                        }}
+                                                    >
+                                                        <Trash2 size={16} color={deleteConfirming ? '#FFF' : '#C0392B'} />
+                                                        <Text style={[styles.deleteBtnText, deleteConfirming && styles.deleteBtnTextConfirm, { marginLeft: 6 }]}>
+                                                            {deleteConfirming ? '¿Confirmar?' : 'Eliminar'}
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                </View>
+                                            </View>
+                                        )}
                                     </View>
-                                    <Text style={[styles.itemName, item.is_checked && styles.itemNameChecked]}>
-                                        {item.ingredient_name}
-                                    </Text>
-                                    {item.quantity ? (
-                                        <Text style={[styles.itemQty, item.is_checked && styles.itemQtyChecked]}>
-                                            {item.quantity}
-                                        </Text>
-                                    ) : null}
-                                </TouchableOpacity>
-                            ))}
+                                );
+                            })}
                         </View>
                     ))}
                 </View>
@@ -960,5 +1055,68 @@ const styles = StyleSheet.create({
         backgroundColor: COLORS.primary,
         alignItems: 'center',
         justifyContent: 'center',
+    },
+
+    // Expanded Panel
+    expandedPanel: {
+        backgroundColor: '#FFF8F0',
+        padding: SPACING.m,
+        borderBottomLeftRadius: RADIUS.m,
+        borderBottomRightRadius: RADIUS.m,
+        borderTopWidth: 1,
+        borderTopColor: '#F0E4D0',
+        marginBottom: SPACING.s,
+        marginTop: -1,
+        borderLeftWidth: 1,
+        borderRightWidth: 1,
+        borderBottomWidth: 1,
+        borderColor: '#E8D5B8',
+    },
+    shoppingItemExpandedTop: {
+        backgroundColor: '#FFF8F0',
+        borderTopLeftRadius: RADIUS.m,
+        borderTopRightRadius: RADIUS.m,
+        borderTopWidth: 1,
+        borderLeftWidth: 1,
+        borderRightWidth: 1,
+        borderColor: '#E8D5B8',
+        borderBottomWidth: 0,
+        paddingHorizontal: SPACING.s,
+    },
+    expandedInputsRow: {
+        flexDirection: 'row',
+        marginBottom: SPACING.s,
+    },
+    expandedInput: {
+        backgroundColor: '#FFF',
+        borderWidth: 1,
+        borderColor: '#E8D5B8',
+        borderRadius: 8,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        color: '#633806',
+        fontSize: 14,
+    },
+    expandedActionsRow: {
+        flexDirection: 'row',
+        justifyContent: 'flex-end',
+    },
+    deleteBtn: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        paddingVertical: 6,
+        paddingHorizontal: 10,
+        borderRadius: 4,
+    },
+    deleteBtnConfirm: {
+        backgroundColor: '#C0392B',
+    },
+    deleteBtnText: {
+        color: '#C0392B',
+        fontSize: 13,
+        fontWeight: '600',
+    },
+    deleteBtnTextConfirm: {
+        color: '#FFF',
     },
 });

@@ -118,8 +118,8 @@ def check_usage_limits(user):
     2. Límite global de requests a Gemini/día
     Retorna (can_proceed: bool, error_message: str | None)
     """
-    max_per_user = getattr(settings, 'FOGON_MAX_IMPORTS_PER_USER_PER_DAY', 10)
-    max_global = getattr(settings, 'FOGON_MAX_GEMINI_REQUESTS_PER_DAY', 20)
+    max_per_user = getattr(settings, 'FOGON_MAX_IMPORTS_PER_USER_PER_DAY')
+    max_global = getattr(settings, 'FOGON_MAX_GEMINI_REQUESTS_PER_DAY')
 
     # 1. Límite por usuario
     usage, _ = UserUsage.objects.get_or_create(user=user)
@@ -278,10 +278,10 @@ class MealPlanViewSet(viewsets.ModelViewSet):
                 # Si ya existe, sumamos cantidades si son del mismo unit
                 # Por ahora dejamos la primera cantidad — mejora futura
 
-        # Borramos solo los NO tachados de esa semana y creamos los nuevos
+        # Borramos todos los ítems de esa semana (para regenerar y eliminar los ya tachados)
         from django.db import transaction
         with transaction.atomic():
-            # Obtenemos los ingredientes ya tachados para no duplicarlos
+            # Obtenemos los ingredientes ya tachados para no volver a crearlos
             checked_names = set(
                 ShoppingListItem.objects.filter(
                     user=request.user,
@@ -290,13 +290,13 @@ class MealPlanViewSet(viewsets.ModelViewSet):
                 ).values_list('ingredient_name', flat=True)
             )
 
+            # Borramos TODOS los ítems actuales de la semana
             ShoppingListItem.objects.filter(
                 user=request.user,
-                week_start=start,
-                is_checked=False
+                week_start=start
             ).delete()
 
-            # Creamos solo ítems que no estén ya tachados
+            # Creamos solo ítems que no estén en la lista de tachados
             items = [
                 ShoppingListItem(
                     user=request.user,
