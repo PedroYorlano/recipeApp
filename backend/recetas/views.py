@@ -20,6 +20,8 @@ from .utils import download_audio_from_url, extract_recipe_from_audio, extract_r
 import tempfile
 import requests
 from bs4 import BeautifulSoup
+import re
+from decimal import Decimal, InvalidOperation
 
 # Create your views here.
 
@@ -268,15 +270,38 @@ class MealPlanViewSet(viewsets.ModelViewSet):
                 continue
             for ingredient in plan.recipe.ingredients.all():
                 key = ingredient.name.lower().strip()
+                
+                qty = ingredient.quantity
+                unit_str = ingredient.unit or ""
+                
+                # Si quantity es None pero hay un número en el unit (ej: "500g"), intentamos extraerlo
+                if qty is None and unit_str.strip():
+                    match = re.match(r'^([\d.,]+)\s*(.*)$', unit_str.strip())
+                    if match:
+                        try:
+                            qty = Decimal(match.group(1).replace(',', '.'))
+                            unit_str = match.group(2)
+                        except InvalidOperation:
+                            pass
+
                 if key not in consolidated:
                     consolidated[key] = {
                         'name': ingredient.name,
-                        'quantity': ingredient.quantity,
-                        'unit': ingredient.unit,
+                        'quantity': qty,
+                        'unit': unit_str,
                         'category': self.categorize_ingredient(ingredient.name)
                     }
-                # Si ya existe, sumamos cantidades si son del mismo unit
-                # Por ahora dejamos la primera cantidad — mejora futura
+                else:
+                    # Si ya existe, sumamos cantidades si son del mismo unit
+                    current_unit = unit_str.lower().strip()
+                    existing_unit = (consolidated[key]['unit'] or "").lower().strip()
+                    
+                    if current_unit == existing_unit:
+                        if qty is not None:
+                            if consolidated[key]['quantity'] is not None:
+                                consolidated[key]['quantity'] += qty
+                            else:
+                                consolidated[key]['quantity'] = qty
 
         # Borramos todos los ítems de esa semana (para regenerar y eliminar los ya tachados)
         from django.db import transaction
