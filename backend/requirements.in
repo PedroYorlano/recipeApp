@@ -4,6 +4,7 @@ djangorestframework-simplejwt
 django-cors-headers
 django-filter
 google-genai
+google-api-core
 pillow
 python-decouple
 yt-dlp>=2026.3.17

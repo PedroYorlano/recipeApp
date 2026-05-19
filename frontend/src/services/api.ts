@@ -132,7 +132,7 @@ export const getCurrentUserService = async () => {
 
 // Obtener Categorías
 export const getCategoriesService = async () => {
-    const response = await fetch(`${API_BASE}/categorias/`);
+    const response = await authenticatedFetch(`${API_BASE}/categorias/`);
     if (!response.ok) throw new Error('Error al cargar categorías');
     return await response.json();
 };

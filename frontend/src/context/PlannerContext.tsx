@@ -1,6 +1,7 @@
 import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
 import { MealPlan, ShoppingListItem, Recipe } from '../types';
 import { useApp } from './AppContext';
+import { getRecipeImage } from '../utils';
 import {
     getWeekPlans,
     createMealPlan,
@@ -163,6 +164,7 @@ export const PlannerProvider = ({ children }: { children: React.ReactNode }) => 
         if (existingServer) {
             setRemovedIds(prev => new Set(prev).add(existingServer.id));
         }
+        const imageSource = getRecipeImage(recipe);
         setDraftSlots(prev => ({
             ...prev,
             [key]: {
@@ -170,7 +172,7 @@ export const PlannerProvider = ({ children }: { children: React.ReactNode }) => 
                 meal_type: mealType,
                 recipeUuid: recipe.uuid,
                 recipeTitle: recipe.title,
-                recipeImage: recipe.image || null,
+                recipeImage: imageSource?.uri || null,
                 recipePrepTime: recipe.prep_time || null,
             },
         }));

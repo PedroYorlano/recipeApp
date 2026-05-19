@@ -31,6 +31,11 @@ class ImportRateThrottle(UserRateThrottle):
     scope = 'import'
 
 
+class FogoncitoRateThrottle(UserRateThrottle):
+    """Limita el chat de Fogoncito a 10 por minuto por usuario."""
+    scope = 'fogoncito'
+
+
 # --- Whitelist de hosts para video ---
 ALLOWED_VIDEO_HOSTS = [
     'youtube.com', 'www.youtube.com', 'youtu.be', 'm.youtube.com',
@@ -187,7 +192,7 @@ class RecipeViewSet(viewsets.ModelViewSet):
 
 
 class SharedRecipeView(RetrieveAPIView):
-    queryset = Recipe.objects.all()
+    queryset = Recipe.objects.filter(is_public=True)
     serializer_class = RecipeSerializer
     permission_classes = [AllowAny]
     lookup_field = 'uuid'
@@ -195,8 +200,9 @@ class SharedRecipeView(RetrieveAPIView):
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     pagination_class = None
+    http_method_names = ['get', 'post', 'head', 'options']
 
 
 class RegisterView(CreateAPIView):
@@ -414,6 +420,10 @@ def import_recipe_from_file_view(request):
     if not uploaded_file:
         return Response({'error': 'No se proporcionó ningún archivo'}, status=status.HTTP_400_BAD_REQUEST)
 
+    # Validar tamaño del archivo (20MB máximo para audio/video)
+    if uploaded_file.size > 20 * 1024 * 1024:
+        return Response({'error': 'El archivo es demasiado grande (máximo 20MB).'}, status=status.HTTP_400_BAD_REQUEST)
+
     # Verificar límites de uso
     can_proceed, limit_msg = check_usage_limits(request.user)
     if not can_proceed:
@@ -452,6 +462,10 @@ def import_recipe_from_text_view(request):
     
     if not text_data or len(text_data.strip()) == 0:
         return Response({'error': 'No se proporcionó texto de receta'}, status=status.HTTP_400_BAD_REQUEST)
+
+    # Limitar longitud del texto (50k caracteres máximo)
+    if len(text_data) > 50000:
+        return Response({'error': 'El texto es demasiado largo (máximo 50.000 caracteres).'}, status=status.HTTP_400_BAD_REQUEST)
 
     # Verificar límites de uso
     can_proceed, limit_msg = check_usage_limits(request.user)
@@ -551,10 +565,20 @@ def current_user_view(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
+@throttle_classes([FogoncitoRateThrottle])
 def fogoncito(request):
     user_message = request.data.get('message', '').strip()
     if not user_message:
         return Response({'error': 'Mensaje vacío'}, status=400)
+
+    # Limitar longitud del mensaje
+    if len(user_message) > 2000:
+        return Response({'error': 'Mensaje demasiado largo (máximo 2000 caracteres).'}, status=400)
+
+    # Verificar límites de uso de Gemini
+    can_proceed, limit_msg = check_usage_limits(request.user)
+    if not can_proceed:
+        return Response({'error': limit_msg}, status=429)
 
     # 1. Extraer keywords del mensaje
     keywords = extract_keywords(user_message)
@@ -574,6 +598,8 @@ def fogoncito(request):
     # 4. Llamar a Gemini
     try:
         result = call_fogoncito(user_message, recipes_summary)
+        # Registrar uso exitoso
+        record_usage(request.user)
     except Exception as e:
         return Response(
             {'error': 'Fogoncito no está disponible en este momento. Intentá de nuevo.'},

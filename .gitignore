@@ -35,6 +35,7 @@ Thumbs.db
 backend/.env
 backend/venv/
 backend/media/
+backend/staticfiles/
 
 # Ignorar archivos compilados de Python globalmente
 __pycache__/
@@ -47,3 +48,5 @@ db.sqlite3
 
 # --- Frontend (Expo) ---
 .expo/
+
+artifacts/

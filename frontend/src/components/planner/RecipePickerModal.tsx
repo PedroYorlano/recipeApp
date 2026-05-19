@@ -6,7 +6,7 @@ import {
 import { Image } from 'expo-image';
 import { useApp } from '../../context/AppContext';
 import { COLORS, SPACING, RADIUS } from '../../theme';
-import { SERVER_URL } from '../../constants';
+import { getRecipeImage } from '../../utils';
 import { Recipe } from '../../types';
 import { Search, X, UtensilsCrossed } from 'lucide-react-native';
 
@@ -40,11 +40,6 @@ export function RecipePickerModal({ visible, onClose, onSelect }: Props) {
         onClose();
     };
 
-    const getImage = (recipe: Recipe): string | null => {
-        if (!recipe.image) return null;
-        if (recipe.image.startsWith('http')) return recipe.image;
-        return `${SERVER_URL}${recipe.image}`;
-    };
 
     return (
         <Modal
@@ -95,15 +90,15 @@ export function RecipePickerModal({ visible, onClose, onSelect }: Props) {
                         columnWrapperStyle={styles.columnWrapper}
                         showsVerticalScrollIndicator={false}
                         renderItem={({ item }) => {
-                            const imageUri = getImage(item);
+                            const imageSource = getRecipeImage(item);
                             return (
                                 <Pressable
                                     style={styles.recipeCard}
                                     onPress={() => handleSelect(item)}
                                 >
-                                    {imageUri ? (
+                                    {imageSource ? (
                                         <Image
-                                            source={{ uri: imageUri }}
+                                            source={{ uri: imageSource.uri }}
                                             style={styles.recipeImage}
                                             contentFit="cover"
                                         />

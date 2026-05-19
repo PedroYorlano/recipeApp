@@ -2,6 +2,8 @@ from django.db import models
 from django.contrib.auth.models import User
 from datetime import date
 import uuid
+from django.db.models.signals import pre_save, post_delete
+from django.dispatch import receiver
 
 # Create your models here.
 
@@ -88,8 +90,9 @@ class UserUsage(models.Model):
 
     def record_import(self):
         self.reset_if_new_day()
-        self.import_count += 1
-        self.save()
+        from django.db.models import F
+        UserUsage.objects.filter(pk=self.pk).update(import_count=F('import_count') + 1)
+        self.refresh_from_db()
 
     def __str__(self):
         return f"{self.user.username}: {self.import_count} imports ({self.last_reset})"
@@ -109,8 +112,9 @@ class GlobalUsage(models.Model):
         return self.gemini_requests < max_daily
 
     def record_request(self):
-        self.gemini_requests += 1
-        self.save()
+        from django.db.models import F
+        GlobalUsage.objects.filter(pk=self.pk).update(gemini_requests=F('gemini_requests') + 1)
+        self.refresh_from_db()
 
     def __str__(self):
         return f"Gemini {self.date}: {self.gemini_requests} requests"
@@ -149,3 +153,21 @@ class ShoppingListItem(models.Model):
     def __str__(self):
         qty = self.quantity if self.quantity is not None else ''
         return f"{qty} {self.category} {self.ingredient_name}".strip()
+
+@receiver(pre_save, sender=Recipe)
+def delete_old_image(sender, instance, **kwargs):
+    if not instance.pk:
+        return
+    try:
+        old_image = Recipe.objects.get(pk=instance.pk).image
+    except Recipe.DoesNotExist:
+        return
+    if old_image and old_image != instance.image:
+        old_image.delete(save=False)
+
+
+@receiver(post_delete, sender=Recipe)
+def delete_image_on_recipe_delete(sender, instance, **kwargs):
+    """Limpia la imagen de R2/disco cuando se elimina una receta."""
+    if instance.image:
+        instance.image.delete(save=False)

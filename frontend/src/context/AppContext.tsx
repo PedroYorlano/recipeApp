@@ -1,6 +1,6 @@
 import React, { createContext, useState, useEffect, useContext, useRef, useCallback } from 'react';
 import { Alert } from 'react-native';
-import * as SecureStore from 'expo-secure-store';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Category, Recipe, User } from '../types';
 import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, importRecipeServiceAudio, importRecipeServiceText, importRecipeServiceWeb, loginService, registerService, logoutService, getCategoriesService, createCategoryService, toggleFavoriteService, getCurrentUserService } from '../services/api';
 
@@ -115,16 +115,19 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
 
     const checkAuth = async () => {
         try {
-            const token = await SecureStore.getItemAsync('authToken');
+            const token = await AsyncStorage.getItem('authToken');
             if (!token) {
                 setIsAuthenticated(false);
                 return;
             }
-            const response = await fetch('/api/me/', {
-                headers: { Authorization: `Bearer ${token}` }
-            });
-            setIsAuthenticated(response.ok);
+            // Validar el token haciendo una request real al backend
+            const userData = await getCurrentUserService();
+            setUser(userData);
+            setIsAuthenticated(true);
         } catch (e) {
+            // Token inválido o expirado — limpiar
+            await AsyncStorage.removeItem('authToken');
+            await AsyncStorage.removeItem('refreshToken');
             setIsAuthenticated(false);
         } finally {
             setIsAuthLoading(false);
@@ -191,7 +194,6 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const login = async (u: string, p: string) => {
         const data = await loginService(u, p);
         if (data && data.access) {
-            await SecureStore.setItemAsync('authToken', data.access);
             setIsAuthenticated(true);
         } else {
             throw new Error("Login fallido: No se recibió token");
@@ -201,8 +203,6 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const register = async (u: string, e: string, p: string) => {
         const data = await registerService(u, e, p);
         if (data && data.access) {
-            // registerService already called loginService which sets AsyncStorage, but we set it again to be safe
-            await SecureStore.setItemAsync('authToken', data.access);
             setIsAuthenticated(true);
         } else {
             throw new Error("Registro fallido: No se pudo iniciar sesión automáticamente");
@@ -215,7 +215,6 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         } catch (e) {
             console.log("Error en logout service", e);
         }
-        await SecureStore.deleteItemAsync('authToken');
         setIsAuthenticated(false);
         setUser(null);
         setRecipes([]);

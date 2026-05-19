@@ -29,16 +29,16 @@ export const scaleQuantity = (
 };
 
 export const getRecipeImage = (item: Recipe) => {
-    // CASO 1: Imagen guardada en Django (Backend)
+    // CASO 1: Imagen guardada en el backend
     if (item.image) {
-        // Si ya viene con http (ej: Cloudinary en el futuro), la usamos directa
+        // Con R2 Cloudflare, la URL ya viene completa (https://pub-xxx.r2.dev/...)
         if (item.image.startsWith('http')) return { uri: item.image };
         
-        // Si es una ruta relativa (/media/...), le pegamos la IP del servidor
+        // Fallback: ruta relativa en dev local (/media/...)
         return { uri: `${SERVER_URL}${item.image}` };
     }
     
-    // CASO 2: Borrador local (foto subida del celular)
+    // CASO 2: Borrador local (foto subida del celular, aún no guardada)
     if (item.localImage) return { uri: item.localImage };
     
     // CASO 3: Fallback

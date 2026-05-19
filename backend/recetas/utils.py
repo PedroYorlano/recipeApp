@@ -154,8 +154,14 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
             )
             result_json = json.loads(result.text)
             
+            if isinstance(result_json, list):
+                if len(result_json) > 0:
+                    result_json = result_json[0]
+                else:
+                    result_json = {}
+            
             # Inyectar url de thumbnail si viene
-            if thumbnail_url:
+            if thumbnail_url and isinstance(result_json, dict):
                 result_json['image_url'] = thumbnail_url
 
             return result_json
@@ -243,6 +249,12 @@ def extract_recipe_from_text(description_text: str, strict_mode: bool = False):
                 config=types.GenerateContentConfig(response_mime_type="application/json")
             )
             result_json = json.loads(result.text)
+            
+            if isinstance(result_json, list):
+                if len(result_json) > 0:
+                    result_json = result_json[0]
+                else:
+                    result_json = {}
             
             if result_json.get('title') == 'ERROR_NO_RECIPE':
                 print("Gemini determinó que el texto no contenía una receta válida.")

@@ -16,3 +16,5 @@ README.md
 *.wav
 media/
 staticfiles/
+venv/
+*.sqlite3

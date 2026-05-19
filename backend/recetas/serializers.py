@@ -8,7 +8,7 @@ import requests
 from django.contrib.auth.models import User
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=True, style={'input_type': 'password'})
+    password = serializers.CharField(write_only=True, required=True, min_length=8, style={'input_type': 'password'})
 
     class Meta:
         model = User
@@ -16,6 +16,13 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'email': {'required': True}
         }
+
+    def validate_username(self, value):
+        if len(value) < 3:
+            raise serializers.ValidationError("El nombre de usuario debe tener al menos 3 caracteres.")
+        if len(value) > 30:
+            raise serializers.ValidationError("El nombre de usuario no puede tener más de 30 caracteres.")
+        return value
 
     def create(self, validated_data):
         user = User.objects.create_user(
@@ -28,15 +35,42 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 def decode_base64_file(data):
     if not data:
         return None
+    # Limitar tamaño de base64 (~5MB de imagen = ~6.7MB en base64)
+    if len(data) > 7 * 1024 * 1024:
+        raise serializers.ValidationError("La imagen es demasiado grande (máximo 5MB).")
     format, imgstr = data.split(';base64,')
     ext = format.split('/')[-1]
+    # Solo permitir formatos de imagen
+    allowed_formats = ['jpeg', 'jpg', 'png', 'webp', 'gif']
+    if ext.lower() not in allowed_formats:
+        raise serializers.ValidationError(f"Formato de imagen no permitido: {ext}")
     return ContentFile(base64.b64decode(imgstr), name=f"{uuid.uuid4()}.{ext}")
 
 def download_image_from_url(url):
     try:
-        response = requests.get(url)
+        import socket
+        import ipaddress
+        from urllib.parse import urlparse
+        # SSRF protection: solo permitir URLs HTTPS con IPs públicas
+        parsed = urlparse(url)
+        if parsed.scheme not in ('http', 'https'):
+            return None
+        hostname = parsed.hostname
+        if not hostname:
+            return None
+        resolved_ip = socket.gethostbyname(hostname)
+        ip_obj = ipaddress.ip_address(resolved_ip)
+        if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
+            return None
+
+        response = requests.get(url, timeout=10, stream=True)
         if response.status_code == 200:
-            return ContentFile(response.content, name=f"{uuid.uuid4()}.jpg")
+            # Limitar descarga a 5MB
+            content_length = response.headers.get('Content-Length')
+            if content_length and int(content_length) > 5 * 1024 * 1024:
+                return None
+            content = response.content[:5 * 1024 * 1024]
+            return ContentFile(content, name=f"{uuid.uuid4()}.jpg")
     except Exception:
         return None
         
@@ -87,6 +121,21 @@ class RecipeSerializer(serializers.ModelSerializer):
         extra_kwargs = {
             'image': {'read_only': True}
         }
+
+    def validate_ingredients(self, value):
+        if len(value) > 50:
+            raise serializers.ValidationError("Máximo 50 ingredientes por receta.")
+        return value
+
+    def validate_steps(self, value):
+        if len(value) > 100:
+            raise serializers.ValidationError("Máximo 100 pasos por receta.")
+        return value
+
+    def validate_title(self, value):
+        if len(value.strip()) < 2:
+            raise serializers.ValidationError("El título debe tener al menos 2 caracteres.")
+        return value.strip()
 
     def get_is_favorite(self, obj):
         request = self.context.get('request')
