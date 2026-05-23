@@ -88,7 +88,7 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
     print("2. Analizando receta...")
 
     # Usamos el modelo Flash que es rápido y barato
-    model_name = "gemini-2.5-flash"
+    model_name = "gemini-3.1-flash-lite"
 
     prompt = f"""
     Actúa como un chef experto transcribiendo una receta.
