@@ -7,12 +7,18 @@ from rest_framework.decorators import api_view, permission_classes, throttle_cla
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.generics import RetrieveAPIView, CreateAPIView
+from rest_framework.views import APIView
 from rest_framework.throttling import UserRateThrottle
 from django.contrib.auth.models import User
+from django.contrib.auth.hashers import make_password
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q
 from django.conf import settings
-from .models import Recipe, Category, Favorite, UserUsage, GlobalUsage, MealPlan, ShoppingListItem
+from django.core.mail import send_mail
+from django.utils import timezone
+from rest_framework_simplejwt.tokens import RefreshToken
+import random
+from .models import Recipe, Category, Favorite, UserUsage, GlobalUsage, MealPlan, ShoppingListItem, PendingRegistration, PasswordResetOTP
 from .serializers import RecipeSerializer, CategorySerializer, UserRegistrationSerializer, MealPlanSerializer, ShoppingListItemSerializer
 from datetime import date, timedelta
 import os
@@ -205,10 +211,217 @@ class CategoryViewSet(viewsets.ModelViewSet):
     http_method_names = ['get', 'post', 'head', 'options']
 
 
-class RegisterView(CreateAPIView):
-    queryset = User.objects.all()
+class RegisterView(APIView):
     permission_classes = [AllowAny]
-    serializer_class = UserRegistrationSerializer
+
+    def post(self, request):
+        username = request.data.get('username', '').strip()
+        email = request.data.get('email', '').strip()
+        password = request.data.get('password', '')
+
+        if not username or not email or not password:
+            return Response({'error': 'Todos los campos son obligatorios.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(username) < 3:
+            return Response({'error': 'El nombre de usuario debe tener al menos 3 caracteres.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Validaciones de duplicados en usuarios activos
+        if User.objects.filter(username__iexact=username).exists():
+            return Response({'error': 'Este nombre de usuario ya está registrado.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if User.objects.filter(email__iexact=email).exists():
+            return Response({'error': 'Este correo electrónico ya está registrado.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Generar OTP de 6 dígitos
+        otp_code = "".join(random.choices("0123456789", k=6))
+        hashed_password = make_password(password)
+
+        # Guardar en base de datos temporal
+        PendingRegistration.objects.update_or_create(
+            email=email,
+            defaults={
+                'username': username,
+                'password': hashed_password,
+                'otp_code': otp_code,
+                'expires_at': timezone.now() + timedelta(minutes=10)
+            }
+        )
+
+        # Enviar email
+        try:
+            send_mail(
+                subject='Código de Verificación - Fogón',
+                message=f'Tu código de verificación para registrarte en Fogón es: {otp_code}\n\nEste código vencerá en 10 minutos.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            # En desarrollo fallar silenciosamente o registrar
+            print(f"Error enviando email: {e}")
+
+        return Response({
+            'message': 'OTP enviado a tu correo.',
+            'email': email
+        }, status=status.HTTP_200_OK)
+
+
+class RegisterVerifyView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email', '').strip()
+        otp_code = request.data.get('otp_code', '').strip()
+
+        if not email or not otp_code:
+            return Response({'error': 'Email y código OTP son requeridos.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            pending = PendingRegistration.objects.get(email__iexact=email)
+        except PendingRegistration.DoesNotExist:
+            return Response({'error': 'No se encontró una solicitud de registro pendiente para este correo.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if pending.is_expired():
+            return Response({'error': 'El código OTP ha expirado. Por favor, solicita uno nuevo.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if pending.otp_code != otp_code:
+            return Response({'error': 'El código OTP es incorrecto.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Crear el usuario en la BD de Django
+        user = User(
+            username=pending.username,
+            email=pending.email,
+            password=pending.password
+        )
+        user.save()
+
+        # Eliminar el registro pendiente
+        pending.delete()
+
+        # Generar tokens SimpleJWT
+        refresh = RefreshToken.for_user(user)
+
+        return Response({
+            'message': 'Cuenta creada con éxito.',
+            'access': str(refresh.access_token),
+            'refresh': str(refresh),
+        }, status=status.HTTP_201_CREATED)
+
+
+class RegisterResendView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email', '').strip()
+
+        if not email:
+            return Response({'error': 'El email es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            pending = PendingRegistration.objects.get(email__iexact=email)
+        except PendingRegistration.DoesNotExist:
+            return Response({'error': 'No hay registro pendiente para este correo.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        otp_code = "".join(random.choices("0123456789", k=6))
+        pending.otp_code = otp_code
+        pending.expires_at = timezone.now() + timedelta(minutes=10)
+        pending.save()
+
+        # Enviar email
+        try:
+            send_mail(
+                subject='Nuevo Código de Verificación - Fogón',
+                message=f'Tu nuevo código de verificación es: {otp_code}\n\nEste código vencerá en 10 minutos.',
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+        except Exception as e:
+            print(f"Error enviando email: {e}")
+
+        return Response({'message': 'OTP reenviado exitosamente.'}, status=status.HTTP_200_OK)
+
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email', '').strip()
+
+        if not email:
+            return Response({'error': 'El email es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Buscar usuario. Por seguridad, retornamos el mismo mensaje si el usuario no existe.
+        user_opt = User.objects.filter(email__iexact=email).first()
+
+        if user_opt:
+            # Generar OTP de 6 dígitos
+            otp_code = "".join(random.choices("0123456789", k=6))
+
+            # Eliminar OTPs anteriores para este usuario si existiesen
+            PasswordResetOTP.objects.filter(user=user_opt).delete()
+
+            # Guardar OTP
+            PasswordResetOTP.objects.create(
+                user=user_opt,
+                otp_code=otp_code,
+                expires_at=timezone.now() + timedelta(minutes=10)
+            )
+
+            # Enviar email
+            try:
+                send_mail(
+                    subject='Restablecer Contraseña - Fogón',
+                    message=f'Hola {user_opt.username},\n\nHas solicitado restablecer tu contraseña. Tu código OTP es: {otp_code}\n\nEste código vencerá en 10 minutos.',
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[email],
+                    fail_silently=False,
+                )
+            except Exception as e:
+                print(f"Error enviando email de reset: {e}")
+
+        return Response({
+            'message': 'Si el correo está registrado, recibirás un código OTP para restablecer tu contraseña.',
+            'email': email
+        }, status=status.HTTP_200_OK)
+
+
+class PasswordResetVerifyView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        email = request.data.get('email', '').strip()
+        otp_code = request.data.get('otp_code', '').strip()
+        new_password = request.data.get('new_password', '')
+
+        if not email or not otp_code or not new_password:
+            return Response({'error': 'Email, código OTP y nueva contraseña son requeridos.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(new_password) < 8:
+            return Response({'error': 'La contraseña debe tener al menos 8 caracteres.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        user_opt = User.objects.filter(email__iexact=email).first()
+        if not user_opt:
+            return Response({'error': 'No se encontró un usuario con este correo.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Buscar el OTP
+        otp_opt = PasswordResetOTP.objects.filter(user=user_opt, otp_code=otp_code).first()
+
+        if not otp_opt:
+            return Response({'error': 'El código OTP es incorrecto.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if otp_opt.is_expired():
+            return Response({'error': 'El código OTP ha expirado. Por favor, solicita uno nuevo.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # OTP válido! Actualizar contraseña
+        user_opt.set_password(new_password)
+        user_opt.save()
+
+        # Eliminar el OTP usado
+        otp_opt.delete()
+
+        return Response({'message': 'Contraseña restablecida con éxito.'}, status=status.HTTP_200_OK)
+
 
 
 class MealPlanViewSet(viewsets.ModelViewSet):

@@ -69,7 +69,14 @@ export const LoginScreen = () => {
                         }
                     />
 
-                    <View className="mt-4">
+                    <TouchableOpacity 
+                        className="items-end mt-1 mb-4" 
+                        onPress={() => router.push('/forgot-password')}
+                    >
+                        <Text className="text-fogon-amber text-sm font-semibold">¿Olvidaste tu contraseña?</Text>
+                    </TouchableOpacity>
+
+                    <View className="mt-2">
                         <Button
                             title="Ingresar"
                             onPress={handleLogin}

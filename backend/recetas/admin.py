@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Category, Recipe, Ingredient, Step, Favorite, UserUsage, GlobalUsage
+from .models import Category, Recipe, Ingredient, Step, Favorite, UserUsage, GlobalUsage, PendingRegistration, PasswordResetOTP
 
 class RecipeAdmin(admin.ModelAdmin):
     # Esto crea un buscador y columnas en la lista de recetas
@@ -20,6 +20,14 @@ class UserUsageAdmin(admin.ModelAdmin):
 class GlobalUsageAdmin(admin.ModelAdmin):
     list_display = ('date', 'gemini_requests')
 
+class PendingRegistrationAdmin(admin.ModelAdmin):
+    list_display = ('username', 'email', 'otp_code', 'created_at', 'expires_at')
+    search_fields = ('username', 'email')
+
+class PasswordResetOTPAdmin(admin.ModelAdmin):
+    list_display = ('user', 'otp_code', 'created_at', 'expires_at')
+    search_fields = ('user__username', 'user__email')
+
 # Register your models here.
 
 admin.site.register(Category)
@@ -29,3 +37,5 @@ admin.site.register(Step)
 admin.site.register(Favorite, FavoriteAdmin)
 admin.site.register(UserUsage, UserUsageAdmin)
 admin.site.register(GlobalUsage, GlobalUsageAdmin)
+admin.site.register(PendingRegistration, PendingRegistrationAdmin)
+admin.site.register(PasswordResetOTP, PasswordResetOTPAdmin)

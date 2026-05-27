@@ -24,7 +24,7 @@ services:
         python manage.py runserver 0.0.0.0:8000
       "
     volumes:
-      - ./backend:/app
+      - ./backend:/app:delegated
       - /app/venv
     ports:
       - "8000:8000"
@@ -33,6 +33,8 @@ services:
     environment:
       # Override DATABASE_URL para apuntar al servicio 'db' de Docker
       - DATABASE_URL=postgres://fogon:fogon@db:5432/fogon
+      - PYTHONDONTWRITEBYTECODE=1
+      - PYTHONUNBUFFERED=1
     depends_on:
       db:
         condition: service_healthy

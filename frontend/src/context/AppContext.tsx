@@ -2,7 +2,7 @@ import React, { createContext, useState, useEffect, useContext, useRef, useCallb
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Category, Recipe, User } from '../types';
-import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, importRecipeServiceAudio, importRecipeServiceText, importRecipeServiceWeb, loginService, registerService, logoutService, getCategoriesService, createCategoryService, toggleFavoriteService, getCurrentUserService } from '../services/api';
+import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, importRecipeServiceAudio, importRecipeServiceText, importRecipeServiceWeb, loginService, registerService, verifyRegisterOTPService, logoutService, getCategoriesService, createCategoryService, toggleFavoriteService, getCurrentUserService } from '../services/api';
 
 interface AppContextType {
     recipes: Recipe[];
@@ -30,7 +30,8 @@ interface AppContextType {
     importRecipeAIText: (text: string) => Promise<Recipe>;
     importRecipeAIWeb: (url: string) => Promise<Recipe>;
     login: (u: string, p: string) => Promise<void>;
-    register: (u: string, e: string, p: string) => Promise<void>;
+    register: (u: string, e: string, p: string) => Promise<any>;
+    verifyRegisterOTP: (email: string, otpCode: string) => Promise<void>;
     logout: () => Promise<void>;
 
     createMode: 'manual' | 'video' | 'audio' | 'text' | 'link-web' | null;
@@ -201,11 +202,17 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     const register = async (u: string, e: string, p: string) => {
-        const data = await registerService(u, e, p);
+        return await registerService(u, e, p);
+    };
+
+    const verifyRegisterOTP = async (email: string, otpCode: string) => {
+        const data = await verifyRegisterOTPService(email, otpCode);
         if (data && data.access) {
+            const userData = await getCurrentUserService();
+            setUser(userData);
             setIsAuthenticated(true);
         } else {
-            throw new Error("Registro fallido: No se pudo iniciar sesión automáticamente");
+            throw new Error("No se recibieron tokens de acceso.");
         }
     };
 
@@ -283,7 +290,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
             isAuthenticated, isAuthLoading, user,
             fetchRecipes, fetchMoreRecipes,
             saveRecipe, deleteRecipe, toggleFavorite,
-            importRecipeAI, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, login, register, logout, createCategory,
+            importRecipeAI, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, login, register, verifyRegisterOTP, logout, createCategory,
             isCreateMenuVisible, setCreateMenuVisible,
             formModalVisible, setFormModalVisible,
             editingRecipe, setEditingRecipe,

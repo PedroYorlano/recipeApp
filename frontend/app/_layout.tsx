@@ -28,11 +28,12 @@ const MainLayout = () => {
     const inTabsGroup = segments[0] === '(tabs)';
     const inLogin = segments[0] === 'login';
     const inRegister = segments[0] === 'register';
+    const inForgotPassword = segments[0] === 'forgot-password';
 
     if (isAuthenticated && !inTabsGroup) {
-      // Usuario logueado intentando entrar a login/register -> mandar a home
+      // Usuario logueado intentando entrar a login/register/forgot-password -> mandar a home
       router.replace('/(tabs)');
-    } else if (!isAuthenticated && !inLogin && !inRegister) {
+    } else if (!isAuthenticated && !inLogin && !inRegister && !inForgotPassword) {
       // Usuario NO logueado -> mandar a login
       router.replace('/login');
     }

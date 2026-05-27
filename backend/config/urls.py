@@ -17,7 +17,12 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from recetas.views import RecipeViewSet, CategoryViewSet, MealPlanViewSet, ShoppingListItemViewSet, import_recipe_view, import_recipe_from_file_view, import_recipe_from_text_view, import_recipe_from_web_view, SharedRecipeView, RegisterView, current_user_view, fogoncito
+from recetas.views import (
+    RecipeViewSet, CategoryViewSet, MealPlanViewSet, ShoppingListItemViewSet,
+    import_recipe_view, import_recipe_from_file_view, import_recipe_from_text_view,
+    import_recipe_from_web_view, SharedRecipeView, RegisterView, RegisterVerifyView,
+    RegisterResendView, PasswordResetRequestView, PasswordResetVerifyView, current_user_view, fogoncito
+)
 from django.conf import settings
 from django.conf.urls.static import static
 from rest_framework_simplejwt.views import (
@@ -40,6 +45,10 @@ urlpatterns = [
     path('api/importar-web/', import_recipe_from_web_view, name='importar_receta_web'),
     path('api/compartidas/<uuid:uuid>/', SharedRecipeView.as_view(), name='shared_recipe'),
     path('api/register/', RegisterView.as_view(), name='auth_register'),
+    path('api/register/verify/', RegisterVerifyView.as_view(), name='auth_register_verify'),
+    path('api/register/resend/', RegisterResendView.as_view(), name='auth_register_resend'),
+    path('api/password-reset/request/', PasswordResetRequestView.as_view(), name='password_reset_request'),
+    path('api/password-reset/verify/', PasswordResetVerifyView.as_view(), name='password_reset_verify'),
     path('api/me/', current_user_view, name='current_user'),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),

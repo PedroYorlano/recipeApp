@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.auth.models import User
-from datetime import date
+from datetime import date, timedelta
+from django.utils import timezone
 import uuid
 from django.db.models.signals import pre_save, post_delete
 from django.dispatch import receiver
@@ -171,3 +172,35 @@ def delete_image_on_recipe_delete(sender, instance, **kwargs):
     """Limpia la imagen de R2/disco cuando se elimina una receta."""
     if instance.image:
         instance.image.delete(save=False)
+
+
+def default_otp_expiry():
+    return timezone.now() + timedelta(minutes=2)
+
+
+class PendingRegistration(models.Model):
+    username = models.CharField(max_length=150, unique=True)
+    email = models.EmailField(unique=True)
+    password = models.CharField(max_length=128)  # Hashed password
+    otp_code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(default=default_otp_expiry)
+
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+
+    def __str__(self):
+        return f"Pending: {self.username} ({self.email})"
+
+
+class PasswordResetOTP(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_reset_otps')
+    otp_code = models.CharField(max_length=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(default=default_otp_expiry)
+
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+
+    def __str__(self):
+        return f"Reset OTP for {self.user.username}"

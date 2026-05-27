@@ -110,13 +110,72 @@ export const registerService = async (username: string, email: string, password:
     });
     if (!response.ok) {
         const errorData = await response.json();
-        // Return first error message or generic string
         const errorMsg = Object.values(errorData).flat().join(', ');
-        throw new Error(errorMsg || 'Error al registrar usuario');
+        throw new Error(errorMsg || 'Error al iniciar registro');
     }
+    return await response.json();
+};
+
+export const verifyRegisterOTPService = async (email: string, otpCode: string) => {
+    const response = await fetch(`${API_BASE}/register/verify/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp_code: otpCode }),
+    });
+    if (!response.ok) {
+        const errorData = await response.json();
+        const errorMsg = Object.values(errorData).flat().join(', ');
+        throw new Error(errorMsg || 'Error al verificar código');
+    }
+    const data = await response.json();
     
-    // Auto-login on success
-    return await loginService(username, password);
+    // Almacenar tokens tras verificar exitosamente
+    await AsyncStorage.setItem('authToken', data.access);
+    await AsyncStorage.setItem('refreshToken', data.refresh);
+    
+    return data;
+};
+
+export const resendRegisterOTPService = async (email: string) => {
+    const response = await fetch(`${API_BASE}/register/resend/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+    });
+    if (!response.ok) {
+        const errorData = await response.json();
+        const errorMsg = Object.values(errorData).flat().join(', ');
+        throw new Error(errorMsg || 'Error al reenviar código');
+    }
+    return await response.json();
+};
+
+export const requestPasswordResetService = async (email: string) => {
+    const response = await fetch(`${API_BASE}/password-reset/request/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
+    });
+    if (!response.ok) {
+        const errorData = await response.json();
+        const errorMsg = Object.values(errorData).flat().join(', ');
+        throw new Error(errorMsg || 'Error al solicitar OTP de recuperación');
+    }
+    return await response.json();
+};
+
+export const verifyPasswordResetOTPService = async (email: string, otpCode: string, newPassword: string) => {
+    const response = await fetch(`${API_BASE}/password-reset/verify/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp_code: otpCode, new_password: newPassword }),
+    });
+    if (!response.ok) {
+        const errorData = await response.json();
+        const errorMsg = Object.values(errorData).flat().join(', ');
+        throw new Error(errorMsg || 'Error al restablecer contraseña');
+    }
+    return await response.json();
 };
 
 export const logoutService = async () => {
