@@ -11,6 +11,7 @@ from django.dispatch import receiver
 class Category(models.Model):
     name = models.CharField(max_length=100)
     parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='subcategories')
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True, related_name='categories')
 
     def __str__(self):
         if self.parent:

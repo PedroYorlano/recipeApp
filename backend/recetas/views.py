@@ -204,11 +204,16 @@ class SharedRecipeView(RetrieveAPIView):
     lookup_field = 'uuid'
 
 class CategoryViewSet(viewsets.ModelViewSet):
-    queryset = Category.objects.all()
     serializer_class = CategorySerializer
     permission_classes = [IsAuthenticated]
     pagination_class = None
     http_method_names = ['get', 'post', 'head', 'options']
+
+    def get_queryset(self):
+        return Category.objects.filter(Q(user__isnull=True) | Q(user=self.request.user))
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
 
 class RegisterView(APIView):
