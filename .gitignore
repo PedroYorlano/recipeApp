@@ -48,5 +48,7 @@ db.sqlite3
 
 # --- Frontend (Expo) ---
 .expo/
+frontend/ios/
+frontend/android/
 
 artifacts/

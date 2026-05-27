@@ -6,6 +6,7 @@ import { AppProvider, useApp } from '../src/context/AppContext';
 import { PlannerProvider } from '../src/context/PlannerContext';
 import { CreateMenuModal } from '../src/components/CreateMenuModal';
 import { RecipeFormModal } from '../src/components/recipes/RecipeFormModal';
+import * as Linking from 'expo-linking';
 
 const MainLayout = () => {
   // 1. Extraemos TODO lo necesario del Contexto (Auth + Modales)
@@ -14,8 +15,30 @@ const MainLayout = () => {
     isCreateMenuVisible, setCreateMenuVisible,               // Para Modales
     formModalVisible, setFormModalVisible,
     editingRecipe, setEditingRecipe, saveRecipe, importRecipeAI, categories,
-    createMode, setCreateMode
+    createMode, setCreateMode, setInitialImportUrl
   } = useApp();
+
+  useEffect(() => {
+    const handleIncomingUrl = (url: string) => {
+      const parsed = Linking.parse(url);
+      if (parsed.hostname === 'import' && parsed.queryParams?.url) {
+        const importUrl = decodeURIComponent(parsed.queryParams.url as string);
+        setCreateMode('video');
+        setInitialImportUrl(importUrl);
+        setFormModalVisible(true);
+      }
+    };
+
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      handleIncomingUrl(url);
+    });
+
+    Linking.getInitialURL().then(url => {
+      if (url) handleIncomingUrl(url);
+    });
+
+    return () => subscription.remove();
+  }, [setCreateMode, setInitialImportUrl, setFormModalVisible]);
 
   const segments = useSegments();
   const router = useRouter();

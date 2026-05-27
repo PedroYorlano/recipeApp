@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Modal, View, Text, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -28,9 +28,10 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
   const [isImported, setIsImported] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  const { createMode, setCreateMode, createCategory, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb } = useApp();
+  const { createMode, setCreateMode, createCategory, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, initialImportUrl, setInitialImportUrl } = useApp();
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
+  const isConsumingUrlRef = useRef(false);
 
   useEffect(() => {
     if (visible) {
@@ -42,11 +43,21 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
         setIsImported(false);
       } else {
         setDraftRecipe(null);
-        setImportUrl('');
         setIsImported(false);
+        if (initialImportUrl) {
+          setImportUrl(initialImportUrl);
+          isConsumingUrlRef.current = true;
+          setInitialImportUrl(null);
+        } else {
+          if (isConsumingUrlRef.current) {
+            isConsumingUrlRef.current = false;
+          } else {
+            setImportUrl('');
+          }
+        }
       }
     }
-  }, [visible, initialData, createMode]);
+  }, [visible, initialData, createMode, initialImportUrl, setInitialImportUrl]);
 
   const handleImport = async () => {
     if (!importUrl) return Alert.alert("Error", "Ingresa una URL");

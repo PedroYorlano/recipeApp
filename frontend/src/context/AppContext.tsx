@@ -44,6 +44,8 @@ interface AppContextType {
     setFormModalVisible: (v: boolean) => void;
     editingRecipe: Recipe | null;
     setEditingRecipe: (r: Recipe | null) => void;
+    initialImportUrl: string | null;
+    setInitialImportUrl: (url: string | null) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -66,6 +68,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const [formModalVisible, setFormModalVisible] = useState(false);
     const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
     const [createMode, setCreateMode] = useState<'manual' | 'video' | 'audio' | 'text' | 'link-web' | null>(null);
+    const [initialImportUrl, setInitialImportUrl] = useState<string | null>(null);
 
     // Ref para debounce de búsqueda
     const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -294,7 +297,8 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
             isCreateMenuVisible, setCreateMenuVisible,
             formModalVisible, setFormModalVisible,
             editingRecipe, setEditingRecipe,
-            createMode, setCreateMode
+            createMode, setCreateMode,
+            initialImportUrl, setInitialImportUrl
         }}>
             {children}
         </AppContext.Provider>
