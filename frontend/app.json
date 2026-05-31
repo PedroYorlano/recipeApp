@@ -10,7 +10,10 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.pedroyorlano.fogon"
+      "bundleIdentifier": "com.pedroyorlano.fogon",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.pedroyorlano.fogon",
@@ -25,8 +28,15 @@
       "intentFilters": [
         {
           "action": "SEND",
-          "data": [{ "mimeType": "text/plain" }],
-          "category": ["DEFAULT", "BROWSABLE"]
+          "data": [
+            {
+              "mimeType": "text/plain"
+            }
+          ],
+          "category": [
+            "DEFAULT",
+            "BROWSABLE"
+          ]
         }
       ]
     },
@@ -69,6 +79,30 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "build": {
+          "experimental": {
+            "ios": {
+              "appExtensions": [
+                {
+                  "targetName": "FOGONShareExtension",
+                  "bundleIdentifier": "com.pedroyorlano.fogon.ShareExtension",
+                  "entitlements": {
+                    "com.apple.security.application-groups": [
+                      "group.com.pedroyorlano.fogon"
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        "projectId": "61a0e1df-09ce-49c4-9575-0a96fb5c23ca"
+      },
+      "appleApplicationGroup": "group.com.pedroyorlano.fogon"
     }
   }
 }
