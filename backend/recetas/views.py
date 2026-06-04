@@ -18,11 +18,11 @@ from django.core.mail import send_mail
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import RefreshToken
 import random
-from .models import Recipe, Category, Favorite, UserUsage, GlobalUsage, MealPlan, ShoppingListItem, PendingRegistration, PasswordResetOTP
+from .models import Recipe, Category, Favorite, UserUsage, GlobalUsage, MealPlan, ShoppingListItem, PendingRegistration, PasswordResetOTP, Ingredient
 from .serializers import RecipeSerializer, CategorySerializer, UserRegistrationSerializer, MealPlanSerializer, ShoppingListItemSerializer
 from datetime import date, timedelta
 import os
-from .utils import download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text, extract_keywords, build_recipes_summary, call_fogoncito
+from .utils import download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text, build_recipes_summary, call_fogoncito
 import tempfile
 import requests
 from bs4 import BeautifulSoup
@@ -798,19 +798,44 @@ def fogoncito(request):
     if not can_proceed:
         return Response({'error': limit_msg}, status=429)
 
-    # 1. Extraer keywords del mensaje
-    keywords = extract_keywords(user_message)
+    # 1. Extraer todos los nombres de ingredientes únicos del usuario
+    db_ingredients = Ingredient.objects.filter(
+        recipe__user=request.user
+    ).values_list('name', flat=True).distinct()
+    user_ingredients = sorted(list(set(name.lower().strip() for name in db_ingredients if name)))
 
-    # 2. Filtrar recetas del usuario
+    # 2. Extraer todas las categorías únicas del usuario y del sistema
+    db_categories = Category.objects.filter(
+        Q(user__isnull=True) | Q(user=request.user)
+    ).values_list('name', flat=True).distinct()
+    user_categories = sorted(list(set(name.lower().strip() for name in db_categories if name)))
+
+    # 3. Matching case-insensitive con el mensaje del usuario
+    user_message_lower = user_message.lower()
+    matching_ingredients = [ing for ing in user_ingredients if ing in user_message_lower]
+    matching_categories = [cat for cat in user_categories if cat in user_message_lower]
+
+    # 4. Filtrar recetas del usuario aplicando intersección si ambos matches existen (AND)
     recipes_qs = Recipe.objects.filter(user=request.user)
-    if keywords:
-        q = Q()
-        for kw in keywords:
-            q |= Q(ingredients__name__icontains=kw)
-        recipes_qs = recipes_qs.filter(q).distinct()
-    recipes_qs = recipes_qs.prefetch_related('ingredients', 'categories')[:10]
+    if matching_ingredients or matching_categories:
+        if matching_ingredients:
+            q_ing = Q()
+            for ing in matching_ingredients:
+                q_ing |= Q(ingredients__name__icontains=ing)
+            recipes_qs = recipes_qs.filter(q_ing)
 
-    # 3. Construir contexto compacto
+        if matching_categories:
+            q_cat = Q()
+            for cat in matching_categories:
+                q_cat |= Q(categories__name__icontains=cat)
+            recipes_qs = recipes_qs.filter(q_cat)
+
+        recipes_qs = recipes_qs.distinct().prefetch_related('ingredients', 'categories')[:15]
+    else:
+        # Fallback: últimas 20 recetas creadas por el usuario
+        recipes_qs = recipes_qs.order_by('-created_at').prefetch_related('ingredients', 'categories')[:20]
+
+    # 5. Construir contexto compacto
     recipes_summary = build_recipes_summary(recipes_qs)
 
     # 4. Llamar a Gemini
