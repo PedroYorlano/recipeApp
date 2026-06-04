@@ -1,6 +1,6 @@
 import '../global.css';
 import React, { useEffect } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Platform } from 'react-native';
 import { Slot, useRouter, useSegments, useRootNavigationState } from 'expo-router';
 import { AppProvider, useApp } from '../src/context/AppContext';
 import { PlannerProvider } from '../src/context/PlannerContext';
@@ -48,19 +48,30 @@ const MainLayout = () => {
   useEffect(() => {
     if (isAuthLoading || !rootNavigationState?.key) return;
 
-    const inTabsGroup = segments[0] === '(tabs)';
+    const isWeb = Platform.OS === 'web';
     const inLogin = segments[0] === 'login';
     const inRegister = segments[0] === 'register';
     const inForgotPassword = segments[0] === 'forgot-password';
+    const isLanding = !segments[0] || segments[0] === 'index';
+    const inShareExtension = segments[0] === 'share-extension';
 
-    if (isAuthenticated && !inTabsGroup) {
-      // Usuario logueado intentando entrar a login/register/forgot-password -> mandar a home
-      router.replace('/(tabs)');
-    } else if (!isAuthenticated && !inLogin && !inRegister && !inForgotPassword) {
-      // Usuario NO logueado -> mandar a login
-      router.replace('/login');
+    const isPublicRoute = (isWeb && isLanding) || inLogin || inRegister || inForgotPassword || inShareExtension;
+
+    if (isAuthenticated) {
+      if (isLanding || inLogin || inRegister || inForgotPassword) {
+        // Usuario logueado intentando entrar a páginas públicas -> mandar a /(tabs)
+        router.replace('/(tabs)');
+      }
+    } else {
+      if (!isPublicRoute) {
+        // Usuario NO logueado en ruta protegida -> mandar a la landing en Web, y a Login en Mobile
+        router.replace(isWeb ? '/' : '/login');
+      } else if (!isWeb && isLanding) {
+        // Si está en Mobile y cae en la raíz (index), mandarlo a Login
+        router.replace('/login');
+      }
     }
-  }, [isAuthenticated, isAuthLoading, segments, rootNavigationState]);
+  }, [isAuthenticated, isAuthLoading, segments, rootNavigationState, router]);
 
   // 3. Lógica del Menú Flotante
   const handleMenuSelect = (option: string) => {
