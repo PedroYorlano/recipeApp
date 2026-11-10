@@ -5,6 +5,7 @@ import {
     LayoutAnimation, Platform, UIManager, Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
 
 if (Platform.OS === 'android') {
     UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -119,8 +120,20 @@ function WeekView({ onSwitchTab }: { onSwitchTab: (tab: TabView) => void }) {
         weekStart, isLoadingPlans, isSaving, hasUnsavedChanges,
         canGoBack, canGoForward, goToPreviousWeek, goToNextWeek,
         getPlansForDate, getMergedPlanForSlot, removeFromPlan,
-        assignRecipe, savePlan, discardChanges,
+        assignRecipe, savePlan, discardChanges, refreshPlans,
     } = usePlanner();
+
+    // Al volver a la pestaña, traer el plan actualizado (recetas editadas o borradas desde el Inicio).
+    // Si hay cambios sin guardar no se pisa nada.
+    const unsavedRef = React.useRef(hasUnsavedChanges);
+    unsavedRef.current = hasUnsavedChanges;
+    const refreshRef = React.useRef(refreshPlans);
+    refreshRef.current = refreshPlans;
+    useFocusEffect(
+        React.useCallback(() => {
+            if (!unsavedRef.current) refreshRef.current();
+        }, [])
+    );
 
     const weekDays = useMemo(() => getWeekDays(weekStart), [weekStart]);
     const todayISO = getTodayISO();
@@ -405,6 +418,14 @@ function ShoppingView() {
     }, [shoppingList]);
 
     const handleGenerate = async () => {
+        if (shoppingList.length > 0) {
+            const ok = await confirmAction({
+                title: 'Regenerar lista',
+                message: 'Se arma de nuevo a partir del plan de esta semana. Los ítems tachados y los que agregaste a mano se borran.',
+                confirmText: 'Regenerar',
+            });
+            if (!ok) return;
+        }
         try { await generateList(); }
         catch { notify('Error', 'No pudimos generar la lista.'); }
     };
@@ -474,6 +495,7 @@ function ShoppingView() {
         >
             {/* Generate Button */}
             <View style={styles.shoppingHeader}>
+                <Text style={styles.shoppingWeek}>{formatWeekRange(weekStart)}</Text>
                 <TouchableOpacity
                     style={[styles.generateBtn, isGeneratingList && styles.generateBtnDisabled]}
                     onPress={handleGenerate}
@@ -671,6 +693,14 @@ const styles = StyleSheet.create({
     },
     segmentTextActive: {
         color: COLORS.text.primary,
+    },
+
+    shoppingWeek: {
+        fontSize: 13,
+        fontWeight: '600',
+        color: COLORS.text.secondary,
+        textAlign: 'center',
+        marginBottom: SPACING.s,
     },
 
     // Week Navigation

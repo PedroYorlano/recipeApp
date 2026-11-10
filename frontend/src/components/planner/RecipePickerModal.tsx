@@ -1,10 +1,10 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
     View, Text, Modal, TouchableOpacity, FlatList,
     TextInput, ActivityIndicator, StyleSheet, Pressable,
 } from 'react-native';
 import { Image } from 'expo-image';
-import { useApp } from '../../context/AppContext';
+import { getRecipesService } from '../../services/api';
 import { COLORS, SPACING, RADIUS } from '../../theme';
 import { getRecipeImage } from '../../utils';
 import { Recipe } from '../../types';
@@ -17,17 +17,46 @@ interface Props {
 }
 
 export function RecipePickerModal({ visible, onClose, onSelect }: Props) {
-    const { recipes, loading } = useApp();
+    // Lista propia: la del Inicio depende de sus filtros (categoría, favoritos) y está paginada.
     const [search, setSearch] = useState('');
+    const [recipes, setRecipes] = useState<Recipe[]>([]);
+    const [nextCursor, setNextCursor] = useState<string | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const requestId = useRef(0);
 
-    const filtered = useMemo(() => {
-        if (!search.trim()) return recipes;
-        const q = search.toLowerCase();
-        return recipes.filter(r =>
-            r.title.toLowerCase().includes(q) ||
-            r.ingredients?.some(i => i.name.toLowerCase().includes(q))
-        );
-    }, [recipes, search]);
+    useEffect(() => {
+        if (!visible) return;
+        const id = ++requestId.current;
+        const timer = setTimeout(async () => {
+            setLoading(true);
+            try {
+                const data = await getRecipesService(null, search.trim() || undefined);
+                if (id !== requestId.current) return; // llegó tarde, hay una búsqueda más nueva
+                setRecipes(data.results);
+                setNextCursor(data.next);
+            } catch {
+                if (id === requestId.current) setRecipes([]);
+            } finally {
+                if (id === requestId.current) setLoading(false);
+            }
+        }, search ? 300 : 0);
+        return () => clearTimeout(timer);
+    }, [visible, search]);
+
+    const loadMore = async () => {
+        if (!nextCursor || loadingMore || loading) return;
+        setLoadingMore(true);
+        try {
+            const data = await getRecipesService(null, undefined, undefined, nextCursor);
+            setRecipes(prev => [...prev, ...data.results]);
+            setNextCursor(data.next);
+        } catch {
+            // se reintenta al volver a llegar al final
+        } finally {
+            setLoadingMore(false);
+        }
+    };
 
     const handleSelect = (recipe: Recipe) => {
         if (!recipe.uuid) return;
@@ -83,12 +112,15 @@ export function RecipePickerModal({ visible, onClose, onSelect }: Props) {
                     </View>
                 ) : (
                     <FlatList
-                        data={filtered}
+                        data={recipes}
                         numColumns={2}
                         keyExtractor={(item) => item.uuid || item.id?.toString() || Math.random().toString()}
                         contentContainerStyle={styles.listContent}
                         columnWrapperStyle={styles.columnWrapper}
                         showsVerticalScrollIndicator={false}
+                        onEndReached={loadMore}
+                        onEndReachedThreshold={0.5}
+                        ListFooterComponent={loadingMore ? <ActivityIndicator style={{ marginVertical: 16 }} color={COLORS.primary} /> : null}
                         renderItem={({ item }) => {
                             const imageSource = getRecipeImage(item);
                             return (
@@ -110,9 +142,9 @@ export function RecipePickerModal({ visible, onClose, onSelect }: Props) {
                                     <Text style={styles.recipeName} numberOfLines={2}>
                                         {item.title}
                                     </Text>
-                                    {item.prep_time && (
+                                    {item.prep_time ? (
                                         <Text style={styles.recipeMeta}>⏱ {item.prep_time} min</Text>
-                                    )}
+                                    ) : null}
                                 </Pressable>
                             );
                         }}
