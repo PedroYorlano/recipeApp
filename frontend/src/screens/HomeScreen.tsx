@@ -31,7 +31,11 @@ export default function HomeScreen() {
         setCreateMenuVisible
     } = useApp();
 
-    const [selectedRecipe, setSelectedRecipe] = useState<Recipe | null>(null);
+    const [selectedRecipeSnapshot, setSelectedRecipe] = useState<Recipe | null>(null);
+    // Siempre mostramos la versión de la lista: así el corazón, la edición, etc. se reflejan en el detalle.
+    const selectedRecipe = selectedRecipeSnapshot
+        ? recipes.find(r => r.id === selectedRecipeSnapshot.id) ?? selectedRecipeSnapshot
+        : null;
 
     const { width } = useWindowDimensions();
     // Determinamos número de columnas dinámico según ancho de pantalla (para web/tablets)

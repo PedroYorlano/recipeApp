@@ -73,8 +73,10 @@ const MainLayout = () => {
     const inShareExtension = segments[0] === 'share-extension';
     // /import decide solo a dónde ir (guarda el link y manda al login si hace falta).
     const inImport = segments[0] === 'import';
+    // Receta compartida: se ve con o sin sesión.
+    const inSharedRecipe = segments[0] === 'receta';
 
-    const isPublicRoute = (isWeb && isLanding) || inLogin || inRegister || inForgotPassword || inShareExtension || inImport;
+    const isPublicRoute = (isWeb && isLanding) || inLogin || inRegister || inForgotPassword || inShareExtension || inImport || inSharedRecipe;
 
     if (isAuthenticated) {
       if (isLanding || inLogin || inRegister || inForgotPassword) {

@@ -205,10 +205,16 @@ class RecipeViewSet(viewsets.ModelViewSet):
 
 
 class SharedRecipeView(RetrieveAPIView):
-    queryset = Recipe.objects.filter(is_public=True)
+    """Receta por uuid: las públicas para cualquiera y, con sesión, también las propias."""
     serializer_class = RecipeSerializer
     permission_classes = [AllowAny]
     lookup_field = 'uuid'
+
+    def get_queryset(self):
+        visible = Q(is_public=True)
+        if self.request.user.is_authenticated:
+            visible |= Q(user=self.request.user)
+        return Recipe.objects.filter(visible)
 
 class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer

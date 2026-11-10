@@ -26,6 +26,7 @@ interface AppContextType {
     saveRecipe: (recipe: Recipe) => Promise<void>;
     deleteRecipe: (id: number) => Promise<void>;
     toggleFavorite: (recipeId: number) => Promise<void>;
+    markRecipePublic: (recipeId: number) => void;
     importRecipeAI: (url: string) => Promise<Recipe>;
     importRecipeAIAudio: (fileUri: string, fileName: string, fileType: string, webFile?: File) => Promise<Recipe>;
     importRecipeAIText: (text: string) => Promise<Recipe>;
@@ -258,6 +259,10 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         }
     };
 
+    const markRecipePublic = (recipeId: number) => {
+        setRecipes(prev => prev.map(r => (r.id === recipeId ? { ...r, is_public: true } : r)));
+    };
+
     const importRecipeAI = async (url: string) => {
         const data = await importRecipeService(url);
         return data.recipe || data;
@@ -292,7 +297,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
             loading, loadingMore, hasMore: !!nextCursor,
             isAuthenticated, isAuthLoading, user,
             fetchRecipes, fetchMoreRecipes,
-            saveRecipe, deleteRecipe, toggleFavorite,
+            saveRecipe, deleteRecipe, toggleFavorite, markRecipePublic,
             importRecipeAI, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, login, register, verifyRegisterOTP, logout, createCategory,
             isCreateMenuVisible, setCreateMenuVisible,
             formModalVisible, setFormModalVisible,

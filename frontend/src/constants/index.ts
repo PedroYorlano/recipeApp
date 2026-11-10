@@ -1,4 +1,6 @@
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
+import * as Linking from 'expo-linking';
 
 /**
  * Resuelve la IP del servidor de desarrollo automáticamente.
@@ -24,3 +26,15 @@ const getServerUrl = (): string => {
 
 export const SERVER_URL = getServerUrl();
 export const API_BASE = `${SERVER_URL}/api`;
+
+/**
+ * URL pública de la web (para links que se comparten). En web es el origin actual;
+ * en nativo hace falta EXPO_PUBLIC_WEB_URL (si no, cae a un deep link fogon://).
+ */
+export const WEB_URL: string | null =
+    process.env.EXPO_PUBLIC_WEB_URL ||
+    (Platform.OS === 'web' && typeof window !== 'undefined' ? window.location.origin : null);
+
+/** Link público de una receta: /receta/<uuid>. */
+export const getShareUrl = (uuid: string): string =>
+    WEB_URL ? `${WEB_URL.replace(/\/$/, '')}/receta/${uuid}` : Linking.createURL(`/receta/${uuid}`);

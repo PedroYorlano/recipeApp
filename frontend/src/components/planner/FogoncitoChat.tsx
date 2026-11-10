@@ -81,9 +81,7 @@ export function FogoncitoChat() {
     };
 
     const handleSuggestionPress = (suggestion: FogoncitoSuggestion) => {
-        // Navegar a la receta (si la ruta existe en el futuro)
-        // Por ahora usamos un Alert o simplemente avisamos
-        // router.push(`/recipe/${suggestion.uuid}`);
+        router.push(`/receta/${suggestion.uuid}`);
     };
 
     const renderMessage = ({ item }: { item: ChatMessage }) => {

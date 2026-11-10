@@ -341,9 +341,32 @@ export const importRecipeServiceWeb = async (url: string) => {
     return await response.json();
 };
 
-export const getSharedRecipeService = async (uuid: string) => {
-    const response = await fetch(`${API_BASE}/compartidas/${uuid}/`);
+/** Receta pública por uuid. Con sesión también devuelve las propias aunque no sean públicas. */
+export const getSharedRecipeService = async (uuid: string): Promise<Recipe> => {
+    const url = `${API_BASE}/compartidas/${uuid}/`;
+    const hasToken = !!(await AsyncStorage.getItem('authToken'));
+    let response: Response;
+    try {
+        response = hasToken ? await authenticatedFetch(url) : await fetch(url);
+    } catch {
+        // Sesión vencida: probamos como anónimo.
+        response = await fetch(url);
+    }
     if (!response.ok) throw new Error('Receta no encontrada');
+    return await response.json();
+};
+
+/** Marca una receta como pública (necesario para que el link compartido funcione). */
+export const setRecipePublicService = async (id: number, isPublic: boolean) => {
+    const response = await authenticatedFetch(`${API_BASE}/recetas/${id}/`, {
+        method: 'PATCH',
+        headers: buildHeaders(),
+        body: JSON.stringify({ is_public: isPublic }),
+    });
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(JSON.stringify(errorData));
+    }
     return await response.json();
 };
 
