@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import {
     View, Text, TouchableOpacity, ScrollView, ActivityIndicator,
-    Alert, StyleSheet, StatusBar as RNStatusBar, TextInput,
+    StyleSheet, StatusBar as RNStatusBar, TextInput,
     LayoutAnimation, Platform, UIManager, Keyboard,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -20,6 +20,7 @@ import {
 import { MealPlan, Recipe, ShoppingListItem } from '../../src/types';
 import { RecipePickerModal } from '../../src/components/planner/RecipePickerModal';
 import { FogoncitoChat } from '../../src/components/planner/FogoncitoChat';
+import { notify, confirmAction } from '../../src/utils/dialogs';
 
 // --- Constantes ---
 
@@ -138,15 +139,14 @@ function WeekView({ onSwitchTab }: { onSwitchTab: (tab: TabView) => void }) {
         setSelectedDate(todayInWeek ? today : days[0].date);
     }, [weekStart]);
 
-    const handleRemove = (date: string, mealType: string, title: string) => {
-        Alert.alert(
-            'Quitar del plan',
-            `\u00bfSacamos \"${title}\" de este d\u00eda?`,
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                { text: 'Quitar', style: 'destructive', onPress: () => removeFromPlan(date, mealType) },
-            ]
-        );
+    const handleRemove = async (date: string, mealType: string, title: string) => {
+        const ok = await confirmAction({
+            title: 'Quitar del plan',
+            message: `\u00bfSacamos \"${title}\" de este d\u00eda?`,
+            confirmText: 'Quitar',
+            destructive: true,
+        });
+        if (ok) removeFromPlan(date, mealType);
     };
 
     const handleAssign = (recipe: Recipe) => {
@@ -158,16 +158,15 @@ function WeekView({ onSwitchTab }: { onSwitchTab: (tab: TabView) => void }) {
     const handleSave = async () => {
         const ok = await savePlan();
         if (ok) {
-            Alert.alert(
-                '\u00a1Plan guardado!',
-                '\u00bfQuer\u00e9s ir a Compras para generar tu lista?',
-                [
-                    { text: 'Ahora no', style: 'cancel' },
-                    { text: 'Ir a Compras', onPress: () => onSwitchTab('shopping') },
-                ]
-            );
+            const goShopping = await confirmAction({
+                title: '\u00a1Plan guardado!',
+                message: '\u00bfQuer\u00e9s ir a Compras para generar tu lista?',
+                confirmText: 'Ir a Compras',
+                cancelText: 'Ahora no',
+            });
+            if (goShopping) onSwitchTab('shopping');
         } else {
-            Alert.alert('Error', 'No pudimos guardar el plan. Intentalo de nuevo.');
+            notify('Error', 'No pudimos guardar el plan. Intentalo de nuevo.');
         }
     };
 
@@ -412,7 +411,7 @@ function ShoppingView() {
 
     const handleGenerate = async () => {
         try { await generateList(); }
-        catch { Alert.alert('Error', 'No pudimos generar la lista.'); }
+        catch { notify('Error', 'No pudimos generar la lista.'); }
     };
 
     const handleAdd = async () => {
@@ -422,7 +421,7 @@ function ShoppingView() {
             await addShoppingItem(name, newItemQty.trim());
             setNewItemName('');
             setNewItemQty('');
-        } catch { Alert.alert('Error', 'No pudimos agregar el ítem.'); }
+        } catch { notify('Error', 'No pudimos agregar el ítem.'); }
     };
 
     const collapseAndSave = async () => {

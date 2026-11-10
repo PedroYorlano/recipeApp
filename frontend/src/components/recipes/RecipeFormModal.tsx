@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Modal, View, Text, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert } from 'react-native';
+import { Modal, View, Text, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -9,6 +9,7 @@ import { Recipe, Category, Ingredient } from '../../types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Camera, X, Plus, Trash2, ArrowLeft, Wand2, ChefHat, Sparkles, Mic } from 'lucide-react-native';
+import { notify } from '../../utils/dialogs';
 
 const emptyRecipe: Recipe = {
   uuid: '', title: '', description: '', ingredients: [], steps: [], categories: [], categories_details: [], servings: 1,
@@ -60,7 +61,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
   }, [visible, initialData, createMode, initialImportUrl, setInitialImportUrl]);
 
   const handleImport = async () => {
-    if (!importUrl) return Alert.alert("Error", "Ingresa una URL");
+    if (!importUrl) return notify("Error", "Ingresa una URL");
     setIsProcessing(true);
     try {
       const recipe = await onImportAI(importUrl);
@@ -73,35 +74,35 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
         const parsed = JSON.parse(e.message);
         if (parsed.error) errorMsg = parsed.error;
       } catch {}
-      Alert.alert("Error", errorMsg);
+      notify("Error", errorMsg);
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleImportText = async () => {
-    if (!importText.trim()) return Alert.alert("Error", "Ingresa el texto de la receta.");
+    if (!importText.trim()) return notify("Error", "Ingresa el texto de la receta.");
     setIsProcessing(true);
     try {
       const recipe = await importRecipeAIText(importText);
       setDraftRecipe({ ...recipe });
       setIsImported(true);
     } catch (e) {
-      Alert.alert("Error", "La IA no pudo entender o extraer la receta del texto.");
+      notify("Error", "La IA no pudo entender o extraer la receta del texto.");
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleImportWeb = async () => {
-    if (!importUrl) return Alert.alert("Error", "Ingresa una URL de blog o sitio web");
+    if (!importUrl) return notify("Error", "Ingresa una URL de blog o sitio web");
     setIsProcessing(true);
     try {
       const recipe = await importRecipeAIWeb(importUrl);
       setDraftRecipe({ ...recipe, original_url: importUrl });
       setIsImported(true);
     } catch (e) {
-      Alert.alert("Error", "No se pudo extraer la receta, prueba de otra manera.");
+      notify("Error", "No se pudo extraer la receta, prueba de otra manera.");
     } finally {
       setIsProcessing(false);
     }
@@ -118,7 +119,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
         setIsImported(true);
       }
     } catch (e) {
-       Alert.alert("Error", "Fallo al subir o procesar el audio.");
+       notify("Error", "Fallo al subir o procesar el audio.");
     } finally {
        setIsProcessing(false);
     }
@@ -138,13 +139,13 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
       setNewCategoryName('');
       setIsAddingCategory(false);
     } catch (e) {
-      Alert.alert("Error", "No se pudo crear la categoría.");
+      notify("Error", "No se pudo crear la categoría.");
     }
   };
 
   const pickImage = async (target: 'cover') => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') return Alert.alert('Permiso denegado al carrete');
+    if (status !== 'granted') return notify('Permiso denegado al carrete');
 
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [4, 3], quality: 0.8 });
     if (!result.canceled) {
@@ -191,7 +192,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
 
   const handleSaveInternal = async () => {
     if (!draftRecipe) return;
-    if (!draftRecipe.title.trim()) return Alert.alert("Falta título", "El título de la receta es obligatorio.");
+    if (!draftRecipe.title.trim()) return notify("Falta título", "El título de la receta es obligatorio.");
 
     setSaving(true);
     try {
@@ -200,7 +201,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
       await onSubmit(payload);
       onClose();
     } catch (error) {
-      Alert.alert("Error", "No se pudo guardar la receta en tu Fogón.");
+      notify("Error", "No se pudo guardar la receta en tu Fogón.");
     } finally {
       setSaving(false);
     }

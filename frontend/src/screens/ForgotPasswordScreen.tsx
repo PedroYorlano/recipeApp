@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Alert, View, TouchableOpacity, KeyboardAvoidingView, Platform, Text } from 'react-native';
+import { View, TouchableOpacity, KeyboardAvoidingView, Platform, Text } from 'react-native';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Flame, EyeOff, Eye, KeyRound, ArrowLeft } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { requestPasswordResetService, verifyPasswordResetOTPService } from '../services/api';
+import { notify } from '../utils/dialogs';
 
 export const ForgotPasswordScreen = () => {
     const [step, setStep] = useState<'request' | 'verify'>('request');
@@ -32,7 +33,7 @@ export const ForgotPasswordScreen = () => {
 
     const handleRequestOTP = async () => {
         if (!email) {
-            Alert.alert("⚠️ Ups", "Por favor ingresá tu correo electrónico.");
+            notify("⚠️ Ups", "Por favor ingresá tu correo electrónico.");
             return;
         }
 
@@ -41,9 +42,9 @@ export const ForgotPasswordScreen = () => {
             await requestPasswordResetService(email);
             setStep('verify');
             setResendCooldown(60);
-            Alert.alert("Código enviado ✉️", "Si tu correo está registrado, recibirás un código de 6 dígitos.");
+            notify("Código enviado ✉️", "Si tu correo está registrado, recibirás un código de 6 dígitos.");
         } catch (error: any) {
-            Alert.alert("Error", error.message || "No pudimos enviar el código. Intentá de nuevo.");
+            notify("Error", error.message || "No pudimos enviar el código. Intentá de nuevo.");
         } finally {
             setLoading(false);
         }
@@ -51,23 +52,21 @@ export const ForgotPasswordScreen = () => {
 
     const handleVerifyAndReset = async () => {
         if (!otpCode || otpCode.length !== 6) {
-            Alert.alert("⚠️ Código incompleto", "Por favor ingresá el código OTP de 6 dígitos.");
+            notify("⚠️ Código incompleto", "Por favor ingresá el código OTP de 6 dígitos.");
             return;
         }
 
         if (!newPassword || newPassword.length < 8) {
-            Alert.alert("⚠️ Contraseña inválida", "La nueva contraseña debe tener al menos 8 caracteres.");
+            notify("⚠️ Contraseña inválida", "La nueva contraseña debe tener al menos 8 caracteres.");
             return;
         }
 
         setLoading(true);
         try {
             await verifyPasswordResetOTPService(email, otpCode, newPassword);
-            Alert.alert("¡Éxito! 🎉", "Tu contraseña ha sido restablecida con éxito.", [
-                { text: "Ingresar", onPress: () => router.replace('/login') }
-            ]);
+            notify("¡Éxito! 🎉", "Tu contraseña ha sido restablecida con éxito.", () => router.replace('/login'));
         } catch (error: any) {
-            Alert.alert("Error", error.message || "No se pudo restablecer la contraseña. Verificá los datos.");
+            notify("Error", error.message || "No se pudo restablecer la contraseña. Verificá los datos.");
         } finally {
             setLoading(false);
         }
@@ -78,9 +77,9 @@ export const ForgotPasswordScreen = () => {
         try {
             await requestPasswordResetService(email);
             setResendCooldown(60);
-            Alert.alert("Reenviado ✉️", "Enviamos un nuevo código OTP a tu correo.");
+            notify("Reenviado ✉️", "Enviamos un nuevo código OTP a tu correo.");
         } catch (error: any) {
-            Alert.alert("Error", error.message || "No se pudo reenviar el código.");
+            notify("Error", error.message || "No se pudo reenviar el código.");
         } finally {
             setLoading(false);
         }

@@ -1,10 +1,11 @@
 import * as Linking from 'expo-linking';
 import React, { useEffect, useState } from 'react';
-import { Image, Modal, ScrollView, Share, Text, TouchableOpacity, View } from 'react-native';
+import { Image, Modal, Platform, ScrollView, Share, Text, TouchableOpacity, View } from 'react-native';
 import { Recipe } from '../../types';
 import { formatQuantity, scaleQuantity, getRecipeImage } from '../../utils';
 import { useApp } from '../../context/AppContext';
 import { Share as ShareIcon, Edit2, Trash2, X, Plus, Minus, ExternalLink, Heart } from 'lucide-react-native';
+import { notify } from '../../utils/dialogs';
 
 interface Props {
   visible: boolean;
@@ -29,8 +30,14 @@ export const RecipeDetailModal = ({ visible, recipe, onClose, onEdit, onDelete }
   const handleShare = async () => {
     if (!recipe?.uuid) return;
     const link = Linking.createURL("", { queryParams: { share: recipe.uuid } });
+    const message = `¡Mira esta receta de ${recipe.title}!\nVer aquí: ${link}`;
     try {
-      await Share.share({ message: `¡Mira esta receta de ${recipe.title}!\nVer aquí: ${link}` });
+      if (Platform.OS === 'web' && typeof navigator !== 'undefined' && !navigator.share) {
+        await navigator.clipboard.writeText(message);
+        notify('Link copiado', 'Pegalo donde quieras compartir la receta.');
+        return;
+      }
+      await Share.share({ message });
     } catch (error) {
       console.error(error);
     }

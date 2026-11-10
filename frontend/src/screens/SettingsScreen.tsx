@@ -1,31 +1,21 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Alert, Platform } from 'react-native';
+import { View, Text, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '../context/AppContext';
 import { LogOut, User, Flame } from 'lucide-react-native';
+import { confirmAction } from '../utils/dialogs';
 
 export default function SettingsScreen() {
     const { logout, user } = useApp();
 
-    const handleLogout = () => {
-        if (Platform.OS === 'web') {
-            if (window.confirm("¿Estás seguro que quieres salir?")) {
-                logout();
-            }
-        } else {
-            Alert.alert(
-                "Cerrar Sesión",
-                "¿Estás seguro que quieres salir?",
-                [
-                    { text: "Cancelar", style: "cancel" },
-                    {
-                        text: "Salir",
-                        style: "destructive",
-                        onPress: () => logout()
-                    }
-                ]
-            );
-        }
+    const handleLogout = async () => {
+        const ok = await confirmAction({
+            title: "Cerrar Sesión",
+            message: "¿Estás seguro que quieres salir?",
+            confirmText: "Salir",
+            destructive: true,
+        });
+        if (ok) logout();
     };
 
     return (

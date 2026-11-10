@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { Alert, View, TouchableOpacity, KeyboardAvoidingView, Platform, Text } from 'react-native';
+import { View, TouchableOpacity, KeyboardAvoidingView, Platform, Text } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Flame, EyeOff, Eye, Mail, ArrowLeft } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
 import { resendRegisterOTPService } from '../services/api';
+import { notify } from '../utils/dialogs';
+import { FEATURES } from '../constants/features';
 
 export const RegisterScreen = () => {
     const [step, setStep] = useState<'form' | 'otp'>('form');
@@ -35,7 +37,7 @@ export const RegisterScreen = () => {
 
     const handleRegister = async () => {
         if (!username || !email || !password) {
-            Alert.alert("⚠️ Ups", "Asegurate de completar todos los campos para registrarte.");
+            notify("⚠️ Ups", "Asegurate de completar todos los campos para registrarte.");
             return;
         }
 
@@ -44,9 +46,9 @@ export const RegisterScreen = () => {
             await register(username, email, password);
             setStep('otp');
             setResendCooldown(60);
-            Alert.alert("¡Código enviado! ✉️", `Enviamos un código de verificación de 6 dígitos a ${email}.`);
+            notify("¡Código enviado! ✉️", `Enviamos un código de verificación de 6 dígitos a ${email}.`);
         } catch (error: any) {
-            Alert.alert("Error en el registro", error.message || "Ocurrió un error. Verificá los datos.");
+            notify("Error en el registro", error.message || "Ocurrió un error. Verificá los datos.");
         } finally {
             setLoading(false);
         }
@@ -54,16 +56,16 @@ export const RegisterScreen = () => {
 
     const handleVerifyOTP = async () => {
         if (!otpCode || otpCode.length !== 6) {
-            Alert.alert("⚠️ Código incompleto", "Por favor ingresá el código de 6 dígitos.");
+            notify("⚠️ Código incompleto", "Por favor ingresá el código de 6 dígitos.");
             return;
         }
 
         setLoading(true);
         try {
             await verifyRegisterOTP(email, otpCode);
-            Alert.alert("¡Cuenta verificada! 🎉", "Te damos la bienvenida a Fogón.");
+            notify("¡Cuenta verificada! 🎉", "Te damos la bienvenida a Fogón.");
         } catch (error: any) {
-            Alert.alert("Error de verificación", error.message || "El código ingresado es incorrecto o expiró.");
+            notify("Error de verificación", error.message || "El código ingresado es incorrecto o expiró.");
         } finally {
             setLoading(false);
         }
@@ -74,9 +76,9 @@ export const RegisterScreen = () => {
         try {
             await resendRegisterOTPService(email);
             setResendCooldown(60);
-            Alert.alert("Reenviado ✉️", "Te enviamos un nuevo código OTP a tu correo.");
+            notify("Reenviado ✉️", "Te enviamos un nuevo código OTP a tu correo.");
         } catch (error: any) {
-            Alert.alert("Error", error.message || "No se pudo reenviar el código. Intentá más tarde.");
+            notify("Error", error.message || "No se pudo reenviar el código. Intentá más tarde.");
         } finally {
             setLoading(false);
         }
@@ -139,19 +141,23 @@ export const RegisterScreen = () => {
                                 />
                             </View>
 
-                            {/* Separador */}
-                            <View className="flex-row items-center my-6">
-                                <View className="flex-1 h-[1px] bg-fogon-gray/20" />
-                                <Text className="mx-4 text-fogon-gray text-sm font-semibold uppercase tracking-wider">o</Text>
-                                <View className="flex-1 h-[1px] bg-fogon-gray/20" />
-                            </View>
+                            {FEATURES.GOOGLE_AUTH && (
+                                <>
+                                    {/* Separador */}
+                                    <View className="flex-row items-center my-6">
+                                        <View className="flex-1 h-[1px] bg-fogon-gray/20" />
+                                        <Text className="mx-4 text-fogon-gray text-sm font-semibold uppercase tracking-wider">o</Text>
+                                        <View className="flex-1 h-[1px] bg-fogon-gray/20" />
+                                    </View>
 
-                            {/* Botón Google outline */}
-                            <Button
-                                title="Continuar con Google"
-                                variant="outline"
-                                onPress={() => Alert.alert("Próximamente", "Esta función estará disponible muy pronto.")}
-                            />
+                                    {/* Botón Google outline */}
+                                    <Button
+                                        title="Continuar con Google"
+                                        variant="outline"
+                                        onPress={() => notify("Próximamente", "Esta función estará disponible muy pronto.")}
+                                    />
+                                </>
+                            )}
 
                             {/* Fake link for demo purposes */}
                             <TouchableOpacity className="mt-8 mb-2 items-center" onPress={() => router.back()}>

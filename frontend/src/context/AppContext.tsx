@@ -1,8 +1,9 @@
 import React, { createContext, useState, useEffect, useContext, useRef, useCallback } from 'react';
-import { Alert } from 'react-native';
+
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Category, Recipe, User } from '../types';
 import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, importRecipeServiceAudio, importRecipeServiceText, importRecipeServiceWeb, loginService, registerService, verifyRegisterOTPService, logoutService, getCategoriesService, createCategoryService, toggleFavoriteService, getCurrentUserService } from '../services/api';
+import { notify } from '../utils/dialogs';
 
 interface AppContextType {
     recipes: Recipe[];
@@ -155,7 +156,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
             if (e.message === 'Sesión expirada') {
                 await logout();
             } else {
-                Alert.alert('Error', 'No se pudieron cargar los datos');
+                notify('Error', 'No se pudieron cargar los datos');
             }
         }
         finally { setLoading(false); }

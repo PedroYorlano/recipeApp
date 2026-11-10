@@ -7,6 +7,7 @@ import { RecipeDetailModal } from '../components/recipes/RecipeDetailModal';
 import { LoginScreen } from './LoginScreen';
 import { Recipe } from '../types';
 import { Search, X, UtensilsCrossed, Heart } from 'lucide-react-native';
+import { notify, confirmAction } from '../utils/dialogs';
 
 export default function HomeScreen() {
     const {
@@ -209,10 +210,20 @@ export default function HomeScreen() {
                     setEditingRecipe(selectedRecipe);
                     setFormModalVisible(true);
                 }}
-                onDelete={() => {
-                    if (selectedRecipe?.id) {
-                        deleteRecipe(selectedRecipe.id);
+                onDelete={async () => {
+                    if (!selectedRecipe?.id) return;
+                    const ok = await confirmAction({
+                        title: 'Borrar receta',
+                        message: `¿Borramos "${selectedRecipe.title}"? No se puede deshacer.`,
+                        confirmText: 'Borrar',
+                        destructive: true,
+                    });
+                    if (!ok) return;
+                    try {
+                        await deleteRecipe(selectedRecipe.id);
                         setSelectedRecipe(null);
+                    } catch {
+                        notify('Error', 'No pudimos borrar la receta.');
                     }
                 }}
             />

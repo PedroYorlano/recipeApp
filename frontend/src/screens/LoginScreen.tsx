@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
-import { ActivityIndicator, Alert, View, TouchableOpacity, KeyboardAvoidingView, Platform, Text } from 'react-native';
+import { ActivityIndicator, View, TouchableOpacity, KeyboardAvoidingView, Platform, Text } from 'react-native';
 import { useApp } from '../context/AppContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Flame, EyeOff, Eye } from 'lucide-react-native';
 import { useRouter } from 'expo-router';
+import { notify } from '../utils/dialogs';
+import { FEATURES } from '../constants/features';
 
 export const LoginScreen = () => {
     const [username, setUsername] = useState('');
@@ -17,7 +19,7 @@ export const LoginScreen = () => {
 
     const handleLogin = async () => {
         if (!username || !password) {
-            Alert.alert("⚠️ Ups", "Asegurate de completar ambos campos para ingresar.");
+            notify("⚠️ Ups", "Asegurate de completar ambos campos para ingresar.");
             return;
         }
 
@@ -25,7 +27,7 @@ export const LoginScreen = () => {
         try {
             await login.login(username, password);
         } catch (error) {
-            Alert.alert("Error", "Los datos no coinciden. ¿Probamos de nuevo?");
+            notify("Error", "Los datos no coinciden. ¿Probamos de nuevo?");
         } finally {
             setLoading(false);
         }
@@ -84,19 +86,23 @@ export const LoginScreen = () => {
                         />
                     </View>
 
-                    {/* Separador */}
-                    <View className="flex-row items-center my-6">
-                        <View className="flex-1 h-[1px] bg-fogon-gray/20" />
-                        <Text className="mx-4 text-fogon-gray text-sm font-semibold uppercase tracking-wider">o</Text>
-                        <View className="flex-1 h-[1px] bg-fogon-gray/20" />
-                    </View>
+                    {FEATURES.GOOGLE_AUTH && (
+                        <>
+                            {/* Separador */}
+                            <View className="flex-row items-center my-6">
+                                <View className="flex-1 h-[1px] bg-fogon-gray/20" />
+                                <Text className="mx-4 text-fogon-gray text-sm font-semibold uppercase tracking-wider">o</Text>
+                                <View className="flex-1 h-[1px] bg-fogon-gray/20" />
+                            </View>
 
-                    {/* Botón Google outline */}
-                    <Button
-                        title="Continuar con Google"
-                        variant="outline"
-                        onPress={() => Alert.alert("Próximamente", "Esta función estará disponible muy pronto.")}
-                    />
+                            {/* Botón Google outline */}
+                            <Button
+                                title="Continuar con Google"
+                                variant="outline"
+                                onPress={() => notify("Próximamente", "Esta función estará disponible muy pronto.")}
+                            />
+                        </>
+                    )}
 
                     {/* Link a registro */}
                     <TouchableOpacity className="mt-8 mb-2 items-center" onPress={() => router.push('/register')}>
