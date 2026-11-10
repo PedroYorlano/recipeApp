@@ -4,8 +4,11 @@ from django.db import transaction
 import base64
 import uuid
 from django.core.files.base import ContentFile
+import re
 import requests
+from decimal import Decimal, InvalidOperation
 from django.contrib.auth.models import User
+from django.db.models import Q
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True, required=True, min_length=8, style={'input_type': 'password'})
@@ -80,10 +83,51 @@ class CategorySerializer(serializers.ModelSerializer):
         model = Category
         fields = ['id', 'name', 'parent']
 
+# "400ml", "1/2 taza", "1,5 kg": número al principio de la unidad.
+_LEADING_QTY = re.compile(r'^\s*(\d+\s*/\s*\d+|\d+(?:[.,]\d+)?)\s*(.*)$')
+
+
+def split_quantity_unit(quantity, unit):
+    """Si la cantidad vino pegada a la unidad (recetas viejas o la IA), la separa."""
+    if quantity is not None or not unit:
+        return quantity, unit
+    match = _LEADING_QTY.match(unit)
+    if not match:
+        return quantity, unit
+    raw, rest = match.groups()
+    try:
+        if '/' in raw:
+            num, den = (Decimal(x.strip()) for x in raw.split('/'))
+            if den == 0:
+                return quantity, unit
+            value = (num / den).quantize(Decimal('0.01'))
+        else:
+            value = Decimal(raw.replace(',', '.'))
+    except InvalidOperation:
+        return quantity, unit
+    return value, rest.strip()
+
+
 class IngredientSerializer(serializers.ModelSerializer):
+    # Número en el JSON (no "200.00"), que es lo que espera el front.
+    quantity = serializers.DecimalField(
+        max_digits=8, decimal_places=2, coerce_to_string=False, required=False, allow_null=True
+    )
+
     class Meta:
         model = Ingredient
         fields = ['id', 'name', 'quantity', 'unit', 'order']
+
+    def validate(self, data):
+        data['quantity'], data['unit'] = split_quantity_unit(data.get('quantity'), data.get('unit', ''))
+        return data
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        quantity, unit = split_quantity_unit(data.get('quantity'), data.get('unit'))
+        data['quantity'] = float(quantity) if isinstance(quantity, Decimal) else quantity
+        data['unit'] = unit
+        return data
 
 class StepSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
@@ -130,6 +174,15 @@ class RecipeSerializer(serializers.ModelSerializer):
     def validate_steps(self, value):
         if len(value) > 100:
             raise serializers.ValidationError("Máximo 100 pasos por receta.")
+        return value
+
+    def validate_categories(self, value):
+        user = self.context['request'].user
+        allowed = set(
+            Category.objects.filter(Q(user__isnull=True) | Q(user=user)).values_list('id', flat=True)
+        )
+        if any(cat.id not in allowed for cat in value):
+            raise serializers.ValidationError("Categoría inválida.")
         return value
 
     def validate_title(self, value):
@@ -182,18 +235,16 @@ class RecipeSerializer(serializers.ModelSerializer):
         img_url = validated_data.pop('image_url', None)
         remove_image = validated_data.pop('remove_image', False)
 
-        # 2. Actualizar campos simples de la receta
-        instance.title = validated_data.get('title', instance.title)
-        instance.description = validated_data.get('description', instance.description)
-        instance.servings = validated_data.get('servings', instance.servings)
-        instance.prep_time = validated_data.get('prep_time', instance.prep_time)
+        # 2. Actualizar campos simples (title, description, servings, prep_time, original_url, is_public...)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
 
-        # 3. Actualizar Imagen de Portada (Si hay nueva)
+        # 3. Imagen de portada: una nueva gana sobre "quitar"
         if img_b64:
             instance.image = decode_base64_file(img_b64)
         elif img_url:
             instance.image = download_image_from_url(img_url)
-        if remove_image:
+        elif remove_image:
             instance.image = None
         
         instance.save()
@@ -262,8 +313,9 @@ class MealPlanSerializer(serializers.ModelSerializer):
         return value
 
     def validate_date(self, value):
-        from datetime import date, timedelta
-        today = date.today()
+        from datetime import timedelta
+        from django.utils import timezone
+        today = timezone.localdate()
         max_date = today + timedelta(weeks=4)
         if value < today:
             raise serializers.ValidationError("No podés planificar en el pasado.")

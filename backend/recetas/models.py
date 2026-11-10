@@ -81,9 +81,9 @@ class UserUsage(models.Model):
     last_reset = models.DateField(auto_now_add=True)
 
     def reset_if_new_day(self):
-        if self.last_reset < date.today():
+        if self.last_reset < timezone.localdate():
             self.import_count = 0
-            self.last_reset = date.today()
+            self.last_reset = timezone.localdate()
             self.save()
 
     def can_import(self, max_daily):
@@ -107,7 +107,7 @@ class GlobalUsage(models.Model):
 
     @classmethod
     def get_today(cls):
-        obj, _ = cls.objects.get_or_create(date=date.today())
+        obj, _ = cls.objects.get_or_create(date=timezone.localdate())
         return obj
 
     def can_request(self, max_daily):

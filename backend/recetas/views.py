@@ -15,6 +15,8 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q
 from django.conf import settings
 from django.core.mail import send_mail
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.validators import validate_email
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import RefreshToken
 import random
@@ -183,6 +185,11 @@ class RecipeViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         serializer.save(user=self.request.user)
 
+    def perform_destroy(self, instance):
+        # Sin esto quedan slots del planner "ocupados" por una receta que ya no existe.
+        MealPlan.objects.filter(user=self.request.user, recipe=instance).delete()
+        instance.delete()
+
     @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
     def favorite(self, request, pk=None):
         """Toggle favorito: si ya existe lo elimina, si no existe lo crea."""
@@ -227,8 +234,19 @@ class RegisterView(APIView):
         if not username or not email or not password:
             return Response({'error': 'Todos los campos son obligatorios.'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if len(username) < 3:
-            return Response({'error': 'El nombre de usuario debe tener al menos 3 caracteres.'}, status=status.HTTP_400_BAD_REQUEST)
+        if len(username) < 3 or len(username) > 30:
+            return Response({'error': 'El nombre de usuario debe tener entre 3 y 30 caracteres.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not re.fullmatch(r'[\w.+-]+', username):
+            return Response({'error': 'El nombre de usuario solo puede tener letras, números y . _ + -'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            return Response({'error': 'El correo electrónico no es válido.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(password) < 8:
+            return Response({'error': 'La contraseña debe tener al menos 8 caracteres.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # Validaciones de duplicados en usuarios activos
         if User.objects.filter(username__iexact=username).exists():
@@ -287,7 +305,7 @@ class RegisterVerifyView(APIView):
             return Response({'error': 'No se encontró una solicitud de registro pendiente para este correo.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if pending.is_expired():
-            return Response({'error': 'El código OTP ha expirado. Por favor, solicita uno nuevo.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'El código OTP ha expirado. Pedí uno nuevo.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if pending.otp_code != otp_code:
             return Response({'error': 'El código OTP es incorrecto.'}, status=status.HTTP_400_BAD_REQUEST)
@@ -377,7 +395,7 @@ class PasswordResetRequestView(APIView):
             try:
                 send_mail(
                     subject='Restablecer Contraseña - Fogón',
-                    message=f'Hola {user_opt.username},\n\nHas solicitado restablecer tu contraseña. Tu código OTP es: {otp_code}\n\nEste código vencerá en 10 minutos.',
+                    message=f'Hola {user_opt.username},\n\nPediste restablecer tu contraseña. Tu código es: {otp_code}\n\nEste código vencerá en 10 minutos.',
                     from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[email],
                     fail_silently=False,
@@ -416,7 +434,7 @@ class PasswordResetVerifyView(APIView):
             return Response({'error': 'El código OTP es incorrecto.'}, status=status.HTTP_400_BAD_REQUEST)
 
         if otp_opt.is_expired():
-            return Response({'error': 'El código OTP ha expirado. Por favor, solicita uno nuevo.'}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({'error': 'El código OTP ha expirado. Pedí uno nuevo.'}, status=status.HTTP_400_BAD_REQUEST)
 
         # OTP válido! Actualizar contraseña
         user_opt.set_password(new_password)
@@ -459,12 +477,12 @@ class MealPlanViewSet(viewsets.ModelViewSet):
             start = date.fromisoformat(week_start)
         except (ValueError, TypeError):
             # Si no viene el parámetro, usamos la semana actual
-            today = date.today()
+            today = timezone.localdate()
             start = today - timedelta(days=today.weekday())
         
         end = start + timedelta(days=6)
         plans = self.get_queryset().filter(
-            date__range=(start, end)
+            date__range=(start, end), recipe__isnull=False
         ).select_related('recipe')
         
         serializer = self.get_serializer(plans, many=True)
@@ -476,7 +494,7 @@ class MealPlanViewSet(viewsets.ModelViewSet):
         try:
             start = date.fromisoformat(week_start)
         except (ValueError, TypeError):
-            today = date.today()
+            today = timezone.localdate()
             start = today - timedelta(days=today.weekday())
 
         end = start + timedelta(days=6)
