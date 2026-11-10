@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, useContext, useCallback } fr
 import { MealPlan, ShoppingListItem, Recipe } from '../types';
 import { useApp } from './AppContext';
 import { getRecipeImage } from '../utils';
+import { addWeeks, getCurrentMonday } from '../utils/dates';
 import {
     getWeekPlans,
     createMealPlan,
@@ -13,25 +14,6 @@ import {
     updateShoppingItem as updateShoppingItemService,
     deleteShoppingItem as deleteShoppingItemService,
 } from '../services/api';
-
-// --- Helpers de fecha ---
-
-const getCurrentMonday = (): string => {
-    const today = new Date();
-    const day = today.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    const monday = new Date(today);
-    monday.setDate(today.getDate() + diff);
-    return formatDate(monday);
-};
-
-const formatDate = (d: Date): string => d.toISOString().split('T')[0];
-
-const addWeeks = (isoDate: string, weeks: number): string => {
-    const d = new Date(isoDate + 'T00:00:00');
-    d.setDate(d.getDate() + weeks * 7);
-    return formatDate(d);
-};
 
 // --- Draft slot para el planning volátil ---
 

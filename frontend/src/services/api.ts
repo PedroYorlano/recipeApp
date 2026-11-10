@@ -31,6 +31,8 @@ const refreshAccessToken = async (): Promise<string | null> => {
 
         const data = await response.json();
         await AsyncStorage.setItem('authToken', data.access);
+        // ROTATE_REFRESH_TOKENS está activo: si no guardamos el nuevo, la sesión muere a los 7 días del login.
+        if (data.refresh) await AsyncStorage.setItem('refreshToken', data.refresh);
         return data.access;
     } catch {
         return null;

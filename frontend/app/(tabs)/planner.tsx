@@ -21,6 +21,7 @@ import { MealPlan, Recipe, ShoppingListItem } from '../../src/types';
 import { RecipePickerModal } from '../../src/components/planner/RecipePickerModal';
 import { FogoncitoChat } from '../../src/components/planner/FogoncitoChat';
 import { notify, confirmAction } from '../../src/utils/dialogs';
+import { addDays, getTodayISO, parseISODate } from '../../src/utils/dates';
 
 // --- Constantes ---
 
@@ -40,15 +41,11 @@ type TabView = 'week' | 'shopping' | 'fogoncito';
 
 // --- Helpers ---
 
-const getWeekDays = (weekStart: string): { date: string; dayName: string; dayNum: number }[] => {
-    const start = new Date(weekStart + 'T00:00:00');
-    return DAY_NAMES.map((name, i) => {
-        const d = new Date(start);
-        d.setDate(start.getDate() + i);
-        const iso = d.toISOString().split('T')[0];
-        return { date: iso, dayName: name, dayNum: d.getDate() };
+const getWeekDays = (weekStart: string): { date: string; dayName: string; dayNum: number }[] =>
+    DAY_NAMES.map((name, i) => {
+        const iso = addDays(weekStart, i);
+        return { date: iso, dayName: name, dayNum: parseISODate(iso).getDate() };
     });
-};
 
 const formatWeekRange = (weekStart: string): string => {
     const start = new Date(weekStart + 'T00:00:00');
@@ -71,8 +68,6 @@ const getImageUri = (image: string | null): string | null => {
     return `${SERVER_URL}${image}`;
 };
 
-/** Retorna la fecha de hoy en ISO 'YYYY-MM-DD' */
-const getTodayISO = (): string => new Date().toISOString().split('T')[0];
 
 // --- Main Screen ---
 
