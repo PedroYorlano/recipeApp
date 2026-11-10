@@ -7,6 +7,7 @@ import { PlannerProvider } from '../src/context/PlannerContext';
 import { CreateMenuModal } from '../src/components/CreateMenuModal';
 import { RecipeFormModal } from '../src/components/recipes/RecipeFormModal';
 import * as Linking from 'expo-linking';
+import Head from 'expo-router/head';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PENDING_IMPORT_KEY } from '../src/utils/shareImport';
 
@@ -139,6 +140,10 @@ const MainLayout = () => {
 export default function RootLayout() {
   return (
     <AppProvider>
+      {/* Título de la pestaña en web (en nativo no hace nada) */}
+      <Head>
+        <title>Fogón</title>
+      </Head>
       <PlannerProvider>
         <MainLayout />
       </PlannerProvider>
