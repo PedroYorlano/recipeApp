@@ -184,6 +184,9 @@ REST_FRAMEWORK = {
 
 # --- JWT ---
 from datetime import timedelta
+# Login con usuario o email (el front pide "Email o Usuario")
+AUTHENTICATION_BACKENDS = ['recetas.backends.EmailOrUsernameModelBackend']
+
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
