@@ -1,7 +1,5 @@
 # --- Dependencias Node ---
 frontend/node_modules/
-frontend/package-lock.json
-frontend/package.json
 
 # --- Logs ---
 npm-debug.log*
