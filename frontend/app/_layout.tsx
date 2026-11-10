@@ -7,6 +7,8 @@ import { PlannerProvider } from '../src/context/PlannerContext';
 import { CreateMenuModal } from '../src/components/CreateMenuModal';
 import { RecipeFormModal } from '../src/components/recipes/RecipeFormModal';
 import * as Linking from 'expo-linking';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { PENDING_IMPORT_KEY } from '../src/utils/shareImport';
 
 const MainLayout = () => {
   // 1. Extraemos TODO lo necesario del Contexto (Auth + Modales)
@@ -40,6 +42,20 @@ const MainLayout = () => {
     return () => subscription.remove();
   }, [setCreateMode, setInitialImportUrl, setFormModalVisible]);
 
+  // Link compartido sin sesión (ver app/import.tsx): se abre apenas el usuario entra.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    AsyncStorage.getItem(PENDING_IMPORT_KEY)
+      .then(async (pendingUrl) => {
+        if (!pendingUrl) return;
+        await AsyncStorage.removeItem(PENDING_IMPORT_KEY);
+        setCreateMode('video');
+        setInitialImportUrl(pendingUrl);
+        setFormModalVisible(true);
+      })
+      .catch(() => {});
+  }, [isAuthenticated, setCreateMode, setInitialImportUrl, setFormModalVisible]);
+
   const segments = useSegments();
   const router = useRouter();
   const rootNavigationState = useRootNavigationState();
@@ -54,8 +70,10 @@ const MainLayout = () => {
     const inForgotPassword = segments[0] === 'forgot-password';
     const isLanding = !segments[0] || segments[0] === 'index';
     const inShareExtension = segments[0] === 'share-extension';
+    // /import decide solo a dónde ir (guarda el link y manda al login si hace falta).
+    const inImport = segments[0] === 'import';
 
-    const isPublicRoute = (isWeb && isLanding) || inLogin || inRegister || inForgotPassword || inShareExtension;
+    const isPublicRoute = (isWeb && isLanding) || inLogin || inRegister || inForgotPassword || inShareExtension || inImport;
 
     if (isAuthenticated) {
       if (isLanding || inLogin || inRegister || inForgotPassword) {

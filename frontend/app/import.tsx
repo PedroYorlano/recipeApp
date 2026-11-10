@@ -1,29 +1,42 @@
 import { useEffect } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useApp } from '../src/context/AppContext';
 import { ActivityIndicator, View } from 'react-native';
+import { useApp } from '../src/context/AppContext';
+import { PENDING_IMPORT_KEY, extractUrl } from '../src/utils/shareImport';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
+/**
+ * Destino del share target de la PWA (y de los deep links web).
+ * Android suele mandar el link en `text` en vez de `url`, así que se prueban los tres.
+ */
 export default function ImportRoute() {
-  const { url } = useLocalSearchParams<{ url: string }>();
-  const { setCreateMode, setInitialImportUrl, setFormModalVisible } = useApp();
+  const params = useLocalSearchParams<{ url?: string; text?: string; title?: string }>();
+  const { isAuthenticated, isAuthLoading, setCreateMode, setInitialImportUrl, setFormModalVisible } = useApp();
   const router = useRouter();
 
+  const sharedUrl = extractUrl(params.url) ?? extractUrl(params.text) ?? extractUrl(params.title);
+
   useEffect(() => {
-    if (!url) {
-      router.replace('/(tabs)');
+    if (isAuthLoading) return;
+
+    if (!sharedUrl) {
+      router.replace(isAuthenticated ? '/(tabs)' : '/');
       return;
     }
 
-    const decodedUrl = decodeURIComponent(url);
-    
-    // 1. Configurar los valores en el AppContext
-    setCreateMode('video');
-    setInitialImportUrl(decodedUrl);
-    setFormModalVisible(true);
+    if (!isAuthenticated) {
+      // Se retoma en app/_layout.tsx después del login.
+      AsyncStorage.setItem(PENDING_IMPORT_KEY, sharedUrl)
+        .catch(() => {})
+        .finally(() => router.replace('/login'));
+      return;
+    }
 
-    // 2. Redirigir al Home de las pestañas
+    setCreateMode('video');
+    setInitialImportUrl(sharedUrl);
+    setFormModalVisible(true);
     router.replace('/(tabs)');
-  }, [url]);
+  }, [isAuthLoading, isAuthenticated, sharedUrl]);
 
   return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FAEEDA' }}>
