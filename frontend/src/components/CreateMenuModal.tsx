@@ -18,7 +18,7 @@ export const CreateMenuModal = ({ visible, onClose, onSelect }: Props) => {
                             
                             <View className="items-center mb-6">
                                 <View className="w-12 h-1.5 bg-fogon-gray/30 rounded-full mb-6" />
-                                <Text className="text-2xl font-serif font-bold text-fogon-brown">Agregar a tu Fogón</Text>
+                                <Text className="text-2xl font-serif font-bold text-fogon-brown">Agregar receta</Text>
                             </View>
 
                             {/* Opciones con Inteligencia Artificial */}
@@ -61,7 +61,7 @@ export const CreateMenuModal = ({ visible, onClose, onSelect }: Props) => {
                                     <Pencil size={24} color="#FFF8F0" />
                                 </View>
                                 <View>
-                                    <Text className="text-lg font-bold text-fogon-brown">Escribir Manualmente</Text>
+                                    <Text className="text-lg font-bold text-fogon-brown">Cargar a mano</Text>
                                     <Text className="text-sm text-fogon-gray mt-0.5">La receta de la abuela, a tu manera</Text>
                                 </View>
                             </TouchableOpacity>

@@ -10,8 +10,8 @@ export default function SettingsScreen() {
 
     const handleLogout = async () => {
         const ok = await confirmAction({
-            title: "Cerrar Sesión",
-            message: "¿Estás seguro que quieres salir?",
+            title: "Cerrar sesión",
+            message: "¿Seguro que querés salir?",
             confirmText: "Salir",
             destructive: true,
         });
@@ -21,8 +21,8 @@ export default function SettingsScreen() {
     return (
         <SafeAreaView className="flex-1 bg-fogon-cream">
             {/* Header */}
-            <View className="px-6 py-4 bg-fogon-white border-b border-fogon-gray/10">
-                <Text className="text-[28px] font-bold text-fogon-brown tracking-tight">Configuración</Text>
+            <View className="px-6 py-4 border-b border-fogon-gray/10">
+                <Text className="text-[32px] font-bold text-fogon-brown tracking-tight">Perfil</Text>
             </View>
 
             <View className="p-6">
@@ -36,6 +36,7 @@ export default function SettingsScreen() {
                         <View className="flex-1">
                             <Text className="text-sm text-fogon-gray mb-0.5">Usuario</Text>
                             <Text className="text-base font-semibold text-fogon-brown">@{user?.username || 'Invitado'}</Text>
+                            {user?.email ? <Text className="text-sm text-fogon-gray mt-0.5">{user.email}</Text> : null}
                         </View>
                     </View>
                 </View>
@@ -47,7 +48,7 @@ export default function SettingsScreen() {
                     onPress={handleLogout}
                 >
                     <LogOut size={18} color="#FF3B30" />
-                    <Text className="text-red-500 font-semibold text-base ml-2">Cerrar Sesión actual</Text>
+                    <Text className="text-red-500 font-semibold text-base ml-2">Cerrar sesión</Text>
                 </TouchableOpacity>
 
                 {/* Footer */}

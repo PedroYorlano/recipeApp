@@ -1,24 +1,15 @@
 import { useEffect, useState } from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { close, openHostApp, InitialProps } from 'expo-share-extension';
+import { extractUrl } from '../utils/shareImport';
 
 export default function ShareExtensionScreen({ url: initialUrl, text }: InitialProps) {
   const [url, setUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (initialUrl) {
-      setUrl(initialUrl);
-    } else if (text) {
-      // Extract URL from text if needed, otherwise fallback to the text itself
-      const urlRegex = /(https?:\/\/[^\s]+)/g;
-      const found = text.match(urlRegex);
-      if (found && found.length > 0) {
-        setUrl(found[0]);
-      } else {
-        setUrl(text);
-      }
-    }
+    // Misma lógica que el share target de la PWA (app/import.tsx).
+    setUrl(extractUrl(initialUrl) ?? extractUrl(text));
     setIsLoading(false);
   }, [initialUrl, text]);
 

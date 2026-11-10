@@ -301,7 +301,7 @@ export default function LandingPage() {
               Planner semanal
             </Text>
             <Text className="text-[#A89070] leading-relaxed text-sm">
-              Planificá tus comidas de la semana de forma visual. Arrastrá recetas y armá un menú equilibrado en pocos minutos.
+              Planificá tus comidas de la semana de forma visual. Elegí una receta para cada comida y armá el menú en pocos minutos.
             </Text>
           </View>
 
@@ -327,7 +327,7 @@ export default function LandingPage() {
               Búsqueda y filtros
             </Text>
             <Text className="text-[#A89070] leading-relaxed text-sm">
-              Encontrá cualquier receta en segundos. Filtra por categoría (dulce, salado), tiempo de preparación o ingredientes en tu alacena.
+              Encontrá cualquier receta en segundos. Buscá por nombre o ingrediente y filtrá por categoría o favoritos.
             </Text>
           </View>
 

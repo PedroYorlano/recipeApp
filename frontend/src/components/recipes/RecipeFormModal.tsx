@@ -262,7 +262,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
         {/* HEADER */}
         <View className="flex-row justify-between items-center px-6 py-4 pt-[60px] bg-fogon-white border-b border-fogon-gray/10 shadow-sm z-10">
           <Text className="text-xl font-bold font-serif text-fogon-brown">
-            {!draftRecipe ? 'Importar al Fogón' : (initialData ? 'Editar Receta' : 'Nueva Receta')}
+            {!draftRecipe ? 'Importar al Fogón' : (initialData ? 'Editar receta' : 'Nueva receta')}
           </Text>
           <TouchableOpacity onPress={onClose} className="bg-fogon-cream p-2 rounded-full">
             <X size={20} color="#633806" />
@@ -294,7 +294,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
               ) : createMode === 'link-web' ? (
                 <>
                   <Text className="text-xl font-bold text-fogon-brown mb-2 text-center px-4">
-                    Pegá el link del Blog Web
+                    Pegá el link del blog o sitio web
                   </Text>
                   <Text className="text-xs text-fogon-gray mb-6 text-center px-4">
                     Extraemos la receta eliminando todas las historias y publicidades del sitio
@@ -304,7 +304,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
                   </View>
                   {!isProcessing && (
                     <View className="w-full mt-2">
-                       <Button title="Analizar Blog" onPress={handleImportWeb} icon={<Sparkles color="#633806" size={20} />} />
+                       <Button title="Extraer con IA" onPress={handleImportWeb} icon={<Sparkles color="#633806" size={20} />} />
                     </View>
                   )}
                 </>
@@ -328,21 +328,21 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
                   </View>
                   {!isProcessing && (
                     <View className="w-full mt-2">
-                       <Button title="Analizar Texto" onPress={handleImportText} icon={<Sparkles color="#633806" size={20} />} />
+                       <Button title="Extraer con IA" onPress={handleImportText} icon={<Sparkles color="#633806" size={20} />} />
                     </View>
                   )}
                 </>
               ) : createMode === 'audio' ? (
                 <>
                   <Text className="text-xl font-bold text-fogon-brown mb-6 text-center px-4">
-                    Subir Nota de Voz (Audio)
+                    Subí una nota de voz
                   </Text>
                   <Text className="text-xs text-fogon-gray mb-6 text-center px-4">
                     Subí un audio contando la receta y la IA la transcribe.
                   </Text>
                   {!isProcessing && (
                     <View className="w-full mt-2">
-                       <Button title="Seleccionar Audio" onPress={handleImportAudio} icon={<Mic color="#633806" size={20} />} />
+                       <Button title="Elegir audio" onPress={handleImportAudio} icon={<Mic color="#633806" size={20} />} />
                     </View>
                   )}
                 </>
@@ -362,7 +362,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
               </View>
               
               <View className="w-full">
-                <Button title="Cargar a la vieja usanza (Manual)" variant="outline" onPress={handleManualCreate} icon={<ChefHat color="#633806" size={20} />} />
+                <Button title="Cargar a mano" variant="outline" onPress={handleManualCreate} icon={<ChefHat color="#633806" size={20} />} />
               </View>
             </View>
           )}
@@ -417,13 +417,13 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
                       <X size={16} color="white" />
                     </TouchableOpacity>
                     <TouchableOpacity className="absolute bottom-3 left-3 bg-fogon-white/90 px-3 py-1.5 rounded-full shadow-sm" onPress={() => pickImage('cover')}>
-                      <Text className="text-fogon-brown text-xs font-bold">Cambiar Foto</Text>
+                      <Text className="text-fogon-brown text-xs font-bold">Cambiar foto</Text>
                     </TouchableOpacity>
                   </View>
                 ) : (
                   <TouchableOpacity className="w-full aspect-[5/3] bg-fogon-white rounded-[16px] border-2 border-dashed border-fogon-gray/30 items-center justify-center" onPress={() => pickImage('cover')} activeOpacity={0.7}>
                     <Camera size={32} color="#A89070" className="mb-2" />
-                    <Text className="text-fogon-gray font-semibold">Subir Foto de Portada</Text>
+                    <Text className="text-fogon-gray font-semibold">Subir foto de portada</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -494,11 +494,11 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
                 </View>
               ))}
               <TouchableOpacity className="my-2 py-3 items-center border border-dashed border-fogon-gray/40 rounded-[12px] bg-fogon-white/50" onPress={addIngredient}>
-                <Text className="text-fogon-gray font-bold text-sm">+ Agregar Ingrediente</Text>
+                <Text className="text-fogon-gray font-bold text-sm">+ Agregar ingrediente</Text>
               </TouchableOpacity>
 
               {/* PASOS */}
-              <Text className="text-fogon-brown text-xl font-bold font-serif mb-4 mt-8">Pasos de Preparación</Text>
+              <Text className="text-fogon-brown text-xl font-bold font-serif mb-4 mt-8">Preparación</Text>
               {draftRecipe.steps.map((step, index) => (
                 <View key={index} className="bg-fogon-white rounded-[16px] p-4 mb-4 shadow-sm border border-fogon-gray/10 relative">
                   <View className="flex-row items-center justify-between mb-3">
@@ -517,12 +517,12 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
                 </View>
               ))}
               <TouchableOpacity className="my-2 py-3 items-center border border-dashed border-fogon-gray/40 rounded-[12px] bg-fogon-white/50" onPress={addStep}>
-                <Text className="text-fogon-gray font-bold text-sm">+ Agregar Paso</Text>
+                <Text className="text-fogon-gray font-bold text-sm">+ Agregar paso</Text>
               </TouchableOpacity>
 
               {/* BOTON FINAL DE GUARDADO */}
               <View className="mt-10">
-                <Button title="Guardar Receta en el Fogón" onPress={handleSaveInternal} loading={saving} />
+                <Button title="Guardar receta" onPress={handleSaveInternal} loading={saving} />
               </View>
             </View>
           )}

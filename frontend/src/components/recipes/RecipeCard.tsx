@@ -49,11 +49,11 @@ export const RecipeCard = ({ item, onPress, maxWidth }: Props) => {
           className="absolute bottom-0 left-0 right-0 h-1/2"
         />
 
-        {categoryName && (
+        {categoryName ? (
           <View className="absolute top-3 left-3 bg-fogon-white/95 px-3 py-1 rounded-full shadow-sm max-w-[70%]">
             <Text className="text-[11px] font-bold text-fogon-brown uppercase tracking-wider" numberOfLines={1}>{categoryName}</Text>
           </View>
-        )}
+        ) : null}
 
         {/* Botón de Favorito */}
         <TouchableOpacity 
@@ -73,14 +73,14 @@ export const RecipeCard = ({ item, onPress, maxWidth }: Props) => {
             {item.title}
           </Text>
           
-          {item.servings && (
+          {item.servings ? (
             <View className="flex-row items-center space-x-3 mt-1">
               <View className="flex-row items-center">
                 <Users size={12} color="#FAEEDA" className="mr-1 opacity-80" />
                 <Text className="text-xs text-fogon-cream/80 font-medium">{item.servings} p</Text>
               </View>
             </View>
-          )}
+          ) : null}
         </View>
       </View>
     </TouchableOpacity>

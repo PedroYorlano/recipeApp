@@ -20,7 +20,7 @@ export const ForgotPasswordScreen = () => {
 
     // Contador para reenviar el OTP
     useEffect(() => {
-        let timer: NodeJS.Timeout;
+        let timer: ReturnType<typeof setInterval> | undefined;
         if (resendCooldown > 0) {
             timer = setInterval(() => {
                 setResendCooldown(prev => prev - 1);
@@ -33,16 +33,16 @@ export const ForgotPasswordScreen = () => {
 
     const handleRequestOTP = async () => {
         if (!email) {
-            notify("⚠️ Ups", "Por favor ingresá tu correo electrónico.");
+            notify("⚠️ Ups", "Ingresá tu correo electrónico.");
             return;
         }
 
         setLoading(true);
         try {
-            await requestPasswordResetService(email);
+            await requestPasswordResetService(email.trim());
             setStep('verify');
             setResendCooldown(60);
-            notify("Código enviado ✉️", "Si tu correo está registrado, recibirás un código de 6 dígitos.");
+            notify("Código enviado ✉️", "Si tu correo está registrado, te va a llegar un código de 6 dígitos.");
         } catch (error: any) {
             notify("Error", error.message || "No pudimos enviar el código. Intentá de nuevo.");
         } finally {
@@ -52,7 +52,7 @@ export const ForgotPasswordScreen = () => {
 
     const handleVerifyAndReset = async () => {
         if (!otpCode || otpCode.length !== 6) {
-            notify("⚠️ Código incompleto", "Por favor ingresá el código OTP de 6 dígitos.");
+            notify("⚠️ Código incompleto", "Ingresá el código de 6 dígitos.");
             return;
         }
 
@@ -63,8 +63,8 @@ export const ForgotPasswordScreen = () => {
 
         setLoading(true);
         try {
-            await verifyPasswordResetOTPService(email, otpCode, newPassword);
-            notify("¡Éxito! 🎉", "Tu contraseña ha sido restablecida con éxito.", () => router.replace('/login'));
+            await verifyPasswordResetOTPService(email.trim(), otpCode, newPassword);
+            notify("¡Listo! 🎉", "Ya podés ingresar con tu nueva contraseña.", () => router.replace('/login'));
         } catch (error: any) {
             notify("Error", error.message || "No se pudo restablecer la contraseña. Verificá los datos.");
         } finally {
@@ -77,7 +77,7 @@ export const ForgotPasswordScreen = () => {
         try {
             await requestPasswordResetService(email);
             setResendCooldown(60);
-            notify("Reenviado ✉️", "Enviamos un nuevo código OTP a tu correo.");
+            notify("Reenviado ✉️", "Te enviamos un código nuevo a tu correo.");
         } catch (error: any) {
             notify("Error", error.message || "No se pudo reenviar el código.");
         } finally {
@@ -117,7 +117,7 @@ export const ForgotPasswordScreen = () => {
 
                             <View className="mt-4">
                                 <Button
-                                    title="Enviar Código"
+                                    title="Enviar código"
                                     onPress={handleRequestOTP}
                                     loading={loading}
                                 />
@@ -125,10 +125,10 @@ export const ForgotPasswordScreen = () => {
 
                             <TouchableOpacity 
                                 className="mt-8 flex-row items-center justify-center" 
-                                onPress={() => router.back()}
+                                onPress={() => router.replace('/login')}
                             >
                                 <ArrowLeft size={16} color="#EF9F27" className="mr-1" />
-                                <Text className="text-fogon-amber text-[15px] font-bold">Volver al Ingreso</Text>
+                                <Text className="text-fogon-amber text-[15px] font-bold">Volver a ingresar</Text>
                             </TouchableOpacity>
                         </View>
                     </>
@@ -139,7 +139,7 @@ export const ForgotPasswordScreen = () => {
                             <View className="bg-fogon-white rounded-full p-5 shadow-sm border border-fogon-amber/20 mb-4">
                                 <Flame size={48} color="#EF9F27" strokeWidth={1.5} />
                             </View>
-                            <Text className="text-[32px] font-bold text-fogon-brown tracking-tight text-center">Nueva Contraseña</Text>
+                            <Text className="text-[32px] font-bold text-fogon-brown tracking-tight text-center">Nueva contraseña</Text>
                             <Text className="text-fogon-gray text-center text-base mt-2 font-medium px-4">
                                 Ingresá el código enviado a{"\n"}
                                 <Text className="font-bold text-fogon-brown">{email}</Text>
@@ -149,7 +149,7 @@ export const ForgotPasswordScreen = () => {
                         {/* Card blanca */}
                         <View className="bg-fogon-white rounded-[24px] p-6 shadow-sm border border-fogon-gray/10">
                             <Input
-                                label="Código OTP"
+                                label="Código de 6 dígitos"
                                 placeholder="123456"
                                 value={otpCode}
                                 onChangeText={setOtpCode}
@@ -160,7 +160,7 @@ export const ForgotPasswordScreen = () => {
                             />
 
                             <Input
-                                label="Nueva Contraseña"
+                                label="Nueva contraseña"
                                 placeholder="Mínimo 8 caracteres"
                                 value={newPassword}
                                 onChangeText={setNewPassword}
@@ -174,7 +174,7 @@ export const ForgotPasswordScreen = () => {
 
                             <View className="mt-4">
                                 <Button
-                                    title="Restablecer Contraseña"
+                                    title="Restablecer contraseña"
                                     onPress={handleVerifyAndReset}
                                     loading={loading}
                                 />

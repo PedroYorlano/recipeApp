@@ -24,7 +24,7 @@ export const RegisterScreen = () => {
 
     // Contador para el reenvío del OTP
     useEffect(() => {
-        let timer: NodeJS.Timeout;
+        let timer: ReturnType<typeof setInterval> | undefined;
         if (resendCooldown > 0) {
             timer = setInterval(() => {
                 setResendCooldown(prev => prev - 1);
@@ -36,14 +36,18 @@ export const RegisterScreen = () => {
     }, [resendCooldown]);
 
     const handleRegister = async () => {
-        if (!username || !email || !password) {
+        if (!username.trim() || !email.trim() || !password) {
             notify("⚠️ Ups", "Asegurate de completar todos los campos para registrarte.");
+            return;
+        }
+        if (password.length < 8) {
+            notify("⚠️ Contraseña muy corta", "La contraseña tiene que tener al menos 8 caracteres.");
             return;
         }
 
         setLoading(true);
         try {
-            await register(username, email, password);
+            await register(username.trim(), email.trim(), password);
             setStep('otp');
             setResendCooldown(60);
             notify("¡Código enviado! ✉️", `Enviamos un código de verificación de 6 dígitos a ${email}.`);
@@ -56,13 +60,13 @@ export const RegisterScreen = () => {
 
     const handleVerifyOTP = async () => {
         if (!otpCode || otpCode.length !== 6) {
-            notify("⚠️ Código incompleto", "Por favor ingresá el código de 6 dígitos.");
+            notify("⚠️ Código incompleto", "Ingresá el código de 6 dígitos.");
             return;
         }
 
         setLoading(true);
         try {
-            await verifyRegisterOTP(email, otpCode);
+            await verifyRegisterOTP(email.trim(), otpCode);
             notify("¡Cuenta verificada! 🎉", "Te damos la bienvenida a Fogón.");
         } catch (error: any) {
             notify("Error de verificación", error.message || "El código ingresado es incorrecto o expiró.");
@@ -74,9 +78,9 @@ export const RegisterScreen = () => {
     const handleResendOTP = async () => {
         setLoading(true);
         try {
-            await resendRegisterOTPService(email);
+            await resendRegisterOTPService(email.trim());
             setResendCooldown(60);
-            notify("Reenviado ✉️", "Te enviamos un nuevo código OTP a tu correo.");
+            notify("Reenviado ✉️", "Te enviamos un código nuevo a tu correo.");
         } catch (error: any) {
             notify("Error", error.message || "No se pudo reenviar el código. Intentá más tarde.");
         } finally {
@@ -122,7 +126,7 @@ export const RegisterScreen = () => {
 
                             <Input
                                 label="Contraseña"
-                                placeholder="••••••"
+                                placeholder="Mínimo 8 caracteres"
                                 value={password}
                                 onChangeText={setPassword}
                                 secureTextEntry={!showPassword}
@@ -135,7 +139,7 @@ export const RegisterScreen = () => {
 
                             <View className="mt-4">
                                 <Button
-                                    title="Crear Cuenta"
+                                    title="Crear cuenta"
                                     onPress={handleRegister}
                                     loading={loading}
                                 />
@@ -159,8 +163,7 @@ export const RegisterScreen = () => {
                                 </>
                             )}
 
-                            {/* Fake link for demo purposes */}
-                            <TouchableOpacity className="mt-8 mb-2 items-center" onPress={() => router.back()}>
+                            <TouchableOpacity className="mt-8 mb-2 items-center" onPress={() => router.replace('/login')}>
                                 <Text className="text-fogon-amber text-[15px] font-bold">¿Ya tenés cuenta? Ingresá</Text>
                             </TouchableOpacity>
                         </View>
@@ -194,7 +197,7 @@ export const RegisterScreen = () => {
 
                             <View className="mt-2">
                                 <Button
-                                    title="Confirmar Código"
+                                    title="Confirmar código"
                                     onPress={handleVerifyOTP}
                                     loading={loading}
                                 />

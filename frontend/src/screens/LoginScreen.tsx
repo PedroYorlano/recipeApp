@@ -18,14 +18,14 @@ export const LoginScreen = () => {
     const router = useRouter();
 
     const handleLogin = async () => {
-        if (!username || !password) {
+        if (!username.trim() || !password) {
             notify("⚠️ Ups", "Asegurate de completar ambos campos para ingresar.");
             return;
         }
 
         setLoading(true);
         try {
-            await login.login(username, password);
+            await login.login(username.trim(), password);
         } catch (error) {
             notify("Error", "Los datos no coinciden. ¿Probamos de nuevo?");
         } finally {

@@ -232,6 +232,13 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         setRecipes([]);
         setCategories([]);
         setNextCursor(null);
+        // Que el próximo usuario no herede filtros ni modales abiertos.
+        setSelectedCategory(null);
+        setSearchQuery('');
+        setShowFavorites(false);
+        setFormModalVisible(false);
+        setCreateMenuVisible(false);
+        setEditingRecipe(null);
     };
 
     const saveRecipe = async (recipe: Recipe) => {
