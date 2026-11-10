@@ -18,7 +18,7 @@ export interface Recipe {
   title: string;
   description: string;
   ingredients: Ingredient[];
-  servings: number;
+  servings: number | null;
   prep_time?: number | null;
   steps: Step[];
   categories: number[];

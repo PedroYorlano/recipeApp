@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Modal, View, Text, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
+import { Modal, View, Text, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Image, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -8,14 +8,49 @@ import { useApp } from '../../context/AppContext';
 import { Recipe, Category, Ingredient } from '../../types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Camera, X, Plus, Trash2, ArrowLeft, Wand2, ChefHat, Sparkles, Mic } from 'lucide-react-native';
-import { notify } from '../../utils/dialogs';
+import { Camera, X, Trash2, Wand2, ChefHat, Sparkles, Mic } from 'lucide-react-native';
+import { notify, getErrorMessage } from '../../utils/dialogs';
 
 const emptyRecipe: Recipe = {
   uuid: '', title: '', description: '', ingredients: [], steps: [], categories: [], categories_details: [], servings: 1,
 };
 
 const emptyIngredient: Ingredient = { name: '', quantity: null, unit: '', order: 0 };
+
+/** Acepta coma o punto decimal ("1,5" → 1.5). Devuelve null si no es un número. */
+const parseDecimal = (text: string): number | null => {
+  const n = parseFloat(text.replace(',', '.'));
+  return isNaN(n) ? null : n;
+};
+
+/**
+ * Input de cantidad que guarda el texto tal cual mientras se escribe.
+ * Si se parseara en cada tecla, "0," o "1." se volverían "0"/"1" y no se podrían cargar decimales.
+ */
+const QuantityInput = ({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) => {
+  const [text, setText] = useState(value !== null && value !== undefined ? String(value) : '');
+
+  useEffect(() => {
+    // Sincroniza si el valor cambió desde afuera (ej: se borró un ingrediente de arriba).
+    if (parseDecimal(text) !== (value ?? null)) {
+      setText(value !== null && value !== undefined ? String(value) : '');
+    }
+  }, [value]);
+
+  return (
+    <TextInput
+      className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-3 text-fogon-brown text-base w-[70px] mr-2 shadow-sm text-center"
+      placeholder="200"
+      placeholderTextColor="#A89070"
+      keyboardType="decimal-pad"
+      value={text}
+      onChangeText={t => {
+        setText(t);
+        onChange(parseDecimal(t));
+      }}
+    />
+  );
+};
 
 interface Props {
   visible: boolean; onClose: () => void; onSubmit: (recipe: any) => Promise<void>; onImportAI: (url: string) => Promise<any>; initialData: Recipe | null; categories: Category[];
@@ -61,48 +96,43 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
   }, [visible, initialData, createMode, initialImportUrl, setInitialImportUrl]);
 
   const handleImport = async () => {
-    if (!importUrl) return notify("Error", "Ingresa una URL");
+    if (!importUrl.trim()) return notify("Falta el link", "Pegá el link del video.");
     setIsProcessing(true);
     try {
-      const recipe = await onImportAI(importUrl);
-      setDraftRecipe({ ...recipe, original_url: importUrl });
+      const recipe = await onImportAI(importUrl.trim());
+      setDraftRecipe({ ...emptyRecipe, ...recipe, original_url: importUrl.trim() });
       setIsImported(true);
     } catch (e: any) {
       console.error("Error importando receta:", e);
-      let errorMsg = "No se pudo extraer la receta.";
-      try {
-        const parsed = JSON.parse(e.message);
-        if (parsed.error) errorMsg = parsed.error;
-      } catch {}
-      notify("Error", errorMsg);
+      notify("Error", getErrorMessage(e, "No se pudo extraer la receta."));
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleImportText = async () => {
-    if (!importText.trim()) return notify("Error", "Ingresa el texto de la receta.");
+    if (!importText.trim()) return notify("Falta el texto", "Escribí o pegá el texto de la receta.");
     setIsProcessing(true);
     try {
       const recipe = await importRecipeAIText(importText);
-      setDraftRecipe({ ...recipe });
+      setDraftRecipe({ ...emptyRecipe, ...recipe });
       setIsImported(true);
     } catch (e) {
-      notify("Error", "La IA no pudo entender o extraer la receta del texto.");
+      notify("Error", getErrorMessage(e, "La IA no pudo entender o extraer la receta del texto."));
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleImportWeb = async () => {
-    if (!importUrl) return notify("Error", "Ingresa una URL de blog o sitio web");
+    if (!importUrl.trim()) return notify("Falta el link", "Pegá el link del blog o sitio web.");
     setIsProcessing(true);
     try {
-      const recipe = await importRecipeAIWeb(importUrl);
-      setDraftRecipe({ ...recipe, original_url: importUrl });
+      const recipe = await importRecipeAIWeb(importUrl.trim());
+      setDraftRecipe({ ...emptyRecipe, ...recipe, original_url: importUrl.trim() });
       setIsImported(true);
     } catch (e) {
-      notify("Error", "No se pudo extraer la receta, prueba de otra manera.");
+      notify("Error", getErrorMessage(e, "No se pudo extraer la receta. Probá de otra manera."));
     } finally {
       setIsProcessing(false);
     }
@@ -114,12 +144,17 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
       if (!result.canceled && result.assets && result.assets.length > 0) {
         setIsProcessing(true);
         const file = result.assets[0];
-        const recipe = await importRecipeAIAudio(file.uri, file.name, file.mimeType || 'audio/mp3');
-        setDraftRecipe({ ...recipe });
+        const recipe = await importRecipeAIAudio(
+          file.uri,
+          file.name,
+          file.mimeType || 'audio/mpeg',
+          Platform.OS === 'web' ? file.file : undefined,
+        );
+        setDraftRecipe({ ...emptyRecipe, ...recipe });
         setIsImported(true);
       }
     } catch (e) {
-       notify("Error", "Fallo al subir o procesar el audio.");
+       notify("Error", getErrorMessage(e, "No se pudo subir o procesar el audio."));
     } finally {
        setIsProcessing(false);
     }
@@ -135,22 +170,25 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
       setIsAddingCategory(false); return;
     }
     try {
-      await createCategory(newCategoryName);
+      const created = await createCategory(newCategoryName);
+      // La categoría recién creada queda seleccionada en la receta.
+      setDraftRecipe(prev => prev ? ({ ...prev, categories: [...(prev.categories || []), created.id] }) : null);
       setNewCategoryName('');
       setIsAddingCategory(false);
     } catch (e) {
-      notify("Error", "No se pudo crear la categoría.");
+      notify("Error", getErrorMessage(e, "No se pudo crear la categoría."));
     }
   };
 
   const pickImage = async (target: 'cover') => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') return notify('Permiso denegado al carrete');
+    if (status !== 'granted') return notify('Sin permiso', 'Necesitamos acceso a tus fotos para elegir la portada.');
 
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [4, 3], quality: 0.8 });
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [4, 3], quality: 0.8 });
     if (!result.canceled) {
       const uri = result.assets[0].uri;
-      setDraftRecipe(prev => prev ? ({ ...prev, localImage: uri }) : null);
+      // Foto nueva: deja sin efecto un "quitar foto" anterior.
+      setDraftRecipe(prev => prev ? ({ ...prev, localImage: uri, remove_image: false }) : null);
     }
   };
 
@@ -160,7 +198,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
   };
 
   const removeCoverImage = () => {
-    setDraftRecipe(prev => prev ? ({ ...prev, remove_image: true, localImage: undefined, image: undefined }) : null);
+    setDraftRecipe(prev => prev ? ({ ...prev, remove_image: true, localImage: undefined, image: undefined, image_url: undefined }) : null);
   };
 
   const addIngredient = () => setDraftRecipe(prev => prev ? ({ 
@@ -183,6 +221,12 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
     });
   };
 
+  const updateStep = (index: number, instruction: string) => setDraftRecipe(prev => {
+    if (!prev) return null;
+    const newSteps = prev.steps.map((s, i) => (i === index ? { ...s, instruction } : s));
+    return { ...prev, steps: newSteps };
+  });
+
   const addStep = () => setDraftRecipe(prev => prev ? ({ ...prev, steps: [...prev.steps, { order: prev.steps.length + 1, instruction: '' }] }) : null);
   const removeStep = (index: number) => setDraftRecipe(prev => {
     if (!prev) return null;
@@ -192,16 +236,21 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
 
   const handleSaveInternal = async () => {
     if (!draftRecipe) return;
-    if (!draftRecipe.title.trim()) return notify("Falta título", "El título de la receta es obligatorio.");
+    if (!draftRecipe.title.trim()) return notify("Falta el título", "El título de la receta es obligatorio.");
 
     setSaving(true);
     try {
-      const payload: any = { ...draftRecipe };
+      const payload: any = {
+        ...draftRecipe,
+        // Ingredientes vacíos (fila agregada y nunca completada) los descartamos.
+        ingredients: draftRecipe.ingredients.filter(i => i.name.trim()),
+        steps: draftRecipe.steps.filter(s => s.instruction.trim()).map((s, i) => ({ ...s, order: i + 1 })),
+      };
       if (payload.localImage) payload.image_base64 = await processImage(payload.localImage);
       await onSubmit(payload);
       onClose();
     } catch (error) {
-      notify("Error", "No se pudo guardar la receta en tu Fogón.");
+      notify("Error", getErrorMessage(error, "No se pudo guardar la receta en tu Fogón."));
     } finally {
       setSaving(false);
     }
@@ -231,7 +280,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
               {createMode === 'video' ? (
                 <>
                   <Text className="text-xl font-bold text-fogon-brown mb-6 text-center px-4">
-                    Pegá el link del video (YouTube o TikTok)
+                    Pegá el link del video (TikTok, Instagram o YouTube)
                   </Text>
                   <View className="w-full">
                     <Input placeholder="https://..." value={importUrl} onChangeText={setImportUrl} autoCapitalize="none" />
@@ -265,7 +314,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
                     Escribí la receta a tu manera
                   </Text>
                   <Text className="text-xs text-fogon-gray mb-6 text-center px-4">
-                    Recuerda ser súper específico con las cantidades y pasos. La IA intentará intuir mágicamente toda la información faltante.
+                    Sé lo más específico que puedas con cantidades y pasos. La IA completa lo que falte.
                   </Text>
                   <View className="w-full">
                     <TextInput 
@@ -289,7 +338,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
                     Subir Nota de Voz (Audio)
                   </Text>
                   <Text className="text-xs text-fogon-gray mb-6 text-center px-4">
-                    Sube un archivo de audio relatando la receta y la IA la transcribirá.
+                    Subí un audio contando la receta y la IA la transcribe.
                   </Text>
                   {!isProcessing && (
                     <View className="w-full mt-2">
@@ -324,11 +373,39 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
               {isImported && (
                 <View className="bg-[#3B6D11]/10 px-4 py-3 rounded-[12px] border border-[#3B6D11]/20 mb-6 flex-row items-center">
                   <Text className="text-[#3B6D11] text-lg mr-2">✨</Text>
-                  <Text className="text-[#3B6D11] font-bold flex-1">¡Receta importada con éxito! Revisa los datos para asegurar que quedó perfecta.</Text>
+                  <Text className="text-[#3B6D11] font-bold flex-1">¡Receta importada! Revisá los datos antes de guardar.</Text>
                 </View>
               )}
 
               <Input label="Título de la receta" placeholder="Ej: Tarta de Manzanas de la abuela" value={draftRecipe.title} onChangeText={t => setDraftRecipe({ ...draftRecipe, title: t })} />
+
+              {/* PORCIONES Y TIEMPO */}
+              <View className="flex-row">
+                <View className="flex-1 mr-3">
+                  <Input
+                    label="Porciones"
+                    placeholder="4"
+                    keyboardType="number-pad"
+                    value={draftRecipe.servings ? String(draftRecipe.servings) : ''}
+                    onChangeText={t => {
+                      const n = parseInt(t.replace(/\D/g, ''), 10);
+                      setDraftRecipe({ ...draftRecipe, servings: isNaN(n) ? null : n });
+                    }}
+                  />
+                </View>
+                <View className="flex-1">
+                  <Input
+                    label="Tiempo (min)"
+                    placeholder="30"
+                    keyboardType="number-pad"
+                    value={draftRecipe.prep_time ? String(draftRecipe.prep_time) : ''}
+                    onChangeText={t => {
+                      const n = parseInt(t.replace(/\D/g, ''), 10);
+                      setDraftRecipe({ ...draftRecipe, prep_time: isNaN(n) ? null : n });
+                    }}
+                  />
+                </View>
+              </View>
 
               {/* PORTADA */}
               <Text className="text-fogon-gray uppercase text-xs font-bold tracking-wider mb-2 mt-4 ml-1">Foto de portada</Text>
@@ -394,17 +471,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
               {draftRecipe.ingredients.map((ing, index) => (
                 <View key={index} className="flex-row items-center mb-3">
                   {/* Cantidad (numérica) */}
-                  <TextInput 
-                    className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-3 text-fogon-brown text-base w-[70px] mr-2 shadow-sm text-center" 
-                    placeholder="200" 
-                    placeholderTextColor="#A89070" 
-                    keyboardType="decimal-pad"
-                    value={ing.quantity !== null && ing.quantity !== undefined ? String(ing.quantity) : ''} 
-                    onChangeText={t => {
-                      const num = t === '' ? null : parseFloat(t);
-                      updateIngredient(index, 'quantity', isNaN(num as number) ? null : num);
-                    }} 
-                  />
+                  <QuantityInput value={ing.quantity} onChange={v => updateIngredient(index, 'quantity', v)} />
                   {/* Unidad */}
                   <TextInput 
                     className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-3 text-fogon-brown text-base w-[65px] mr-2 shadow-sm text-center" 
@@ -446,7 +513,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
                     </TouchableOpacity>
                   </View>
                   
-                  <TextInput className="bg-fogon-cream border border-fogon-gray/20 rounded-[12px] p-4 text-fogon-brown text-base min-h-[80px]" placeholder="Trituramos las galletas hasta hacerlas polvo..." placeholderTextColor="#A89070" multiline textAlignVertical="top" value={step.instruction} onChangeText={t => { const n = [...draftRecipe.steps]; n[index].instruction = t; setDraftRecipe({ ...draftRecipe, steps: n }); }} />
+                  <TextInput className="bg-fogon-cream border border-fogon-gray/20 rounded-[12px] p-4 text-fogon-brown text-base min-h-[80px]" placeholder="Trituramos las galletas hasta hacerlas polvo..." placeholderTextColor="#A89070" multiline textAlignVertical="top" value={step.instruction} onChangeText={t => updateStep(index, t)} />
                 </View>
               ))}
               <TouchableOpacity className="my-2 py-3 items-center border border-dashed border-fogon-gray/40 rounded-[12px] bg-fogon-white/50" onPress={addStep}>

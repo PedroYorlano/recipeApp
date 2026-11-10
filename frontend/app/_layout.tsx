@@ -69,7 +69,7 @@ const MainLayout = () => {
     const inLogin = segments[0] === 'login';
     const inRegister = segments[0] === 'register';
     const inForgotPassword = segments[0] === 'forgot-password';
-    const isLanding = !segments[0] || segments[0] === 'index';
+    const isLanding = !segments[0];
     const inShareExtension = segments[0] === 'share-extension';
     // /import decide solo a dónde ir (guarda el link y manda al login si hace falta).
     const inImport = segments[0] === 'import';
@@ -108,8 +108,8 @@ const MainLayout = () => {
   // 4. Renderizado: Loading o App + Modales
   if (isAuthLoading) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
-        <ActivityIndicator size="large" color="#FF6B6B" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FAEEDA' }}>
+        <ActivityIndicator size="large" color="#EF9F27" />
       </View>
     );
   }
@@ -127,7 +127,11 @@ const MainLayout = () => {
 
       <RecipeFormModal
         visible={formModalVisible}
-        onClose={() => setFormModalVisible(false)}
+        onClose={() => {
+          setFormModalVisible(false);
+          // Si no, la próxima importación (share, /import) abre el form en modo "editar" esa receta.
+          setEditingRecipe(null);
+        }}
         onSubmit={saveRecipe}
         onImportAI={importRecipeAI}
         initialData={editingRecipe}

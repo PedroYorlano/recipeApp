@@ -287,13 +287,18 @@ export const importRecipeService = async (url: string) => {
     return await response.json();
 };
 
-export const importRecipeServiceAudio = async (fileUri: string, fileName: string, fileType: string) => {
+export const importRecipeServiceAudio = async (fileUri: string, fileName: string, fileType: string, webFile?: File) => {
     const formData = new FormData();
-    formData.append('file', {
-        uri: fileUri,
-        name: fileName,
-        type: fileType,
-    } as any);
+    if (webFile) {
+        // En web FormData necesita un File/Blob real; el objeto {uri, name, type} es solo de React Native.
+        formData.append('file', webFile, fileName);
+    } else {
+        formData.append('file', {
+            uri: fileUri,
+            name: fileName,
+            type: fileType,
+        } as any);
+    }
 
     const response = await authenticatedFetch(`${API_BASE}/importar-archivo/`, {
         method: 'POST',

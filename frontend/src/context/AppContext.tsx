@@ -22,12 +22,12 @@ interface AppContextType {
     user: User | null;
     fetchRecipes: () => Promise<void>;
     fetchMoreRecipes: () => Promise<void>;
-    createCategory: (name: string) => Promise<void>;
+    createCategory: (name: string) => Promise<Category>;
     saveRecipe: (recipe: Recipe) => Promise<void>;
     deleteRecipe: (id: number) => Promise<void>;
     toggleFavorite: (recipeId: number) => Promise<void>;
     importRecipeAI: (url: string) => Promise<Recipe>;
-    importRecipeAIAudio: (fileUri: string, fileName: string, fileType: string) => Promise<Recipe>;
+    importRecipeAIAudio: (fileUri: string, fileName: string, fileType: string, webFile?: File) => Promise<Recipe>;
     importRecipeAIText: (text: string) => Promise<Recipe>;
     importRecipeAIWeb: (url: string) => Promise<Recipe>;
     login: (u: string, p: string) => Promise<void>;
@@ -263,8 +263,8 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
         return data.recipe || data;
     };
 
-    const importRecipeAIAudio = async (fileUri: string, fileName: string, fileType: string) => {
-        const data = await importRecipeServiceAudio(fileUri, fileName, fileType);
+    const importRecipeAIAudio = async (fileUri: string, fileName: string, fileType: string, webFile?: File) => {
+        const data = await importRecipeServiceAudio(fileUri, fileName, fileType, webFile);
         return data.recipe || data;
     };
 
@@ -279,10 +279,9 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     };
 
     const createCategory = async (name: string) => {
-        try {
-            const newCategory = await createCategoryService(name);
-            setCategories((prevCols) => [...prevCols, newCategory]);
-        } catch (e) { console.error(e); }
+        const newCategory: Category = await createCategoryService(name.trim());
+        setCategories((prevCols) => [...prevCols, newCategory]);
+        return newCategory;
     };
 
     return (

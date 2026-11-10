@@ -56,3 +56,28 @@ export const confirmAction = ({
         );
     });
 };
+
+/**
+ * Saca un mensaje legible de un error de la API. Los services tiran `Error(JSON.stringify(body))`,
+ * con `{error: "..."}` o con errores de DRF por campo (`{title: ["..."]}`).
+ */
+export const getErrorMessage = (e: unknown, fallback: string): string => {
+    const raw = e instanceof Error ? e.message : typeof e === 'string' ? e : '';
+    if (!raw) return fallback;
+    try {
+        const body = JSON.parse(raw);
+        if (typeof body === 'string') return body;
+        if (body?.error) return String(body.error);
+        if (body?.detail) return String(body.detail);
+        const first = Object.values(body ?? {}).flat()[0];
+        if (typeof first === 'string') return first;
+        if (first && typeof first === 'object') {
+            const nested = Object.values(first).flat()[0];
+            if (typeof nested === 'string') return nested;
+        }
+        return fallback;
+    } catch {
+        // No era JSON: si parece un mensaje para humanos lo mostramos tal cual.
+        return raw.length < 200 ? raw : fallback;
+    }
+};
