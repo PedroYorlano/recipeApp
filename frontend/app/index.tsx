@@ -384,8 +384,8 @@ export default function LandingPage() {
             >
               <Image 
                 source={require('../assets/images/receta_detalle.png')}
-                style={{ width: '100%', height: '120%', marginTop: -60 }}
-                resizeMode="contain"
+                style={{ width: '100%', height: '100%' }}
+                resizeMode="cover"
               />
             </View>
 
