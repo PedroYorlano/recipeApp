@@ -39,8 +39,8 @@ export default function ImportRoute() {
   }, [isAuthLoading, isAuthenticated, sharedUrl]);
 
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FAEEDA' }}>
-      <ActivityIndicator size="large" color="#EF9F27" />
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF9EC' }}>
+      <ActivityIndicator size="large" color="#BE9F00" />
     </View>
   );
 }

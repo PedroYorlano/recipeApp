@@ -1,23 +1,24 @@
 import React, { useState, useRef, useEffect } from 'react';
-import {
-    View, Text, TextInput, TouchableOpacity, FlatList,
-    StyleSheet, Animated, ScrollView, KeyboardAvoidingView,
-    Platform,
-} from 'react-native';
+import { View, TouchableOpacity, FlatList, Animated, KeyboardAvoidingView, Platform, Image } from 'react-native';
+import { Text, TextInput } from '../ui/Typography';
 import { useRouter } from 'expo-router';
-import { COLORS, SPACING, RADIUS } from '../../theme';
-import { Send } from 'lucide-react-native';
+import { ArrowRight, ChevronRight } from 'lucide-react-native';
+import { useApp } from '../../context/AppContext';
+import { getRecipeImage } from '../../utils';
+import { ISOLOGO } from '../../constants/brand';
+import { RecipeCover } from '../brand/RecipeCover';
 import { ChatMessage, FogoncitoSuggestion } from '../../types';
 import { sendFogoncitoMessage } from '../../services/api';
 
 const INITIAL_MESSAGE: ChatMessage = {
     id: 'initial',
     role: 'bot',
-    text: '¡Hola! 👋 Contame qué tenés en casa y qué te dan ganas de comer. Busco entre tus recetas guardadas.',
+    text: '¡Hola! Contame qué tenés en casa y qué te dan ganas de comer. Busco entre tus recetas guardadas.',
 };
 
 export function FogoncitoChat() {
     const router = useRouter();
+    const { recipes } = useApp();
     const [messages, setMessages] = useState<ChatMessage[]>([INITIAL_MESSAGE]);
     const [input, setInput] = useState('');
     const flatListRef = useRef<FlatList>(null);
@@ -69,7 +70,7 @@ export function FogoncitoChat() {
                     m.id === loadingMsg.id
                         ? {
                             ...m,
-                            text: e.message || 'Fogoncito no está disponible en este momento. Intentá de nuevo.',
+                            text: e.message || 'Ahora no puedo responder. Probá de nuevo en un rato.',
                             isLoading: false,
                             isError: true,
                         }
@@ -84,56 +85,68 @@ export function FogoncitoChat() {
         router.push(`/receta/${suggestion.uuid}`);
     };
 
+    const Avatar = () => (
+        <View className="w-[34px] h-[34px] rounded-full bg-pizca-crema items-center justify-center">
+            <Image source={ISOLOGO} style={{ width: 22, height: 18 }} resizeMode="contain" />
+        </View>
+    );
+
     const renderMessage = ({ item }: { item: ChatMessage }) => {
-        const isBot = item.role === 'bot';
+        if (item.role === 'user') {
+            return (
+                <View className="self-end max-w-[80%] px-3.5 py-3 rounded-[18px] rounded-br-[6px] bg-pizca-marron mb-3">
+                    <Text className="text-[15px] leading-[22px] text-pizca-fondo">{item.text}</Text>
+                </View>
+            );
+        }
 
         return (
-            <View style={[styles.msgRow, isBot ? styles.msgRowBot : styles.msgRowUser]}>
-                <View style={[
-                    styles.bubble,
-                    isBot ? styles.bubbleBot : styles.bubbleUser,
-                    item.isError && styles.bubbleError,
-                ]}>
-                    {item.isLoading ? (
-                        <TypingIndicator />
-                    ) : (
-                        <Text style={[
-                            styles.bubbleText,
-                            isBot ? styles.bubbleTextBot : styles.bubbleTextUser,
-                            item.isError && styles.bubbleTextError,
-                        ]}>
-                            {item.text}
-                        </Text>
-                    )}
-                </View>
-
-                {/* Suggestion Chips */}
-                {item.suggestions && item.suggestions.length > 0 && (
-                    <ScrollView
-                        horizontal
-                        showsHorizontalScrollIndicator={false}
-                        style={styles.chipsRow}
-                        contentContainerStyle={styles.chipsContent}
+            <View className="flex-row gap-2 items-start mb-3">
+                <Avatar />
+                <View className="flex-1 max-w-[290px] gap-2">
+                    <View
+                        className={`self-start px-3.5 py-3 rounded-[18px] rounded-bl-[6px] ${item.isError ? 'bg-[#FFF1EB] border-[1.5px] border-pizca-tomate' : 'bg-white border border-pizca-linea'}`}
+                        accessibilityLiveRegion="polite"
                     >
-                        {item.suggestions.map(s => (
+                        {item.isLoading ? (
+                            <TypingIndicator />
+                        ) : (
+                            <Text className="text-[15px] leading-[22px] text-pizca-marron">{item.text}</Text>
+                        )}
+                    </View>
+
+                    {item.suggestions?.map((s, i) => {
+                        const recipe = recipes.find(r => r.uuid === s.uuid);
+                        return (
                             <TouchableOpacity
                                 key={s.uuid}
-                                style={styles.chip}
                                 onPress={() => handleSuggestionPress(s)}
-                                activeOpacity={0.7}
+                                activeOpacity={0.8}
+                                className={`flex-row items-center gap-2.5 p-2 rounded-[16px] bg-white ${i === 0 ? 'border-[1.5px] border-pizca-mostaza' : 'border border-pizca-linea'}`}
+                                accessibilityRole="link"
                             >
-                                <Text style={styles.chipText}>🍳 {s.title}</Text>
+                                <RecipeCover
+                                    source={recipe ? getRecipeImage(recipe) : null}
+                                    seed={s.uuid}
+                                    illustrationSize={28}
+                                    className="w-[52px] h-[52px] rounded-[12px]"
+                                />
+                                <View className="flex-1 gap-0.5">
+                                    <Text className="text-sm font-extrabold text-pizca-marron" numberOfLines={2}>{s.title}</Text>
+                                    {recipe?.prep_time ? <Text className="text-xs font-bold text-pizca-texto2">{recipe.prep_time} min</Text> : null}
+                                </View>
+                                <ChevronRight size={18} color="#3F3128" strokeWidth={2.2} />
                             </TouchableOpacity>
-                        ))}
-                    </ScrollView>
-                )}
+                        );
+                    })}
+                </View>
             </View>
         );
     };
 
     return (
         <KeyboardAvoidingView
-            style={styles.container}
+            className="flex-1"
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 180 : 0}
         >
@@ -142,30 +155,36 @@ export function FogoncitoChat() {
                 data={messages}
                 keyExtractor={item => item.id}
                 renderItem={renderMessage}
-                contentContainerStyle={styles.chatList}
+                contentContainerStyle={{ padding: 20, paddingTop: 16 }}
                 showsVerticalScrollIndicator={false}
                 onContentSizeChange={scrollToEnd}
+                keyboardShouldPersistTaps="handled"
             />
 
-            {/* Input Bar */}
-            <View style={styles.inputBar}>
-                <TextInput
-                    style={styles.input}
-                    placeholder="Tengo papa y pollo... ¿qué puedo almorzar?"
-                    placeholderTextColor={COLORS.text.secondary}
-                    value={input}
-                    onChangeText={setInput}
-                    onSubmitEditing={handleSend}
-                    returnKeyType="send"
-                    multiline={false}
-                />
+            <View className="flex-row gap-2 px-4 pb-3 pt-1">
+                <View
+                    className="flex-1 h-[52px] flex-row items-center px-3.5 rounded-[16px] bg-white border-[1.5px] border-pizca-linea"
+                    style={{ boxShadow: '0 6px 16px rgba(63,49,40,0.08)' }}
+                >
+                    <TextInput
+                        className="flex-1 h-full text-[15px] text-pizca-marron"
+                        placeholder="Tengo papa y pollo… ¿qué almuerzo?"
+                        placeholderTextColor="#8C7E70"
+                        value={input}
+                        onChangeText={setInput}
+                        onSubmitEditing={handleSend}
+                        returnKeyType="send"
+                        accessibilityLabel="Escribí qué tenés o qué querés comer"
+                    />
+                </View>
                 <TouchableOpacity
-                    style={[styles.sendBtn, !input.trim() && styles.sendBtnDisabled]}
                     onPress={handleSend}
                     disabled={!input.trim()}
-                    activeOpacity={0.7}
+                    className={`w-[52px] h-[52px] rounded-[16px] items-center justify-center ${input.trim() ? 'bg-pizca-mostaza' : 'bg-pizca-linea'}`}
+                    accessibilityRole="button"
+                    accessibilityLabel="Enviar"
                 >
-                    <Send size={20} color={input.trim() ? COLORS.secondary : COLORS.text.secondary} />
+                    <ArrowRight size={22} color={input.trim() ? '#3F3128' : '#8C7E70'} strokeWidth={2.4} />
                 </TouchableOpacity>
             </View>
         </KeyboardAvoidingView>
@@ -221,133 +240,10 @@ function TypingIndicator() {
     });
 
     return (
-        <View style={styles.typingContainer}>
-            <Animated.View style={[styles.typingDot, dotStyle(dot1)]} />
-            <Animated.View style={[styles.typingDot, dotStyle(dot2)]} />
-            <Animated.View style={[styles.typingDot, dotStyle(dot3)]} />
+        <View className="flex-row gap-1 py-1.5 px-0.5" accessibilityLabel="Escribiendo">
+            {[dot1, dot2, dot3].map((d, i) => (
+                <Animated.View key={i} className="w-2 h-2 rounded-full bg-pizca-mostaza" style={dotStyle(d)} />
+            ))}
         </View>
     );
 }
-
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-    },
-    chatList: {
-        paddingHorizontal: SPACING.l,
-        paddingBottom: SPACING.m,
-        paddingTop: SPACING.s,
-    },
-
-    // Messages
-    msgRow: {
-        marginBottom: SPACING.m,
-    },
-    msgRowBot: {
-        alignItems: 'flex-start',
-    },
-    msgRowUser: {
-        alignItems: 'flex-end',
-    },
-    bubble: {
-        maxWidth: '82%',
-        paddingHorizontal: SPACING.m,
-        paddingVertical: 10,
-        borderRadius: RADIUS.m,
-    },
-    bubbleBot: {
-        backgroundColor: COLORS.card,
-        borderWidth: 1,
-        borderColor: 'rgba(168, 144, 112, 0.15)',
-        borderTopLeftRadius: 4,
-    },
-    bubbleUser: {
-        backgroundColor: COLORS.primary,
-        borderTopRightRadius: 4,
-    },
-    bubbleError: {
-        borderColor: 'rgba(255, 59, 48, 0.2)',
-    },
-    bubbleText: {
-        fontSize: 15,
-        lineHeight: 21,
-    },
-    bubbleTextBot: {
-        color: COLORS.text.primary,
-    },
-    bubbleTextUser: {
-        color: COLORS.secondary,
-    },
-    bubbleTextError: {
-        color: '#C0392B',
-    },
-
-    // Suggestion Chips
-    chipsRow: {
-        marginTop: SPACING.s,
-    },
-    chipsContent: {
-        gap: 8,
-    },
-    chip: {
-        backgroundColor: '#FFF0D6',
-        paddingHorizontal: 14,
-        paddingVertical: 8,
-        borderRadius: 20,
-        borderWidth: 1,
-        borderColor: 'rgba(239, 159, 39, 0.3)',
-    },
-    chipText: {
-        fontSize: 13,
-        fontWeight: '600',
-        color: COLORS.secondary,
-    },
-
-    // Input Bar
-    inputBar: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: SPACING.m,
-        paddingVertical: SPACING.s,
-        borderTopWidth: StyleSheet.hairlineWidth,
-        borderTopColor: '#E8D9C5',
-        backgroundColor: COLORS.background,
-    },
-    input: {
-        flex: 1,
-        backgroundColor: COLORS.card,
-        borderRadius: RADIUS.l,
-        paddingHorizontal: SPACING.m,
-        paddingVertical: 10,
-        fontSize: 15,
-        color: COLORS.text.primary,
-        borderWidth: 1,
-        borderColor: 'rgba(168, 144, 112, 0.2)',
-    },
-    sendBtn: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: COLORS.primary,
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginLeft: SPACING.s,
-    },
-    sendBtnDisabled: {
-        backgroundColor: '#F5E6D0',
-    },
-
-    // Typing Indicator
-    typingContainer: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 4,
-        paddingVertical: 4,
-    },
-    typingDot: {
-        width: 8,
-        height: 8,
-        borderRadius: 4,
-        backgroundColor: COLORS.text.secondary,
-    },
-});

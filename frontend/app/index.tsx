@@ -1,468 +1,209 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, TouchableOpacity, Platform, ScrollView, Image } from 'react-native';
+import React, { useRef, useState } from 'react';
+import { View, TouchableOpacity, Platform, ScrollView, Image, useWindowDimensions, type ImageSourcePropType } from 'react-native';
 import { useRouter } from 'expo-router';
-import { Button } from '../src/components/ui/Button';
-import { 
-  Link2, 
-  Sparkles, 
-  ChefHat, 
-  Calendar, 
-  ShoppingCart, 
-  Search, 
-  Heart, 
-  Flame, 
-  Share2, 
-  Check, 
-  BookOpen, 
-  Menu,
-  X,
-  Play
-} from 'lucide-react-native';
+import { Check } from 'lucide-react-native';
+import { Text } from '../src/components/ui/Typography';
+import { ICONS, ILLUSTRATIONS, ISOLOGO } from '../src/constants/brand';
 
+/** Landing pública (solo web; en el celu se va directo al login). */
 export default function LandingPage() {
   const router = useRouter();
-  const [isScrolled, setIsScrolled] = useState(false);
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const scrollViewRef = useRef<ScrollView>(null);
+  const { width } = useWindowDimensions();
+  const scrollRef = useRef<ScrollView>(null);
   const [stepsY, setStepsY] = useState(0);
 
-  const scrollToSteps = () => {
-    scrollViewRef.current?.scrollTo({ y: stepsY, animated: true });
-  };
-
   if (Platform.OS !== 'web') {
-    return <View style={{ flex: 1, backgroundColor: '#FFF8F0' }} />;
+    return <View style={{ flex: 1, backgroundColor: '#FFF9EC' }} />;
   }
 
+  const wide = width >= 900;
+  const heroSize = Math.max(44, Math.min(76, width * 0.06));
+  const scrollToSteps = () => scrollRef.current?.scrollTo({ y: stepsY, animated: true });
+
+  const PrimaryCta = ({ title, big }: { title: string; big?: boolean }) => (
+    <TouchableOpacity
+      onPress={() => router.push('/register')}
+      className={`${big ? 'h-14 px-7' : 'h-11 px-5'} rounded-[16px] bg-pizca-mostaza items-center justify-center`}
+      accessibilityRole="link"
+    >
+      <Text className={`${big ? 'text-[17px]' : 'text-base'} font-extrabold text-pizca-marron`}>{title}</Text>
+    </TouchableOpacity>
+  );
+
   return (
-    <View className="flex-1 bg-[#FFF8F0] min-h-screen">
-      {/* 1. Navbar */}
-      <View 
-        className={`fixed top-0 left-0 right-0 z-50 bg-[#FFF8F0]/95 backdrop-blur-md transition-all duration-300 ${
-          isScrolled ? 'shadow-sm border-b border-[#633806]/10 py-3' : 'py-5'
-        }`}
-      >
-        <View className="max-w-7xl mx-auto px-6 flex-row items-center justify-between">
-          {/* Logo */}
-          <TouchableOpacity 
-            onPress={() => router.push('/')} 
-            activeOpacity={0.7}
-            className="flex-row items-center space-x-2"
-          >
-            <View className="bg-[#EF9F27]/10 p-1.5 rounded-xl border border-[#EF9F27]/20 mr-2">
-              <Flame size={24} color="#EF9F27" strokeWidth={2} />
-            </View>
-            <Text 
-              className="text-2xl font-bold text-[#633806] tracking-tight"
-              style={{ fontFamily: 'Georgia, serif' }}
-            >
-              Fogón
-            </Text>
+    <ScrollView ref={scrollRef} className="flex-1 bg-pizca-fondo">
+      {/* Nav */}
+      <View className="w-full max-w-[1160px] self-center px-6 py-5 flex-row items-center justify-between flex-wrap gap-4">
+        <TouchableOpacity className="flex-row items-center gap-2.5" accessibilityRole="link" accessibilityLabel="Pizca, inicio">
+          <Image source={ISOLOGO} style={{ width: 45, height: 36 }} resizeMode="contain" />
+          <Text className="font-display text-[30px] leading-[32px] text-pizca-mostaza">PIZCA</Text>
+        </TouchableOpacity>
+        <View className="flex-row items-center gap-2 flex-wrap">
+          {wide ? (
+            <TouchableOpacity onPress={scrollToSteps} className="px-3.5 py-2.5" accessibilityRole="link">
+              <Text className="font-bold text-pizca-marron text-base">Cómo funciona</Text>
+            </TouchableOpacity>
+          ) : null}
+          <TouchableOpacity onPress={() => router.push('/login')} className="px-3.5 py-2.5" accessibilityRole="link">
+            <Text className="font-bold text-pizca-marron text-base">Ingresar</Text>
           </TouchableOpacity>
-
-          {/* Desktop Navigation */}
-          <View className="hidden md:flex-row items-center space-x-4">
-            <Button 
-              title="Iniciar sesión" 
-              variant="outline" 
-              className="px-6 py-2 rounded-xl border-[#633806]/30"
-              onPress={() => router.push('/login')}
-            />
-            <Button 
-              title="Registrarse" 
-              variant="primary" 
-              className="px-6 py-2 rounded-xl"
-              onPress={() => router.push('/register')}
-            />
-          </View>
-
-          {/* Mobile Menu Button */}
-          <TouchableOpacity 
-            className="md:hidden p-2 rounded-lg bg-[#FAEEDA]/50" 
-            onPress={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-          >
-            {isMobileMenuOpen ? (
-              <X size={24} color="#633806" />
-            ) : (
-              <Menu size={24} color="#633806" />
-            )}
-          </TouchableOpacity>
-        </View>
-
-        {/* Mobile Navigation Dropdown */}
-        {isMobileMenuOpen && (
-          <View className="md:hidden bg-[#FFF8F0] border-b border-[#633806]/10 px-6 py-4 space-y-3 absolute top-full left-0 right-0 shadow-lg">
-            <Button 
-              title="Iniciar sesión" 
-              variant="outline" 
-              className="w-full py-3 border-[#633806]/30"
-              onPress={() => {
-                setIsMobileMenuOpen(false);
-                router.push('/login');
-              }}
-            />
-            <Button 
-              title="Registrarse" 
-              variant="primary" 
-              className="w-full py-3"
-              onPress={() => {
-                setIsMobileMenuOpen(false);
-                router.push('/register');
-              }}
-            />
-          </View>
-        )}
-      </View>
-
-      <ScrollView
-        ref={scrollViewRef}
-        className="flex-1"
-        style={Platform.OS === 'web' ? { scrollBehavior: 'smooth' } as any : undefined}
-        contentContainerStyle={{ flexGrow: 1 }}
-        onScroll={(event) => {
-          const y = event.nativeEvent.contentOffset.y;
-          setIsScrolled(y > 0);
-        }}
-        scrollEventThrottle={16}
-        showsVerticalScrollIndicator={true}
-      >
-        {/* Hero Spacer */}
-        <View className="h-20 md:h-24" />
-
-      {/* 2. Hero Section */}
-      <View className="max-w-7xl mx-auto px-6 py-12 md:py-20 lg:py-24">
-        <View className="flex-col md:flex-row items-center justify-between gap-12 md:gap-16">
-          {/* Left Column (Text) */}
-          <View className="flex-1 space-y-6 max-w-2xl">
-            <View className="inline-flex flex-row items-center bg-[#3B6D11]/10 px-4 py-1.5 rounded-full border border-[#3B6D11]/25 self-start">
-              <Sparkles size={16} color="#3B6D11" className="mr-2" />
-              <Text className="text-[#3B6D11] text-sm font-semibold ml-1.5">Inteligencia Artificial en tu cocina</Text>
-            </View>
-            
-            <Text 
-              className="text-4xl md:text-5xl lg:text-6xl font-bold text-[#633806] leading-tight"
-              style={{ fontFamily: 'Georgia, serif' }}
-            >
-              Tu recetario inteligente. Guardá recetas de TikTok e Instagram en segundos.
-            </Text>
-            
-            <Text className="text-[#A89070] text-lg md:text-xl font-normal leading-relaxed">
-              Fogón usa inteligencia artificial para transcribir recetas de videos automáticamente. Sin copiar, sin escribir. Solo pegás el link.
-            </Text>
-            
-            <View className="flex-row items-center flex-wrap gap-4 pt-4">
-              <Button 
-                title="Empezar gratis" 
-                variant="primary" 
-                className="px-8 py-4 rounded-2xl shadow-md"
-                onPress={() => router.push('/register')}
-              />
-              <Button 
-                title="Ver cómo funciona" 
-                variant="outline" 
-                className="px-8 py-4 rounded-2xl border-[#633806]/30"
-                onPress={scrollToSteps}
-              />
-            </View>
-          </View>
-
-          {/* Right Column (Mockup App) */}
-          <View className="flex-1 w-full flex items-center justify-center">
-            <View className="relative w-full max-w-[390px] aspect-[9/18.5] bg-[#FAEEDA] rounded-[48px] border-[12px] border-[#633806]/90 shadow-2xl overflow-hidden p-0">
-              {/* Notch */}
-              <View className="absolute top-2 left-1/2 -translate-x-1/2 w-32 h-6 bg-[#633806]/90 rounded-full z-20 flex-row justify-center items-center">
-                <View className="w-3.5 h-3.5 bg-black rounded-full mr-2" />
-                <View className="w-8 h-1 bg-gray-600 rounded-full" />
-              </View>
-
-              <Image 
-                source={require('../assets/images/home.jpeg')}
-                style={{ width: '100%', height: '100%' }}
-                resizeMode="contain"
-              />
-            </View>
-          </View>
+          <PrimaryCta title="Crear cuenta" />
         </View>
       </View>
 
-      {/* 3. Cómo funciona */}
-      <View 
-        nativeID="pasos" 
-        onLayout={(e) => setStepsY(e.nativeEvent.layout.y)}
-        className="bg-[#FAEEDA]/40 py-20 md:py-28 border-y border-[#633806]/5"
-      >
-        <View className="max-w-7xl mx-auto px-6">
-          <View className="text-center max-w-2xl mx-auto mb-16 space-y-3">
-            <Text className="text-[#3B6D11] text-sm font-bold uppercase tracking-widest">Paso a paso</Text>
-            <Text 
-              className="text-4xl font-bold text-[#633806]" 
-              style={{ fontFamily: 'Georgia, serif' }}
-            >
-              Así de simple
-            </Text>
-            <Text className="text-[#A89070] text-base">
-              Olvidate de pausar videos y anotar en papeles. Fogón hace todo el trabajo pesado.
-            </Text>
+      {/* Hero */}
+      <View className={`w-full max-w-[1160px] self-center px-6 pt-12 pb-[72px] gap-12 ${wide ? 'flex-row items-center' : ''}`}>
+        <View className="flex-1 gap-6 min-w-0">
+          <View className="self-start flex-row items-center gap-2 px-3.5 py-2 rounded-full bg-pizca-crema">
+            <Image source={ICONS.guardado} style={{ width: 16, height: 16 }} />
+            <Text className="text-sm font-extrabold text-pizca-marron">Tu recetario, siempre a mano</Text>
           </View>
-
-          <View className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            {/* Step 1 */}
-            <View className="bg-[#FFF8F0] p-8 rounded-3xl border border-[#633806]/5 shadow-sm space-y-6 relative overflow-hidden">
-              <Text className="absolute -top-3 right-3 text-8xl font-bold text-[#633806]/5" style={{ fontFamily: 'Georgia, serif' }}>1</Text>
-              
-              <View className="bg-[#EF9F27]/10 w-14 h-14 rounded-2xl items-center justify-center border border-[#EF9F27]/20">
-                <Share2 size={28} color="#EF9F27" />
-              </View>
-              
-              <View className="space-y-2">
-                <Text className="text-xs font-bold text-[#3B6D11] uppercase tracking-wider">Paso 1</Text>
-                <Text className="text-xl font-bold text-[#633806]" style={{ fontFamily: 'Georgia, serif' }}>Compartir el video</Text>
-              </View>
-              
-              <Text className="text-[#A89070] leading-relaxed">
-                Copiás el link de cualquier video de TikTok, Instagram o YouTube con una receta que te llamó la atención.
-              </Text>
-            </View>
-
-            {/* Step 2 */}
-            <View className="bg-[#FFF8F0] p-8 rounded-3xl border border-[#633806]/5 shadow-sm space-y-6 relative overflow-hidden">
-              <Text className="absolute -top-3 right-3 text-8xl font-bold text-[#633806]/5" style={{ fontFamily: 'Georgia, serif' }}>2</Text>
-              
-              <View className="bg-[#3B6D11]/10 w-14 h-14 rounded-2xl items-center justify-center border border-[#3B6D11]/20">
-                <Sparkles size={28} color="#3B6D11" />
-              </View>
-              
-              <View className="space-y-2">
-                <Text className="text-xs font-bold text-[#3B6D11] uppercase tracking-wider">Paso 2</Text>
-                <Text className="text-xl font-bold text-[#633806]" style={{ fontFamily: 'Georgia, serif' }}>Importar en un clic</Text>
-              </View>
-              
-              <Text className="text-[#A89070] leading-relaxed">
-                Pegás el link en Fogón. La IA escucha el audio, lee la descripción y arma la receta completa con ingredientes y pasos.
-              </Text>
-            </View>
-
-            {/* Step 3 */}
-            <View className="bg-[#FFF8F0] p-8 rounded-3xl border border-[#633806]/5 shadow-sm space-y-6 relative overflow-hidden">
-              <Text className="absolute -top-3 right-3 text-8xl font-bold text-[#633806]/5" style={{ fontFamily: 'Georgia, serif' }}>3</Text>
-              
-              <View className="bg-[#633806]/5 w-14 h-14 rounded-2xl items-center justify-center border border-[#633806]/10">
-                <ChefHat size={28} color="#633806" />
-              </View>
-              
-              <View className="space-y-2">
-                <Text className="text-xs font-bold text-[#3B6D11] uppercase tracking-wider">Paso 3</Text>
-                <Text className="text-xl font-bold text-[#633806]" style={{ fontFamily: 'Georgia, serif' }}>Cocinar y disfrutar</Text>
-              </View>
-              
-              <Text className="text-[#A89070] leading-relaxed">
-                La receta queda guardada en tu recetario. La encontrás cuando quieras, escalás las porciones y tachás los ingredientes mientras cocinás.
-              </Text>
-            </View>
-          </View>
-        </View>
-      </View>
-
-      {/* 4. Funcionalidades destacadas */}
-      <View className="py-20 md:py-28 max-w-7xl mx-auto px-6">
-        <View className="text-center max-w-2xl mx-auto mb-16 space-y-3">
-          <Text className="text-[#EF9F27] text-sm font-bold uppercase tracking-widest">Características</Text>
-          <Text 
-            className="text-4xl font-bold text-[#633806]" 
-            style={{ fontFamily: 'Georgia, serif' }}
-          >
-            Todo lo que necesitás en una sola app
+          <Text className="font-display text-pizca-marron" style={{ fontSize: heroSize, lineHeight: heroSize * 1.04 }} accessibilityRole="header">
+            Te faltaba una <Text className="font-display text-pizca-tomate">pizca</Text> de orden.
           </Text>
-          <Text className="text-[#A89070] text-base">
-            Diseñamos las herramientas ideales para que organizar tus comidas sea un placer y no una tarea diaria.
+          <Text className="text-xl leading-[31px] text-pizca-texto2 max-w-[540px]">
+            Guardá las recetas que encontrás en TikTok, Instagram, YouTube o cualquier blog. Pizca las pasa en limpio:
+            ingredientes, pasos y porciones, listas para cocinar.
           </Text>
+          <View className="flex-row gap-3 flex-wrap">
+            <PrimaryCta title="Empezar gratis" big />
+            <TouchableOpacity
+              onPress={scrollToSteps}
+              className="h-14 px-6 rounded-[16px] border-[1.5px] border-pizca-marron items-center justify-center"
+              accessibilityRole="link"
+            >
+              <Text className="text-[17px] font-extrabold text-pizca-marron">Ver cómo funciona</Text>
+            </TouchableOpacity>
+          </View>
+          <View className="flex-row items-center gap-3 flex-wrap">
+            <Text className="text-sm font-bold text-pizca-texto2">Traé recetas desde</Text>
+            <View className="flex-row gap-1.5">
+              {[ICONS.web, ICONS.video, ICONS.audio, ICONS.texto].map((icon, i) => (
+                <View key={i} className="w-9 h-9 rounded-[10px] bg-pizca-crema items-center justify-center">
+                  <Image source={icon} style={{ width: 22, height: 22 }} />
+                </View>
+              ))}
+            </View>
+          </View>
         </View>
 
-        <View className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Card 1 */}
-          <View className="bg-[#FFF8F0] p-6 rounded-2xl border border-[#633806]/10 hover:-translate-y-1 hover:shadow-md transition-all duration-300 space-y-4">
-            <View className="bg-[#EF9F27]/10 w-12 h-12 rounded-xl items-center justify-center border border-[#EF9F27]/20">
-              <Link2 size={24} color="#EF9F27" />
-            </View>
-            <Text className="text-lg font-bold text-[#633806]" style={{ fontFamily: 'Georgia, serif' }}>
-              Importación con IA
-            </Text>
-            <Text className="text-[#A89070] leading-relaxed text-sm">
-              Soporta links de TikTok, Instagram, YouTube, blogs de cocina tradicionales y más. Traé tus recetas de donde quieras.
-            </Text>
-          </View>
-
-          {/* Card 2 */}
-          <View className="bg-[#FFF8F0] p-6 rounded-2xl border border-[#633806]/10 hover:-translate-y-1 hover:shadow-md transition-all duration-300 space-y-4">
-            <View className="bg-[#EF9F27]/10 w-12 h-12 rounded-xl items-center justify-center border border-[#EF9F27]/20">
-              <Calendar size={24} color="#EF9F27" />
-            </View>
-            <Text className="text-lg font-bold text-[#633806]" style={{ fontFamily: 'Georgia, serif' }}>
-              Planner semanal
-            </Text>
-            <Text className="text-[#A89070] leading-relaxed text-sm">
-              Planificá tus comidas de la semana de forma visual. Elegí una receta para cada comida y armá el menú en pocos minutos.
-            </Text>
-          </View>
-
-          {/* Card 3 */}
-          <View className="bg-[#FFF8F0] p-6 rounded-2xl border border-[#633806]/10 hover:-translate-y-1 hover:shadow-md transition-all duration-300 space-y-4">
-            <View className="bg-[#EF9F27]/10 w-12 h-12 rounded-xl items-center justify-center border border-[#EF9F27]/20">
-              <ShoppingCart size={24} color="#EF9F27" />
-            </View>
-            <Text className="text-lg font-bold text-[#633806]" style={{ fontFamily: 'Georgia, serif' }}>
-              Lista de compras
-            </Text>
-            <Text className="text-[#A89070] leading-relaxed text-sm">
-              Olvidate de calcular a ojo. Fogón consolida los ingredientes de tu plan semanal y arma la lista de compras agrupada por góndolas.
-            </Text>
-          </View>
-
-          {/* Card 4 */}
-          <View className="bg-[#FFF8F0] p-6 rounded-2xl border border-[#633806]/10 hover:-translate-y-1 hover:shadow-md transition-all duration-300 space-y-4">
-            <View className="bg-[#EF9F27]/10 w-12 h-12 rounded-xl items-center justify-center border border-[#EF9F27]/20">
-              <Search size={24} color="#EF9F27" />
-            </View>
-            <Text className="text-lg font-bold text-[#633806]" style={{ fontFamily: 'Georgia, serif' }}>
-              Búsqueda y filtros
-            </Text>
-            <Text className="text-[#A89070] leading-relaxed text-sm">
-              Encontrá cualquier receta en segundos. Buscá por nombre o ingrediente y filtrá por categoría o favoritos.
-            </Text>
-          </View>
-
-          {/* Card 5 */}
-          <View className="bg-[#FFF8F0] p-6 rounded-2xl border border-[#633806]/10 hover:-translate-y-1 hover:shadow-md transition-all duration-300 space-y-4">
-            <View className="bg-[#EF9F27]/10 w-12 h-12 rounded-xl items-center justify-center border border-[#EF9F27]/20">
-              <Heart size={24} color="#EF9F27" />
-            </View>
-            <Text className="text-lg font-bold text-[#633806]" style={{ fontFamily: 'Georgia, serif' }}>
-              Favoritos
-            </Text>
-            <Text className="text-[#A89070] leading-relaxed text-sm">
-              Marcá las recetas que mejor te salen o tus platos preferidos para tenerlos siempre a un toque de distancia.
-            </Text>
-          </View>
-
-          {/* Card 6 */}
-          <View className="bg-[#FFF8F0] p-6 rounded-2xl border border-[#633806]/10 hover:-translate-y-1 hover:shadow-md transition-all duration-300 space-y-4">
-            <View className="bg-[#EF9F27]/10 w-12 h-12 rounded-xl items-center justify-center border border-[#EF9F27]/20">
-              <Flame size={24} color="#EF9F27" />
-            </View>
-            <Text className="text-lg font-bold text-[#633806]" style={{ fontFamily: 'Georgia, serif' }}>
-              Fogoncito
-            </Text>
-            <Text className="text-[#A89070] leading-relaxed text-sm">
-              Tu asistente virtual de cocina. Preguntale &quot;¿Qué cocino hoy con huevos, papa y cebolla?&quot; y te dará ideas deliciosas al instante.
-            </Text>
-          </View>
-        </View>
-      </View>
-
-      {/* 5. Capturas de la app */}
-      <View className="bg-[#FAEEDA]/30 py-20 md:py-28 border-y border-[#633806]/5 overflow-hidden">
-        <View className="max-w-7xl mx-auto px-6">
-          <View className="text-center max-w-2xl mx-auto mb-16 space-y-3">
-            <Text className="text-[#3B6D11] text-sm font-bold uppercase tracking-widest">Galería</Text>
-            <Text 
-              className="text-4xl font-bold text-[#633806]" 
-              style={{ fontFamily: 'Georgia, serif' }}
-            >
-              Mirá Fogón en acción
-            </Text>
-            <Text className="text-[#A89070] text-base">
-              Una interfaz minimalista, hogareña y diseñada para ensuciarse las manos cocinando.
-            </Text>
-          </View>
-
-          {/* Placeholders tilted and centered */}
-          <View className="flex-row flex-wrap justify-center items-center gap-10 lg:gap-14 pt-6 max-w-5xl mx-auto">
-            {/* Screen 1 (Left - tilted left) */}
-            <View 
-              className="w-[280px] aspect-[9/19.5] bg-[#FAEEDA] border-4 border-[#633806]/20 rounded-[32px] p-0 shadow-md transform lg:-rotate-3 transition-transform duration-300 hover:rotate-0 hover:scale-105 z-0 overflow-hidden"
-              style={Platform.OS === 'web' ? { transform: 'rotate(-3deg)' } as any : undefined}
-            >
-              <Image 
-                source={require('../assets/images/receta_detalle.png')}
-                style={{ width: '100%', height: '100%' }}
-                resizeMode="cover"
-              />
-            </View>
-
-            {/* Screen 2 (Center - straight) */}
-            <View className="w-[290px] aspect-[9/19.5] bg-[#FAEEDA] border-[6px] border-[#633806] rounded-[36px] p-0 shadow-xl z-10 transition-transform duration-300 hover:scale-105 overflow-hidden">
-              <Image 
-                source={require('../assets/images/planificador.jpeg')}
-                style={{ width: '100%', height: '100%' }}
-                resizeMode="contain"
-              />
-            </View>
-
-            {/* Screen 3 (Right - tilted right) */}
-            <View 
-              className="w-[280px] aspect-[9/19.5] bg-[#FAEEDA] border-4 border-[#633806]/20 rounded-[32px] p-0 shadow-md transform lg:rotate-3 transition-transform duration-300 hover:rotate-0 hover:scale-105 z-0 overflow-hidden"
-              style={Platform.OS === 'web' ? { transform: 'rotate(3deg)' } as any : undefined}
-            >
-              <Image 
-                source={require('../assets/images/lista_compras.jpeg')}
-                style={{ width: '100%', height: '100%' }}
-                resizeMode="contain"
-              />
+        {/* Teléfono ilustrativo */}
+        <View className="flex-1 items-center justify-center py-6 min-w-0" accessible={false}>
+          <Image source={ILLUSTRATIONS.zanahoria} style={{ position: 'absolute', left: '4%', top: '6%', width: 75, height: 92, transform: [{ rotate: '-18deg' }] }} resizeMode="contain" />
+          <Image source={ILLUSTRATIONS.tomate} style={{ position: 'absolute', right: '4%', top: '16%', width: 68, height: 70 }} resizeMode="contain" />
+          <Image source={ILLUSTRATIONS.nabo} style={{ position: 'absolute', left: '8%', bottom: '8%', width: 70, height: 80 }} resizeMode="contain" />
+          <Image source={ILLUSTRATIONS.morron} style={{ position: 'absolute', right: '6%', bottom: '4%', width: 82, height: 86, transform: [{ rotate: '12deg' }] }} resizeMode="contain" />
+          <View className="w-[290px] rounded-[40px] bg-pizca-marron p-2.5" style={{ boxShadow: '0 30px 60px rgba(63,49,40,0.25)' }}>
+            <View className="rounded-[32px] overflow-hidden bg-pizca-fondo">
+              <View className="h-[170px] bg-[#EFE3B0] items-center justify-center">
+                <Image source={ILLUSTRATIONS.hongo} style={{ width: 90, height: 80 }} resizeMode="contain" />
+              </View>
+              <View className="px-[18px] pt-4 pb-5 gap-2.5">
+                <Text className="font-display text-2xl leading-[26px] text-pizca-marron">Pasta cremosa con hongos</Text>
+                <Text className="text-xs font-bold text-pizca-texto2">35 min · 4 porciones</Text>
+                <View className="gap-2 p-3 rounded-[16px] bg-white">
+                  <View className="flex-row gap-2 items-center">
+                    <View className="w-4 h-4 rounded-[5px] bg-pizca-albahaca items-center justify-center"><Check size={11} color="#FFFFFF" strokeWidth={3.2} /></View>
+                    <Text className="text-[13px] text-pizca-texto2 line-through">250 g de fideos</Text>
+                  </View>
+                  <View className="flex-row gap-2 items-center">
+                    <View className="w-4 h-4 rounded-[5px] border-[1.5px] border-pizca-marron" />
+                    <Text className="text-[13px] text-pizca-marron"><Text className="font-extrabold">200 g</Text> de hongos</Text>
+                  </View>
+                  <View className="flex-row gap-2 items-center">
+                    <View className="w-4 h-4 rounded-[5px] border-[1.5px] border-pizca-marron" />
+                    <Text className="text-[13px] text-pizca-marron"><Text className="font-extrabold">1 taza</Text> de crema</Text>
+                  </View>
+                </View>
+                <View className="h-11 rounded-[14px] bg-pizca-albahaca items-center justify-center">
+                  <Text className="text-sm font-extrabold text-white">Agregar a la semana</Text>
+                </View>
+              </View>
             </View>
           </View>
         </View>
       </View>
 
-      {/* 6. CTA Final */}
-      <View className="bg-[#FAEEDA] py-20 md:py-28 border-y border-[#633806]/10">
-        <View className="max-w-4xl mx-auto px-6 text-center space-y-8 flex-col items-center">
-          <Text 
-            className="text-4xl md:text-5xl font-bold text-[#633806] leading-tight" 
-            style={{ fontFamily: 'Georgia, serif' }}
-          >
-            ¿Listo para ordenar tu cocina?
-          </Text>
-          <Text className="text-[#A89070] text-lg max-w-xl text-center">
-            Empezá gratis hoy mismo. No requerimos tarjeta de crédito ni datos complejos. Guardá tus recetas favoritas en un solo lugar.
-          </Text>
-          <Button 
-            title="Crear mi cuenta" 
-            variant="primary" 
-            className="px-10 py-4 rounded-2xl shadow-lg text-lg"
+      {/* Cómo funciona */}
+      <View className="bg-pizca-crema px-6 py-20" onLayout={e => setStepsY(e.nativeEvent.layout.y)}>
+        <View className="w-full max-w-[1160px] self-center gap-10">
+          <View className="gap-2.5 max-w-[640px]">
+            <Text className="text-sm font-extrabold tracking-widest uppercase text-pizca-albahaca">Cómo funciona</Text>
+            <Text className="font-display text-[44px] leading-[46px] text-pizca-marron" accessibilityRole="header">De un link a tu cocina, en tres pasos</Text>
+          </View>
+          <View className="flex-row flex-wrap gap-5">
+            <StepCard n={1} color="bg-pizca-mostaza" title="Importá" text="Compartí el video o pegá el link. También podés dictarla o pegar el texto." />
+            <StepCard n={2} color="bg-pizca-ambar" title="Ordená" text="Pizca la convierte en una receta clara, con cantidades, pasos y categorías." />
+            <StepCard n={3} color="bg-pizca-albahaca" light title="Cociná" text="Ajustá las porciones, tachá ingredientes y sumala al plan de la semana." />
+          </View>
+        </View>
+      </View>
+
+      {/* Funciones */}
+      <View className="w-full max-w-[1160px] self-center px-6 py-20 gap-10">
+        <Text className="font-display text-[44px] leading-[46px] text-pizca-marron max-w-[640px]" accessibilityRole="header">Todo en un solo lugar</Text>
+        <View className="flex-row flex-wrap gap-5">
+          <Feature icon={ICONS.web} title="Desde donde sea" text="TikTok, Instagram, YouTube, blogs, audio o texto." />
+          <Feature icon={ICONS.almuerzo} title="Plan de la semana" text="Elegí qué desayunar, almorzar y cenar cada día." />
+          <Feature icon={ICONS.compras} title="Lista de compras" text="Se arma sola con los ingredientes de tu plan." />
+          <Feature icon={ICONS.categorias} title="Buscá y filtrá" text="Por nombre, ingrediente, categoría o favoritas." />
+          <Feature icon={ICONS.ingredientes} title="Ideas con lo que tenés" text="Contale qué hay en la heladera y te sugiere recetas tuyas." />
+          <Feature icon={ICONS.favoritos} title="Compartí" text="Mandá un link y cualquiera la ve, aunque no tenga cuenta." />
+        </View>
+      </View>
+
+      {/* CTA final */}
+      <View className="px-6 pb-20">
+        <View className={`w-full max-w-[1160px] self-center rounded-[32px] bg-pizca-albahaca px-10 py-14 gap-8 overflow-hidden ${wide ? 'flex-row items-center justify-between' : ''}`}>
+          <View className="gap-3 max-w-[560px] flex-shrink">
+            <Text className="font-display text-[48px] leading-[49px] text-white">Una pizca alcanza.</Text>
+            <Text className="text-lg leading-[27px] text-[#E4EDE3]">
+              Creá tu cuenta y guardá tu primera receta en menos de un minuto. Usala desde el navegador o agregala a la
+              pantalla de inicio del celu.
+            </Text>
+          </View>
+          <TouchableOpacity
             onPress={() => router.push('/register')}
-          />
+            className="h-14 px-7 rounded-[16px] bg-pizca-ambar items-center justify-center self-start"
+            accessibilityRole="link"
+          >
+            <Text className="text-[17px] font-extrabold text-pizca-marron">Crear mi cuenta gratis</Text>
+          </TouchableOpacity>
         </View>
       </View>
 
-      {/* 7. Footer */}
-      <View className="bg-[#633806] py-12 text-[#FFF8F0]">
-        <View className="max-w-7xl mx-auto px-6 flex-col md:flex-row items-center justify-between gap-6">
-          <View className="flex-row items-center space-x-2">
-            <Flame size={20} color="#EF9F27" />
-            <Text 
-              className="text-xl font-bold tracking-tight text-[#FFF8F0] ml-1"
-              style={{ fontFamily: 'Georgia, serif' }}
-            >
-              Fogón
-            </Text>
-          </View>
-
-          <View className="flex-row items-center space-x-6">
-            <TouchableOpacity onPress={() => router.push('/login')}>
-              <Text className="text-sm font-semibold text-[#FAEEDA] hover:underline">Iniciar sesión</Text>
-            </TouchableOpacity>
-            <Text className="text-[#A89070]/60 text-xs">•</Text>
-            <TouchableOpacity onPress={() => router.push('/register')}>
-              <Text className="text-sm font-semibold text-[#FAEEDA] hover:underline">Registrarse</Text>
-            </TouchableOpacity>
-          </View>
-
-          <Text className="text-[#A89070] text-sm font-medium">
-            Hecho con ♥ en Córdoba, Argentina
-          </Text>
+      {/* Pie */}
+      <View className="w-full max-w-[1160px] self-center px-6 pt-6 pb-10 border-t border-pizca-linea flex-row items-center justify-between flex-wrap gap-4">
+        <View className="flex-row items-center gap-2">
+          <Image source={ISOLOGO} style={{ width: 27, height: 22 }} resizeMode="contain" />
+          <Text className="text-sm text-pizca-texto2">Pizca · hecho en Córdoba</Text>
         </View>
+        <TouchableOpacity onPress={() => router.push('/login')} accessibilityRole="link">
+          <Text className="text-sm font-bold text-pizca-mostaza-texto">Ingresar</Text>
+        </TouchableOpacity>
       </View>
-      </ScrollView>
-    </View>
+    </ScrollView>
   );
 }
+
+const StepCard = ({ n, color, light, title, text }: { n: number; color: string; light?: boolean; title: string; text: string }) => (
+  <View className="flex-1 basis-[280px] bg-white rounded-[24px] p-7 gap-3">
+    <View className={`w-10 h-10 rounded-full items-center justify-center ${color}`}>
+      <Text className={`text-lg font-extrabold ${light ? 'text-white' : 'text-pizca-marron'}`}>{n}</Text>
+    </View>
+    <Text className="text-[22px] font-extrabold text-pizca-marron">{title}</Text>
+    <Text className="text-base leading-[25px] text-pizca-texto2">{text}</Text>
+  </View>
+);
+
+const Feature = ({ icon, title, text }: { icon: ImageSourcePropType; title: string; text: string }) => (
+  <View className="flex-1 basis-[320px] flex-row gap-4 p-6 rounded-[24px] bg-white border border-pizca-linea">
+    <View className="w-14 h-14 rounded-[16px] bg-pizca-crema items-center justify-center">
+      <Image source={icon} style={{ width: 32, height: 32 }} />
+    </View>
+    <View className="flex-1 gap-1.5">
+      <Text className="text-lg font-extrabold text-pizca-marron">{title}</Text>
+      <Text className="text-[15px] leading-[22px] text-pizca-texto2">{text}</Text>
+    </View>
+  </View>
+);

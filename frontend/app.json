@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "FOGON",
+    "name": "Pizca",
     "slug": "fogon",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -18,7 +18,7 @@
     "android": {
       "package": "com.pedroyorlano.fogon",
       "adaptiveIcon": {
-        "backgroundColor": "#EF9F27",
+        "backgroundColor": "#BE9F00",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -52,9 +52,9 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#FAEEDA",
+          "backgroundColor": "#FFF9EC",
           "dark": {
-            "backgroundColor": "#633806"
+            "backgroundColor": "#3F3128"
           }
         }
       ],
@@ -68,15 +68,21 @@
             }
           ],
           "backgroundColor": {
-            "red": 250,
-            "green": 238,
-            "blue": 218,
+            "red": 255,
+            "green": 249,
+            "blue": 236,
             "alpha": 1
           }
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Pizca usa el micrófono para que puedas dictar tus recetas."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

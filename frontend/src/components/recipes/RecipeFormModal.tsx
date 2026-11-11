@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Modal, View, Text, TextInput, ScrollView, TouchableOpacity, ActivityIndicator, Image, Platform } from 'react-native';
+import { Modal, View, ScrollView, TouchableOpacity, Image, Platform, Animated, Easing } from 'react-native';
+import { Text, TextInput } from '../ui/Typography';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import * as ImageManipulator from 'expo-image-manipulator';
@@ -8,8 +9,11 @@ import { useApp } from '../../context/AppContext';
 import { Recipe, Category, Ingredient } from '../../types';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
-import { Camera, X, Trash2, Wand2, ChefHat, Sparkles, Mic } from 'lucide-react-native';
+import { Camera, X, ChevronLeft, AlertCircle } from 'lucide-react-native';
+import { ICONS, ISOLOGO } from '../../constants/brand';
 import { notify, getErrorMessage } from '../../utils/dialogs';
+import { DialogHost } from '../ui/DialogHost';
+import { AudioRecorder, AudioFile } from './AudioRecorder';
 
 const emptyRecipe: Recipe = {
   uuid: '', title: '', description: '', ingredients: [], steps: [], categories: [], categories_details: [], servings: 1,
@@ -39,9 +43,10 @@ const QuantityInput = ({ value, onChange }: { value: number | null; onChange: (v
 
   return (
     <TextInput
-      className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-3 text-fogon-brown text-base w-[70px] mr-2 shadow-sm text-center"
+      className="bg-pizca-crema rounded-[12px] px-2.5 h-[46px] text-pizca-marron text-[15px] w-16"
       placeholder="200"
-      placeholderTextColor="#A89070"
+      placeholderTextColor="#8C7E70"
+      accessibilityLabel="Cantidad"
       keyboardType="decimal-pad"
       value={text}
       onChangeText={t => {
@@ -63,6 +68,8 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
   const [isProcessing, setIsProcessing] = useState(false);
   const [isImported, setIsImported] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Error de la última importación, se muestra en la pantalla en vez de un alert.
+  const [importError, setImportError] = useState<string | null>(null);
 
   const { createMode, setCreateMode, createCategory, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, initialImportUrl, setInitialImportUrl } = useApp();
   const [isAddingCategory, setIsAddingCategory] = useState(false);
@@ -71,6 +78,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
 
   useEffect(() => {
     if (visible) {
+      setImportError(null);
       if (initialData) {
         setDraftRecipe(JSON.parse(JSON.stringify(initialData)));
         setIsImported(false);
@@ -96,6 +104,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
   }, [visible, initialData, createMode, initialImportUrl, setInitialImportUrl]);
 
   const handleImport = async () => {
+    setImportError(null);
     if (!importUrl.trim()) return notify("Falta el link", "Pegá el link del video.");
     setIsProcessing(true);
     try {
@@ -104,13 +113,14 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
       setIsImported(true);
     } catch (e: any) {
       console.error("Error importando receta:", e);
-      notify("Error", getErrorMessage(e, "No se pudo extraer la receta."));
+      setImportError(getErrorMessage(e, "Revisá que el link sea público. Si sigue sin andar, probá pegando el texto de la receta."));
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleImportText = async () => {
+    setImportError(null);
     if (!importText.trim()) return notify("Falta el texto", "Escribí o pegá el texto de la receta.");
     setIsProcessing(true);
     try {
@@ -118,13 +128,14 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
       setDraftRecipe({ ...emptyRecipe, ...recipe });
       setIsImported(true);
     } catch (e) {
-      notify("Error", getErrorMessage(e, "La IA no pudo entender o extraer la receta del texto."));
+      setImportError(getErrorMessage(e, "No encontramos una receta en el texto. Probá sumando ingredientes y pasos."));
     } finally {
       setIsProcessing(false);
     }
   };
 
   const handleImportWeb = async () => {
+    setImportError(null);
     if (!importUrl.trim()) return notify("Falta el link", "Pegá el link del blog o sitio web.");
     setIsProcessing(true);
     try {
@@ -132,31 +143,40 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
       setDraftRecipe({ ...emptyRecipe, ...recipe, original_url: importUrl.trim() });
       setIsImported(true);
     } catch (e) {
-      notify("Error", getErrorMessage(e, "No se pudo extraer la receta. Probá de otra manera."));
+      setImportError(getErrorMessage(e, "Este sitio no nos dejó leer la receta. Probá pegando el texto."));
     } finally {
       setIsProcessing(false);
     }
   };
 
-  const handleImportAudio = async () => {
+  const importAudioFile = async (file: AudioFile) => {
+    setImportError(null);
+    setIsProcessing(true);
+    try {
+      const recipe = await importRecipeAIAudio(file.uri, file.name, file.type, file.webFile);
+      setDraftRecipe({ ...emptyRecipe, ...recipe });
+      setIsImported(true);
+    } catch (e) {
+      setImportError(getErrorMessage(e, "No pudimos entender el audio. Probá de nuevo."));
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handlePickAudio = async () => {
+    setImportError(null);
     try {
       const result = await DocumentPicker.getDocumentAsync({ type: 'audio/*' });
-      if (!result.canceled && result.assets && result.assets.length > 0) {
-        setIsProcessing(true);
-        const file = result.assets[0];
-        const recipe = await importRecipeAIAudio(
-          file.uri,
-          file.name,
-          file.mimeType || 'audio/mpeg',
-          Platform.OS === 'web' ? file.file : undefined,
-        );
-        setDraftRecipe({ ...emptyRecipe, ...recipe });
-        setIsImported(true);
-      }
+      if (result.canceled || !result.assets?.length) return;
+      const file = result.assets[0];
+      await importAudioFile({
+        uri: file.uri,
+        name: file.name,
+        type: file.mimeType || 'audio/mpeg',
+        webFile: Platform.OS === 'web' ? file.file : undefined,
+      });
     } catch (e) {
-       notify("Error", getErrorMessage(e, "No se pudo subir o procesar el audio."));
-    } finally {
-       setIsProcessing(false);
+      setImportError(getErrorMessage(e, "No pudimos abrir el audio. Probá con otro."));
     }
   };
 
@@ -250,285 +270,368 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
       await onSubmit(payload);
       onClose();
     } catch (error) {
-      notify("Error", getErrorMessage(error, "No se pudo guardar la receta en tu Fogón."));
+      notify("Error", getErrorMessage(error, "No pudimos guardar la receta."));
     } finally {
       setSaving(false);
     }
   };
 
+  const IMPORT_COPY: Record<string, { title: string; label: string; hint: string; icon: any }> = {
+    video: { title: 'Importar video', label: 'Pegá el link del video', hint: 'Funciona con TikTok, Instagram, YouTube y Facebook.', icon: ICONS.video },
+    'link-web': { title: 'Importar de la web', label: 'Pegá el link de la receta', hint: 'Nos quedamos con la receta y salteamos la historia y las publicidades.', icon: ICONS.web },
+    text: { title: 'Importar texto', label: 'Pegá o escribí la receta', hint: 'Con cantidades y pasos, mejor. Lo que falte lo completamos.', icon: ICONS.texto },
+    audio: { title: 'Dictar receta', label: 'Contanos la receta', hint: 'Decí el nombre, los ingredientes con sus cantidades y los pasos. Nosotros la pasamos a texto.', icon: ICONS.audio },
+  };
+  const copy = IMPORT_COPY[createMode ?? "video"] ?? IMPORT_COPY.video;
+  const isUrlMode = createMode === 'video' || createMode === 'link-web';
+  const runImport = createMode === 'link-web' ? handleImportWeb : createMode === 'text' ? handleImportText : createMode === 'audio' ? handlePickAudio : handleImport;
+  const coverUri = draftRecipe ? (draftRecipe.localImage || draftRecipe.image || draftRecipe.image_url) : undefined;
+
   return (
     <Modal animationType="slide" visible={visible} onRequestClose={onClose}>
-      <SafeAreaView className="flex-1 bg-fogon-cream">
-        {/* HEADER */}
-        <View className="flex-row justify-between items-center px-6 py-4 pt-[60px] bg-fogon-white border-b border-fogon-gray/10 shadow-sm z-10">
-          <Text className="text-xl font-bold font-serif text-fogon-brown">
-            {!draftRecipe ? 'Importar al Fogón' : (initialData ? 'Editar receta' : 'Nueva receta')}
-          </Text>
-          <TouchableOpacity onPress={onClose} className="bg-fogon-cream p-2 rounded-full">
-            <X size={20} color="#633806" />
-          </TouchableOpacity>
-        </View>
+      <SafeAreaView className="flex-1 bg-pizca-fondo" edges={['top', 'bottom']}>
+        {/* FASE 1: IMPORTACIÓN */}
+        {!draftRecipe && (
+          <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 12, gap: 20, maxWidth: 640, width: '100%', alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
+            <View className="flex-row items-center gap-3">
+              <TouchableOpacity onPress={onClose} className="w-11 h-11 rounded-full bg-white border border-pizca-linea items-center justify-center" accessibilityLabel="Volver">
+                <ChevronLeft size={22} color="#3F3128" strokeWidth={2.4} />
+              </TouchableOpacity>
+              <Text className="font-display text-[28px] leading-[30px] text-pizca-marron flex-1" accessibilityRole="header">{copy.title}</Text>
+            </View>
 
-        <ScrollView className="flex-1 px-6 pt-6" showsVerticalScrollIndicator={false}>
-
-          {/* FASE 1: IMPORTACIÓN */}
-          {!draftRecipe && (
-            <View className="items-center mt-10">
-              <View className="bg-fogon-white p-6 rounded-full shadow-sm border border-fogon-amber/20 mb-6">
-                <Wand2 size={48} color="#EF9F27" />
-              </View>
-              {createMode === 'video' ? (
-                <>
-                  <Text className="text-xl font-bold text-fogon-brown mb-6 text-center px-4">
-                    Pegá el link del video (TikTok, Instagram o YouTube)
-                  </Text>
-                  <View className="w-full">
-                    <Input placeholder="https://..." value={importUrl} onChangeText={setImportUrl} autoCapitalize="none" />
-                  </View>
-                  {!isProcessing && (
-                    <View className="w-full mt-2">
-                       <Button title="Extraer con IA" onPress={handleImport} icon={<Sparkles color="#633806" size={20} />} />
-                    </View>
-                  )}
-                </>
-              ) : createMode === 'link-web' ? (
-                <>
-                  <Text className="text-xl font-bold text-fogon-brown mb-2 text-center px-4">
-                    Pegá el link del blog o sitio web
-                  </Text>
-                  <Text className="text-xs text-fogon-gray mb-6 text-center px-4">
-                    Extraemos la receta eliminando todas las historias y publicidades del sitio
-                  </Text>
-                  <View className="w-full">
-                    <Input placeholder="https://..." value={importUrl} onChangeText={setImportUrl} autoCapitalize="none" />
-                  </View>
-                  {!isProcessing && (
-                    <View className="w-full mt-2">
-                       <Button title="Extraer con IA" onPress={handleImportWeb} icon={<Sparkles color="#633806" size={20} />} />
-                    </View>
-                  )}
-                </>
+            <View className="gap-2">
+              <Text className="text-sm font-extrabold text-pizca-marron">{copy.label}</Text>
+              {isUrlMode ? (
+                <View className={`h-14 flex-row items-center gap-2.5 pl-3.5 pr-2 rounded-[16px] bg-white border-2 ${importUrl ? 'border-pizca-mostaza' : 'border-pizca-linea'}`}>
+                  <Image source={copy.icon} style={{ width: 22, height: 22 }} />
+                  <TextInput
+                    className="flex-1 text-[15px] text-pizca-marron h-full"
+                    placeholder="https://…"
+                    placeholderTextColor="#8C7E70"
+                    value={importUrl}
+                    onChangeText={t => { setImportUrl(t); setImportError(null); }}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    keyboardType="url"
+                    accessibilityLabel={copy.label}
+                  />
+                  {importUrl ? (
+                    <TouchableOpacity onPress={() => setImportUrl('')} className="w-10 h-10 rounded-full bg-pizca-crema items-center justify-center" accessibilityLabel="Borrar link">
+                      <X size={18} color="#3F3128" strokeWidth={2.4} />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
               ) : createMode === 'text' ? (
-                <>
-                  <Text className="text-xl font-bold text-fogon-brown mb-2 text-center px-4">
-                    Escribí la receta a tu manera
+                <TextInput
+                  className="bg-pizca-crema rounded-[16px] p-4 text-pizca-marron text-[15px] min-h-[180px]"
+                  multiline
+                  textAlignVertical="top"
+                  placeholder="Ej: Mezclar 200 g de harina con 1 huevo y hornear 20 minutos…"
+                  placeholderTextColor="#8C7E70"
+                  value={importText}
+                  onChangeText={t => { setImportText(t); setImportError(null); }}
+                  accessibilityLabel={copy.label}
+                />
+              ) : null}
+              <Text className="text-[13px] text-pizca-texto2">{copy.hint}</Text>
+            </View>
+
+            {/* Queda montado mientras procesa, así si falla se puede reenviar sin grabar de nuevo. */}
+            {createMode === 'audio' ? (
+              <View style={{ display: isProcessing ? 'none' : 'flex' }}>
+                <AudioRecorder onSubmit={importAudioFile} onPickFile={handlePickAudio} onError={setImportError} />
+              </View>
+            ) : !isProcessing && (
+              <Button title="Importar receta" onPress={runImport} />
+            )}
+
+            {isProcessing && (
+              <View className="mt-2 p-[22px] rounded-[24px] bg-white border border-pizca-linea items-center gap-3.5" accessibilityLiveRegion="polite">
+                <Spinner />
+                <Text className="text-xl font-extrabold text-pizca-marron text-center">Ordenando tu receta…</Text>
+                <Text className="text-[15px] leading-[22px] text-pizca-texto2 text-center max-w-[280px]">
+                  {createMode === 'video'
+                    ? 'Estamos mirando el video y anotando ingredientes y pasos. Tarda unos segundos.'
+                    : createMode === 'audio'
+                      ? 'Estamos escuchando el audio y anotando ingredientes y pasos. Tarda unos segundos.'
+                      : 'Estamos leyendo la receta y anotando ingredientes y pasos. Tarda unos segundos.'}
+                </Text>
+              </View>
+            )}
+
+            {importError && !isProcessing ? (
+              <View className="p-4 rounded-[20px] bg-[#FFF1EB] border-[1.5px] border-pizca-tomate flex-row gap-3 items-start" accessibilityLiveRegion="polite">
+                <AlertCircle size={22} color="#B23A12" strokeWidth={2.2} />
+                <View className="flex-1 gap-1">
+                  <Text className="text-[15px] font-extrabold text-pizca-marron">
+                    {isUrlMode ? 'No pudimos leer este link' : 'No pudimos armar la receta'}
                   </Text>
-                  <Text className="text-xs text-fogon-gray mb-6 text-center px-4">
-                    Sé lo más específico que puedas con cantidades y pasos. La IA completa lo que falte.
-                  </Text>
-                  <View className="w-full">
-                    <TextInput 
-                      className="bg-fogon-white border border-fogon-amber/30 rounded-[12px] p-4 text-fogon-brown text-base mb-4 shadow-sm text-left align-top min-h-[150px]" 
-                      multiline 
-                      placeholder="Ejemplo: Mezclar 200g de harina con 1 huevo, hornear por 20 minutos..." 
-                      placeholderTextColor="#A89070" 
-                      value={importText} 
-                      onChangeText={setImportText} 
+                  <Text className="text-sm leading-5 text-pizca-texto2">{importError}</Text>
+                  {isUrlMode ? (
+                    <TouchableOpacity onPress={() => { setImportError(null); setCreateMode('text'); }} className="pt-1 self-start" accessibilityRole="button">
+                      <Text className="text-sm font-extrabold text-pizca-mostaza-texto">Pegar como texto</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
+
+            <View className="flex-row items-center gap-4 my-2">
+              <View className="flex-1 h-px bg-pizca-linea" />
+              <Text className="text-pizca-texto2 text-[13px] font-bold">o</Text>
+              <View className="flex-1 h-px bg-pizca-linea" />
+            </View>
+            <Button title="Cargar a mano" variant="outline" onPress={handleManualCreate} />
+          </ScrollView>
+        )}
+
+        {/* FASE 2: EDICIÓN / MANUAL */}
+        {draftRecipe && (
+          <>
+            <View className="flex-row items-center justify-between px-4 pt-2 pb-3 border-b border-pizca-linea">
+              <TouchableOpacity onPress={onClose} className="w-11 h-11 rounded-full bg-pizca-crema items-center justify-center" accessibilityLabel="Cerrar">
+                <X size={20} color="#3F3128" strokeWidth={2.4} />
+              </TouchableOpacity>
+              <Text className="font-display text-2xl text-pizca-marron" accessibilityRole="header">
+                {initialData ? 'Editar receta' : 'Nueva receta'}
+              </Text>
+              <View className="w-11" />
+            </View>
+
+            <ScrollView
+              className="flex-1"
+              contentContainerStyle={{ padding: 20, paddingTop: 18, gap: 18, maxWidth: 640, width: '100%', alignSelf: 'center' }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+            >
+              {isImported && (
+                <View className="bg-[#D5E4D3] px-4 py-3 rounded-[16px] flex-row items-center gap-2.5">
+                  <Image source={ICONS.guardado} style={{ width: 22, height: 22 }} />
+                  <Text className="text-pizca-albahaca font-extrabold flex-1">¡Receta importada! Revisá los datos antes de guardar.</Text>
+                </View>
+              )}
+
+              {/* Foto */}
+              {coverUri ? (
+                <View className="w-full h-[180px] rounded-[24px] overflow-hidden">
+                  <Image source={{ uri: coverUri }} className="w-full h-full" resizeMode="cover" />
+                  <TouchableOpacity className="absolute top-3 right-3 bg-white w-9 h-9 rounded-full items-center justify-center" onPress={removeCoverImage} accessibilityLabel="Quitar foto">
+                    <X size={18} color="#3F3128" strokeWidth={2.4} />
+                  </TouchableOpacity>
+                  <TouchableOpacity className="absolute bottom-3 left-3 bg-white px-3.5 h-9 justify-center rounded-full" onPress={() => pickImage('cover')}>
+                    <Text className="text-pizca-marron text-[13px] font-extrabold">Cambiar foto</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : (
+                <TouchableOpacity
+                  className="h-[150px] rounded-[24px] bg-pizca-crema border-2 border-pizca-linea items-center justify-center gap-2"
+                  onPress={() => pickImage('cover')}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                >
+                  <Camera size={28} color="#3F3128" strokeWidth={2} />
+                  <Text className="text-[15px] font-extrabold text-pizca-marron">Agregar foto</Text>
+                  <Text className="text-[13px] text-pizca-texto2">Opcional</Text>
+                </TouchableOpacity>
+              )}
+
+              <View>
+                <Input label="Título" placeholder="Ej: Tarta de manzana de la abuela" value={draftRecipe.title} onChangeText={t => setDraftRecipe({ ...draftRecipe, title: t })} />
+                <View className="flex-row gap-3">
+                  <View className="flex-1">
+                    <Input
+                      label="Porciones"
+                      placeholder="4"
+                      keyboardType="number-pad"
+                      value={draftRecipe.servings ? String(draftRecipe.servings) : ''}
+                      onChangeText={t => {
+                        const n = parseInt(t.replace(/\D/g, ''), 10);
+                        setDraftRecipe({ ...draftRecipe, servings: isNaN(n) ? null : n });
+                      }}
                     />
                   </View>
-                  {!isProcessing && (
-                    <View className="w-full mt-2">
-                       <Button title="Extraer con IA" onPress={handleImportText} icon={<Sparkles color="#633806" size={20} />} />
-                    </View>
-                  )}
-                </>
-              ) : createMode === 'audio' ? (
-                <>
-                  <Text className="text-xl font-bold text-fogon-brown mb-6 text-center px-4">
-                    Subí una nota de voz
-                  </Text>
-                  <Text className="text-xs text-fogon-gray mb-6 text-center px-4">
-                    Subí un audio contando la receta y la IA la transcribe.
-                  </Text>
-                  {!isProcessing && (
-                    <View className="w-full mt-2">
-                       <Button title="Elegir audio" onPress={handleImportAudio} icon={<Mic color="#633806" size={20} />} />
-                    </View>
-                  )}
-                </>
-              ) : null}
-
-              {isProcessing && (
-                <View className="items-center my-6">
-                  <ActivityIndicator size="large" color="#EF9F27" />
-                  <Text className="mt-4 text-fogon-gray font-semibold text-center">Cocinando la magia...{'\n'}La IA está procesando los datos.</Text>
-                </View>
-              )}
-
-              <View className="flex-row items-center w-full my-8">
-                <View className="flex-1 h-[1px] bg-fogon-gray/20" />
-                <Text className="mx-4 text-fogon-gray text-sm font-semibold uppercase tracking-widest">o</Text>
-                <View className="flex-1 h-[1px] bg-fogon-gray/20" />
-              </View>
-              
-              <View className="w-full">
-                <Button title="Cargar a mano" variant="outline" onPress={handleManualCreate} icon={<ChefHat color="#633806" size={20} />} />
-              </View>
-            </View>
-          )}
-
-          {/* FASE 2: EDICIÓN / MANUAL */}
-          {draftRecipe && (
-            <View className="pb-32">
-              {isImported && (
-                <View className="bg-[#3B6D11]/10 px-4 py-3 rounded-[12px] border border-[#3B6D11]/20 mb-6 flex-row items-center">
-                  <Text className="text-[#3B6D11] text-lg mr-2">✨</Text>
-                  <Text className="text-[#3B6D11] font-bold flex-1">¡Receta importada! Revisá los datos antes de guardar.</Text>
-                </View>
-              )}
-
-              <Input label="Título de la receta" placeholder="Ej: Tarta de Manzanas de la abuela" value={draftRecipe.title} onChangeText={t => setDraftRecipe({ ...draftRecipe, title: t })} />
-
-              {/* PORCIONES Y TIEMPO */}
-              <View className="flex-row">
-                <View className="flex-1 mr-3">
-                  <Input
-                    label="Porciones"
-                    placeholder="4"
-                    keyboardType="number-pad"
-                    value={draftRecipe.servings ? String(draftRecipe.servings) : ''}
-                    onChangeText={t => {
-                      const n = parseInt(t.replace(/\D/g, ''), 10);
-                      setDraftRecipe({ ...draftRecipe, servings: isNaN(n) ? null : n });
-                    }}
-                  />
-                </View>
-                <View className="flex-1">
-                  <Input
-                    label="Tiempo (min)"
-                    placeholder="30"
-                    keyboardType="number-pad"
-                    value={draftRecipe.prep_time ? String(draftRecipe.prep_time) : ''}
-                    onChangeText={t => {
-                      const n = parseInt(t.replace(/\D/g, ''), 10);
-                      setDraftRecipe({ ...draftRecipe, prep_time: isNaN(n) ? null : n });
-                    }}
-                  />
-                </View>
-              </View>
-
-              {/* PORTADA */}
-              <Text className="text-fogon-gray uppercase text-xs font-bold tracking-wider mb-2 mt-4 ml-1">Foto de portada</Text>
-              <View className="mb-6">
-                {draftRecipe.localImage || draftRecipe.image || draftRecipe.image_url ? (
-                  <View className="w-full aspect-[4/3] rounded-[16px] overflow-hidden relative shadow-sm border border-fogon-gray/10">
-                    <Image source={{ uri: draftRecipe.localImage || draftRecipe.image || draftRecipe.image_url }} className="w-full h-full" resizeMode="cover" />
-                    <TouchableOpacity className="absolute top-3 right-3 bg-black/50 w-8 h-8 rounded-full items-center justify-center border border-white/20" onPress={removeCoverImage}>
-                      <X size={16} color="white" />
-                    </TouchableOpacity>
-                    <TouchableOpacity className="absolute bottom-3 left-3 bg-fogon-white/90 px-3 py-1.5 rounded-full shadow-sm" onPress={() => pickImage('cover')}>
-                      <Text className="text-fogon-brown text-xs font-bold">Cambiar foto</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <TouchableOpacity className="w-full aspect-[5/3] bg-fogon-white rounded-[16px] border-2 border-dashed border-fogon-gray/30 items-center justify-center" onPress={() => pickImage('cover')} activeOpacity={0.7}>
-                    <Camera size={32} color="#A89070" className="mb-2" />
-                    <Text className="text-fogon-gray font-semibold">Subir foto de portada</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
-
-              {/* DESCRIPCION */}
-              <Text className="text-fogon-gray uppercase text-xs font-bold tracking-wider mb-2 ml-1">Descripción corta</Text>
-              <TextInput className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-4 text-fogon-brown text-base mb-6 min-h-[100px] shadow-sm text-left align-top" multiline placeholder="Breve historia o tips de por qué esta receta es especial..." placeholderTextColor="#A89070" value={draftRecipe.description} onChangeText={t => setDraftRecipe({ ...draftRecipe, description: t })} />
-
-              {/* CATEGORIAS */}
-              <Text className="text-fogon-gray uppercase text-xs font-bold tracking-wider mb-2 ml-1">Categorías</Text>
-              <View className="flex-row flex-wrap items-center mb-6">
-                {isAddingCategory ? (
-                  <View className="flex-row items-center border border-fogon-amber rounded-full px-3 py-1 mr-2 mb-2 bg-fogon-white">
-                    <TextInput className="text-fogon-brown mr-2 py-1 min-w-[70px]" placeholder="Nombre..." autoFocus value={newCategoryName} onChangeText={setNewCategoryName} onSubmitEditing={handleAddCategory} />
-                    <TouchableOpacity onPress={handleAddCategory} className="bg-fogon-amber px-2 py-1.5 rounded-full">
-                      <Text className="text-fogon-brown text-[10px] font-bold">OK</Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <TouchableOpacity className="border border-dashed border-fogon-amber px-4 py-2 rounded-full mr-2 mb-2 bg-fogon-amber/5" onPress={() => setIsAddingCategory(true)}>
-                    <Text className="text-fogon-amber font-bold text-xs">+ Nueva</Text>
-                  </TouchableOpacity>
-                )}
-
-                {categories.map((cat) => {
-                  const isSelected = draftRecipe.categories?.includes(cat.id);
-                  return (
-                    <TouchableOpacity
-                      key={cat.id}
-                      className={`px-4 py-2 rounded-full mr-2 mb-2 border shadow-sm ${isSelected ? 'bg-fogon-amber border-fogon-amber' : 'bg-fogon-white border-fogon-gray/20'}`}
-                      onPress={() => {
-                        const current = draftRecipe.categories || [];
-                        const newCats = current.includes(cat.id) ? current.filter(id => id !== cat.id) : [...current, cat.id];
-                        setDraftRecipe({ ...draftRecipe, categories: newCats });
+                  <View className="flex-1">
+                    <Input
+                      label="Tiempo (min)"
+                      placeholder="30"
+                      keyboardType="number-pad"
+                      value={draftRecipe.prep_time ? String(draftRecipe.prep_time) : ''}
+                      onChangeText={t => {
+                        const n = parseInt(t.replace(/\D/g, ''), 10);
+                        setDraftRecipe({ ...draftRecipe, prep_time: isNaN(n) ? null : n });
                       }}
-                    >
-                      <Text className={`font-semibold text-xs ${isSelected ? 'text-fogon-brown' : 'text-fogon-gray'}`}>{cat.name}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
+                    />
+                  </View>
+                </View>
+                <Input
+                  label="Descripción (opcional)"
+                  placeholder="Una historia o un tip de por qué esta receta es especial…"
+                  multiline
+                  textAlignVertical="top"
+                  value={draftRecipe.description}
+                  onChangeText={t => setDraftRecipe({ ...draftRecipe, description: t })}
+                />
               </View>
 
-              {/* INGREDIENTES - 3 campos: cantidad, unidad, nombre */}
-              <Text className="text-fogon-brown text-xl font-bold font-serif mb-4 mt-2">Ingredientes</Text>
-              {draftRecipe.ingredients.map((ing, index) => (
-                <View key={index} className="flex-row items-center mb-3">
-                  {/* Cantidad (numérica) */}
-                  <QuantityInput value={ing.quantity} onChange={v => updateIngredient(index, 'quantity', v)} />
-                  {/* Unidad */}
-                  <TextInput 
-                    className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-3 text-fogon-brown text-base w-[65px] mr-2 shadow-sm text-center" 
-                    placeholder="g" 
-                    placeholderTextColor="#A89070" 
-                    value={ing.unit} 
-                    onChangeText={t => updateIngredient(index, 'unit', t)} 
-                  />
-                  {/* Nombre */}
-                  <TextInput 
-                    className="bg-fogon-white border border-fogon-gray/30 rounded-[12px] p-3 text-fogon-brown text-base flex-1 mr-2 shadow-sm" 
-                    placeholder="Harina, Huevos..." 
-                    placeholderTextColor="#A89070" 
-                    value={ing.name} 
-                    onChangeText={t => updateIngredient(index, 'name', t)} 
-                  />
-                  <TouchableOpacity onPress={() => removeIngredient(index)} className="p-2">
-                    <Trash2 size={20} color="#EF4444" />
-                  </TouchableOpacity>
-                </View>
-              ))}
-              <TouchableOpacity className="my-2 py-3 items-center border border-dashed border-fogon-gray/40 rounded-[12px] bg-fogon-white/50" onPress={addIngredient}>
-                <Text className="text-fogon-gray font-bold text-sm">+ Agregar ingrediente</Text>
-              </TouchableOpacity>
-
-              {/* PASOS */}
-              <Text className="text-fogon-brown text-xl font-bold font-serif mb-4 mt-8">Preparación</Text>
-              {draftRecipe.steps.map((step, index) => (
-                <View key={index} className="bg-fogon-white rounded-[16px] p-4 mb-4 shadow-sm border border-fogon-gray/10 relative">
-                  <View className="flex-row items-center justify-between mb-3">
-                    <View className="flex-row items-center">
-                      <View className="w-6 h-6 bg-fogon-amber rounded-full items-center justify-center mr-2">
-                         <Text className="text-fogon-brown font-bold text-xs">{index + 1}</Text>
-                      </View>
-                      <Text className="text-fogon-brown font-bold">Paso {index + 1}</Text>
+              {/* Categorías */}
+              <View className="gap-2 -mt-2">
+                <Text className="text-[13px] font-extrabold text-pizca-marron">Categorías</Text>
+                <View className="flex-row flex-wrap gap-2">
+                  {categories.map((cat) => {
+                    const isSelected = draftRecipe.categories?.includes(cat.id);
+                    return (
+                      <TouchableOpacity
+                        key={cat.id}
+                        className={`h-9 px-3.5 justify-center rounded-full ${isSelected ? 'bg-pizca-marron' : 'bg-pizca-crema'}`}
+                        onPress={() => {
+                          const current = draftRecipe.categories || [];
+                          const newCats = current.includes(cat.id) ? current.filter(id => id !== cat.id) : [...current, cat.id];
+                          setDraftRecipe({ ...draftRecipe, categories: newCats });
+                        }}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: !!isSelected }}
+                      >
+                        <Text className={`text-sm ${isSelected ? 'font-extrabold text-pizca-fondo' : 'font-bold text-pizca-marron'}`}>{cat.name}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                  {isAddingCategory ? (
+                    <View className="h-9 flex-row items-center rounded-full pl-3.5 pr-1 border-[1.5px] border-pizca-marron bg-white">
+                      <TextInput
+                        className="text-pizca-marron text-sm min-w-[90px] h-full"
+                        placeholder="Nombre…"
+                        placeholderTextColor="#8C7E70"
+                        autoFocus
+                        value={newCategoryName}
+                        onChangeText={setNewCategoryName}
+                        onSubmitEditing={handleAddCategory}
+                      />
+                      <TouchableOpacity onPress={handleAddCategory} className="bg-pizca-mostaza h-7 px-3 justify-center rounded-full">
+                        <Text className="text-pizca-marron text-xs font-extrabold">Crear</Text>
+                      </TouchableOpacity>
                     </View>
-                    <TouchableOpacity onPress={() => removeStep(index)} className="px-2 py-1 bg-red-50 rounded-lg">
-                      <Text className="text-red-500 font-bold text-[10px] uppercase">Eliminar</Text>
+                  ) : (
+                    <TouchableOpacity className="h-9 px-3.5 justify-center rounded-full border-[1.5px] border-pizca-marron" onPress={() => setIsAddingCategory(true)}>
+                      <Text className="text-pizca-marron font-extrabold text-sm">+ Nueva</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
+              {/* Ingredientes */}
+              <View className="gap-2.5">
+                <View className="flex-row items-center gap-2">
+                  <Image source={ICONS.ingredientes} style={{ width: 22, height: 22 }} />
+                  <Text className="text-lg font-extrabold text-pizca-marron">Ingredientes</Text>
+                </View>
+                {draftRecipe.ingredients.length ? (
+                  <View className="flex-row gap-1.5 px-0.5">
+                    <Text className="w-16 text-xs font-extrabold text-pizca-texto2">Cantidad</Text>
+                    <Text className="w-[72px] text-xs font-extrabold text-pizca-texto2">Unidad</Text>
+                    <Text className="flex-1 text-xs font-extrabold text-pizca-texto2">Ingrediente</Text>
+                  </View>
+                ) : null}
+                {draftRecipe.ingredients.map((ing, index) => (
+                  <View key={index} className="flex-row items-center gap-1.5">
+                    <QuantityInput value={ing.quantity} onChange={v => updateIngredient(index, 'quantity', v)} />
+                    <TextInput
+                      className="bg-pizca-crema rounded-[12px] px-2.5 h-[46px] text-pizca-marron text-[15px] w-[72px]"
+                      placeholder="g"
+                      placeholderTextColor="#8C7E70"
+                      value={ing.unit}
+                      onChangeText={t => updateIngredient(index, 'unit', t)}
+                      accessibilityLabel="Unidad"
+                    />
+                    <TextInput
+                      className="bg-pizca-crema rounded-[12px] px-2.5 h-[46px] text-pizca-marron text-[15px] flex-1 min-w-0"
+                      placeholder="harina, huevos…"
+                      placeholderTextColor="#8C7E70"
+                      value={ing.name}
+                      onChangeText={t => updateIngredient(index, 'name', t)}
+                      accessibilityLabel="Ingrediente"
+                    />
+                    <TouchableOpacity onPress={() => removeIngredient(index)} className="w-9 h-[46px] items-center justify-center" accessibilityLabel="Quitar ingrediente">
+                      <X size={18} color="#6B5A4E" strokeWidth={2.4} />
                     </TouchableOpacity>
                   </View>
-                  
-                  <TextInput className="bg-fogon-cream border border-fogon-gray/20 rounded-[12px] p-4 text-fogon-brown text-base min-h-[80px]" placeholder="Trituramos las galletas hasta hacerlas polvo..." placeholderTextColor="#A89070" multiline textAlignVertical="top" value={step.instruction} onChangeText={t => updateStep(index, t)} />
-                </View>
-              ))}
-              <TouchableOpacity className="my-2 py-3 items-center border border-dashed border-fogon-gray/40 rounded-[12px] bg-fogon-white/50" onPress={addStep}>
-                <Text className="text-fogon-gray font-bold text-sm">+ Agregar paso</Text>
-              </TouchableOpacity>
+                ))}
+                <TouchableOpacity className="h-[46px] items-center justify-center rounded-[12px] border-[1.5px] border-pizca-linea" onPress={addIngredient}>
+                  <Text className="text-pizca-mostaza-texto font-extrabold text-[15px]">+ Agregar ingrediente</Text>
+                </TouchableOpacity>
+              </View>
 
-              {/* BOTON FINAL DE GUARDADO */}
-              <View className="mt-10">
+              {/* Pasos */}
+              <View className="gap-2.5">
+                <View className="flex-row items-center gap-2">
+                  <Image source={ICONS.pasos} style={{ width: 18, height: 18 }} />
+                  <Text className="text-lg font-extrabold text-pizca-marron">Pasos</Text>
+                </View>
+                {draftRecipe.steps.map((step, index) => (
+                  <View key={index} className="flex-row gap-2.5 items-start">
+                    <View className="w-7 h-7 mt-2.5 bg-pizca-mostaza rounded-full items-center justify-center">
+                      <Text className="text-pizca-marron font-extrabold text-sm">{index + 1}</Text>
+                    </View>
+                    <TextInput
+                      className="flex-1 bg-pizca-crema rounded-[14px] p-3 text-pizca-marron text-[15px] min-h-[84px]"
+                      placeholder="Describí el paso…"
+                      placeholderTextColor="#8C7E70"
+                      multiline
+                      textAlignVertical="top"
+                      value={step.instruction}
+                      onChangeText={t => updateStep(index, t)}
+                      accessibilityLabel={`Paso ${index + 1}`}
+                    />
+                    <TouchableOpacity onPress={() => removeStep(index)} className="w-9 h-[46px] items-center justify-center" accessibilityLabel={`Quitar paso ${index + 1}`}>
+                      <X size={18} color="#6B5A4E" strokeWidth={2.4} />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+                <TouchableOpacity className="h-[46px] items-center justify-center rounded-[12px] border-[1.5px] border-pizca-linea" onPress={addStep}>
+                  <Text className="text-pizca-mostaza-texto font-extrabold text-[15px]">+ Agregar paso</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Input
+                label="Link original (opcional)"
+                placeholder="https://…"
+                autoCapitalize="none"
+                keyboardType="url"
+                value={draftRecipe.original_url ?? ''}
+                onChangeText={t => setDraftRecipe({ ...draftRecipe, original_url: t })}
+              />
+            </ScrollView>
+
+            <View className="px-5 pt-3.5 pb-3 bg-pizca-fondo border-t border-pizca-linea">
+              <View className="w-full max-w-[600px] self-center">
                 <Button title="Guardar receta" onPress={handleSaveInternal} loading={saving} />
               </View>
             </View>
-          )}
-
-        </ScrollView>
+          </>
+        )}
       </SafeAreaView>
+      <DialogHost />
     </Modal>
+  );
+};
+
+/** Anillo mostaza girando alrededor del isologo (estado "importando"). */
+const Spinner = () => {
+  const spin = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(Animated.timing(spin, { toValue: 1, duration: 1100, easing: Easing.linear, useNativeDriver: Platform.OS !== 'web' }));
+    loop.start();
+    return () => loop.stop();
+  }, [spin]);
+  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  return (
+    <View className="w-[120px] h-[120px] items-center justify-center">
+      <View className="absolute inset-0 rounded-full border-8 border-pizca-crema" />
+      <Animated.View
+        className="absolute inset-0 rounded-full border-8"
+        style={{ borderColor: 'transparent', borderTopColor: '#BE9F00', borderRightColor: '#BE9F00', transform: [{ rotate }] }}
+      />
+      <Image source={ISOLOGO} style={{ width: 57, height: 46 }} resizeMode="contain" />
+    </View>
   );
 };

@@ -19,15 +19,15 @@ export default function Root({ children }: PropsWithChildren) {
 
         {/* PWA */}
         <link rel="manifest" href="/manifest.json" />
-        <meta name="theme-color" content="#EF9F27" />
+        <meta name="theme-color" content="#FFF9EC" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
-        <meta name="apple-mobile-web-app-title" content="Fogón" />
+        <meta name="apple-mobile-web-app-title" content="Pizca" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 
         <ScrollViewStyleReset />
-        <style dangerouslySetInnerHTML={{ __html: 'body { background-color: #FAEEDA; }' }} />
+        <style dangerouslySetInnerHTML={{ __html: 'body { background-color: #FFF9EC; }' }} />
       </head>
       <body>{children}</body>
     </html>

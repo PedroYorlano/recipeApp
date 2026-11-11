@@ -1,12 +1,18 @@
-import React, { useState, useCallback } from 'react';
-import { View, FlatList, ActivityIndicator, Text, TouchableOpacity, ScrollView, StatusBar as RNStatusBar, TextInput, Image, useWindowDimensions } from 'react-native';
+import React, { useState } from 'react';
+import { View, FlatList, ActivityIndicator, TouchableOpacity, ScrollView, StatusBar as RNStatusBar, Image, useWindowDimensions } from 'react-native';
+import { useRouter } from 'expo-router';
+import { Text, TextInput } from '../components/ui/Typography';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useApp } from '../context/AppContext';
 import { RecipeCard } from '../components/recipes/RecipeCard';
 import { RecipeDetailModal } from '../components/recipes/RecipeDetailModal';
 import { LoginScreen } from './LoginScreen';
 import { Recipe } from '../types';
-import { Search, X, UtensilsCrossed, Heart } from 'lucide-react-native';
+import { Search, X, ChevronRight } from 'lucide-react-native';
+import { usePlanner } from '../context/PlannerContext';
+import { getTodayISO } from '../utils/dates';
+import { ICONS, ILLUSTRATIONS, ISOLOGO } from '../constants/brand';
+import { Button } from '../components/ui/Button';
 import { notify, confirmAction } from '../utils/dialogs';
 
 export default function HomeScreen() {
@@ -28,8 +34,11 @@ export default function HomeScreen() {
         setEditingRecipe,
         setFormModalVisible,
         deleteRecipe,
-        setCreateMenuVisible
+        setCreateMenuVisible,
+        user,
     } = useApp();
+    const { getPlansForDate } = usePlanner();
+    const router = useRouter();
 
     const [selectedRecipeSnapshot, setSelectedRecipe] = useState<Recipe | null>(null);
     // Siempre mostramos la versión de la lista: así el corazón, la edición, etc. se reflejan en el detalle.
@@ -49,12 +58,12 @@ export default function HomeScreen() {
     const numCols = getNumColumns();
 
     // Calculamos el ancho máximo que debería tener la tarjeta para no estirarse cuando hay 1 solo resultado.
-    // paddingHorizontal 24 a cada lado = 48 total. Gap de 16 entre columnas.
-    const cardMaxWidth = (width - 48 - ((numCols - 1) * 16)) / numCols;
+    // paddingHorizontal 20 a cada lado. Gap de 14 entre columnas.
+    const cardMaxWidth = (Math.min(width, 1280) - 40 - ((numCols - 1) * 14)) / numCols;
 
     if (isAuthLoading) return (
-        <View className="flex-1 justify-center items-center bg-fogon-cream">
-            <ActivityIndicator size="large" color="#EF9F27" />
+        <View className="flex-1 justify-center items-center bg-pizca-fondo">
+            <ActivityIndicator size="large" color="#BE9F00" />
         </View>
     );
 
@@ -74,135 +83,169 @@ export default function HomeScreen() {
         setShowFavorites(false); // Deseleccionar favoritos al filtrar por categoría
     };
 
-    const renderCategoryItem = (category: any) => {
-        const isAll = category === null;
-        const isActive = isAll 
-            ? selectedCategory === null && !showFavorites 
-            : selectedCategory === category.id;
+    // Comida de hoy en el plan: la próxima según la hora (desayuno, almuerzo o cena).
+    const todayPlans = getPlansForDate(getTodayISO());
+    const hour = new Date().getHours();
+    const mealOrder = hour < 11 ? ['breakfast', 'lunch', 'dinner'] : hour < 16 ? ['lunch', 'dinner'] : ['dinner'];
+    const nextMealType = mealOrder.find(t => todayPlans.some(p => p.meal_type === t));
+    const nextMeal = nextMealType ? todayPlans.find(p => p.meal_type === nextMealType) : undefined;
+    const nextMealTitle = nextMeal && ('recipeTitle' in nextMeal ? nextMeal.recipeTitle : nextMeal.recipe_detail?.title);
+    const MEAL_LABEL: Record<string, string> = { breakfast: 'Hoy en el desayuno', lunch: 'Hoy al mediodía', dinner: 'Hoy a la noche' };
+    const MEAL_ICON: Record<string, any> = { breakfast: ICONS.desayuno, lunch: ICONS.almuerzo, dinner: ICONS.cena };
 
-        return (
-            <TouchableOpacity
-                key={isAll ? 'all' : category.id}
-                className={`px-5 py-2 mr-3 rounded-full border ${isActive ? 'bg-fogon-amber border-fogon-amber' : 'bg-fogon-white border-fogon-gray/30'} shadow-sm flex-row items-center`}
-                onPress={() => handleCategorySelect(isAll ? null : category.id)}
-            >
-                <Text className={`font-semibold ${isActive ? 'text-fogon-brown' : 'text-fogon-gray'}`}>
-                    {isAll ? 'Todas' : category.name}
-                </Text>
-            </TouchableOpacity>
-        );
-    };
+    const chip = (key: string, label: string, active: boolean, onPress: () => void, icon?: React.ReactNode) => (
+        <TouchableOpacity
+            key={key}
+            onPress={onPress}
+            className={`h-9 px-4 mr-2 rounded-full flex-row items-center ${active ? 'bg-pizca-marron' : 'bg-pizca-crema'}`}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+        >
+            {icon}
+            <Text className={`text-sm ${active ? 'font-extrabold text-pizca-fondo' : 'font-bold text-pizca-marron'}`}>{label}</Text>
+        </TouchableOpacity>
+    );
+
+    const initial = (user?.username || '?').charAt(0).toUpperCase();
+
+    const header = (
+        <View className="pt-4 pb-4 gap-4">
+            {/* Encabezado */}
+            <View className="flex-row items-center justify-between">
+                <View className="gap-0.5 flex-1">
+                    <View className="flex-row items-center gap-1.5">
+                        <Image source={ISOLOGO} style={{ height: 22, width: 27 }} resizeMode="contain" />
+                        <Text className="font-display text-xl text-pizca-mostaza leading-[22px]">PIZCA</Text>
+                    </View>
+                    <Text className="font-display text-[30px] text-pizca-marron mt-1.5 leading-[34px]" numberOfLines={1}>
+                        ¡Hola{user?.username ? `, ${user.username}` : ''}!
+                    </Text>
+                    <Text className="text-[15px] text-pizca-texto2">¿Qué cocinamos hoy?</Text>
+                </View>
+                <TouchableOpacity
+                    onPress={() => router.push('/(tabs)/settings')}
+                    className="w-12 h-12 rounded-full bg-pizca-crema items-center justify-center"
+                    accessibilityRole="button"
+                    accessibilityLabel="Perfil"
+                >
+                    <Text className="font-extrabold text-lg text-pizca-marron">{initial}</Text>
+                </TouchableOpacity>
+            </View>
+
+            {/* Buscador */}
+            <View className="flex-row items-center gap-2.5 bg-white rounded-[16px] px-4 h-[52px] border border-pizca-linea">
+                <Search size={20} color="#6B5A4E" strokeWidth={2.2} />
+                <TextInput
+                    className="flex-1 text-pizca-marron text-[15px] h-full"
+                    placeholder="Buscá por nombre o ingrediente"
+                    placeholderTextColor="#8C7E70"
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    accessibilityLabel="Buscar recetas"
+                />
+                {searchQuery.length > 0 && (
+                    <TouchableOpacity onPress={() => setSearchQuery('')} className="p-1" accessibilityLabel="Borrar búsqueda">
+                        <X size={18} color="#6B5A4E" />
+                    </TouchableOpacity>
+                )}
+            </View>
+
+            {/* Lo que toca hoy según el plan */}
+            {nextMealTitle && nextMealType ? (
+                <TouchableOpacity
+                    onPress={() => router.push('/(tabs)/planner')}
+                    className="flex-row items-center gap-3 px-3.5 py-3 rounded-[18px] bg-pizca-albahaca"
+                    accessibilityRole="button"
+                >
+                    <View className="w-11 h-11 rounded-[12px] bg-pizca-fondo items-center justify-center">
+                        <Image source={MEAL_ICON[nextMealType]} style={{ width: 28, height: 28 }} />
+                    </View>
+                    <View className="flex-1 gap-0.5">
+                        <Text className="text-xs font-extrabold text-[#CFE0CC] uppercase tracking-wider">{MEAL_LABEL[nextMealType]}</Text>
+                        <Text className="text-base font-extrabold text-white" numberOfLines={1}>{nextMealTitle}</Text>
+                    </View>
+                    <ChevronRight size={20} color="#FFFFFF" strokeWidth={2.4} />
+                </TouchableOpacity>
+            ) : null}
+
+            {/* Filtros */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="-mr-5" contentContainerStyle={{ paddingRight: 20 }}>
+                {chip('all', 'Todas', selectedCategory === null && !showFavorites, () => handleCategorySelect(null))}
+                {chip('fav', 'Favoritas', showFavorites, handleFavoritesToggle,
+                    <Image source={ICONS.favoritos} style={{ width: 15, height: 15, marginRight: 6 }} />)}
+                {categories.map(cat => chip(String(cat.id), cat.name, selectedCategory === cat.id, () => handleCategorySelect(cat.id)))}
+            </ScrollView>
+
+            <View className="flex-row items-baseline justify-between">
+                <Text className="text-[19px] font-extrabold text-pizca-marron">{showFavorites ? 'Tus favoritas' : 'Tus recetas'}</Text>
+                {!loading && !hasMore && recipes.length > 0 ? (
+                    <Text className="text-[13px] font-bold text-pizca-texto2">
+                        {recipes.length} {recipes.length === 1 ? 'guardada' : 'guardadas'}
+                    </Text>
+                ) : null}
+            </View>
+        </View>
+    );
 
     return (
-        <SafeAreaView className="flex-1 bg-fogon-cream">
-            <RNStatusBar barStyle="dark-content" backgroundColor="#FAEEDA" />
+        <SafeAreaView className="flex-1 bg-pizca-fondo" edges={['top']}>
+            <RNStatusBar barStyle="dark-content" backgroundColor="#FFF9EC" />
 
-            {/* 1. HEADER FIJO */}
-            <View className="px-6 py-4 bg-fogon-cream z-10 border-b border-fogon-gray/10">
-                <View className="flex-row justify-between items-center mb-4">
-                    <Text className="text-[32px] font-bold text-fogon-brown tracking-tight">Fogón</Text>
-                    {/* Placeholder Avatar */}
-                    <View className="w-10 h-10 rounded-full bg-fogon-amber/20 items-center justify-center border border-fogon-amber overflow-hidden">
-                        <Text className="text-xl">👨‍🍳</Text>
-                    </View>
-                </View>
-                
-                {/* BARRA DE BÚSQUEDA */}
-                <View className="flex-row items-center bg-fogon-white rounded-[12px] px-4 min-h-[48px] shadow-sm border border-fogon-gray/20">
-                    <Search size={20} color="#A89070" className="mr-2" />
-                    <TextInput
-                        className="flex-1 text-fogon-brown text-base"
-                        placeholder="¿Qué se te antoja hoy?"
-                        placeholderTextColor="#A89070"
-                        value={searchQuery}
-                        onChangeText={setSearchQuery}
-                    />
-                    {searchQuery.length > 0 && (
-                        <TouchableOpacity onPress={() => setSearchQuery('')} className="p-1">
-                            <X size={18} color="#A89070" />
-                        </TouchableOpacity>
-                    )}
-                </View>
-            </View>
-
-            {/* 2. FILTROS DE CATEGORÍA + FAVORITOS */}
-            <View className="py-4">
-                <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={{ paddingHorizontal: 24 }}
-                >
-                    {/* Pill de Favoritos */}
-                    <TouchableOpacity
-                        className={`px-5 py-2 mr-3 rounded-full border flex-row items-center ${showFavorites ? 'bg-red-50 border-red-300' : 'bg-fogon-white border-fogon-gray/30'} shadow-sm`}
-                        onPress={handleFavoritesToggle}
-                    >
-                        <Heart size={14} color={showFavorites ? "#EF4444" : "#A89070"} fill={showFavorites ? "#EF4444" : "none"} />
-                        <Text className={`font-semibold ml-1.5 ${showFavorites ? 'text-red-500' : 'text-fogon-gray'}`}>
-                            Favoritos
-                        </Text>
-                    </TouchableOpacity>
-
-                    {renderCategoryItem(null)}
-                    {categories.map((cat) => renderCategoryItem(cat))}
-                </ScrollView>
-            </View>
-
-            {/* 3. LISTA DE RECETAS */}
-            {loading ? (
-                <View className="flex-1 justify-center items-center">
-                    <ActivityIndicator size="large" color="#EF9F27" />
-                </View>
-            ) : (
-                <FlatList
-                    data={recipes}
-                    key={numCols} // key change re-renders list correctly when numCols changes
-                    numColumns={numCols}
-                    keyExtractor={(item) => item.id?.toString() || Math.random().toString()}
-                    contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 120 }}
-                    columnWrapperStyle={{ justifyContent: 'flex-start', gap: 16 }}
-                    showsVerticalScrollIndicator={false}
-                    onEndReached={fetchMoreRecipes}
-                    onEndReachedThreshold={0.5}
-                    renderItem={({ item }) => (
-                        <RecipeCard
-                            item={item}
-                            onPress={(recipe) => setSelectedRecipe(recipe)}
-                            maxWidth={cardMaxWidth}
-                        />
-                    )}
-                    ListFooterComponent={
-                        loadingMore ? (
-                            <View className="py-4 items-center">
-                                <ActivityIndicator size="small" color="#EF9F27" />
-                            </View>
-                        ) : null
-                    }
-                    ListEmptyComponent={
-                        <View className="items-center mt-20 opacity-80 px-8">
-                            <View className="bg-fogon-white/50 p-6 rounded-full border border-fogon-amber/20 mb-6">
-                                {showFavorites ? (
-                                    <Heart size={48} color="#EF4444" strokeWidth={1} />
-                                ) : (
-                                    <UtensilsCrossed size={48} color="#EF9F27" strokeWidth={1} />
-                                )}
-                            </View>
-                            <Text className="text-xl font-bold text-fogon-brown text-center mb-2">
-                                {showFavorites 
-                                    ? 'Aún no tenés favoritos.' 
-                                    : 'Tu recetario está vacío por ahora.'}
-                            </Text>
-                            <Text className="text-base text-fogon-gray items-center text-center">
-                                {showFavorites
-                                    ? 'Marcá recetas con el ❤️ para encontrarlas rápido.'
-                                    : '¡Animate y agregá tu primera receta al fogón!'}
-                            </Text>
+            <FlatList
+                data={loading ? [] : recipes}
+                key={numCols}
+                numColumns={numCols}
+                keyExtractor={(item) => item.id?.toString() || item.uuid}
+                ListHeaderComponent={header}
+                contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 32, maxWidth: 1280, width: '100%', alignSelf: 'center' }}
+                columnWrapperStyle={numCols > 1 ? { gap: 14 } : undefined}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                onEndReached={fetchMoreRecipes}
+                onEndReachedThreshold={0.5}
+                renderItem={({ item }) => (
+                    <RecipeCard item={item} onPress={(recipe) => setSelectedRecipe(recipe)} maxWidth={cardMaxWidth} />
+                )}
+                ListFooterComponent={
+                    loadingMore ? (
+                        <View className="py-4 items-center">
+                            <ActivityIndicator size="small" color="#BE9F00" />
                         </View>
-                    }
-                />
-            )}
-
-
+                    ) : null
+                }
+                ListEmptyComponent={
+                    loading ? (
+                        <View className="py-16 items-center">
+                            <ActivityIndicator size="large" color="#BE9F00" />
+                        </View>
+                    ) : (
+                        <View className="items-center mt-10 px-8 gap-2">
+                            <Image
+                                source={showFavorites ? ICONS.favoritos : ILLUSTRATIONS.zanahoria}
+                                style={{ width: 72, height: 72, marginBottom: 8 }}
+                                resizeMode="contain"
+                            />
+                            <Text className="text-xl font-extrabold text-pizca-marron text-center">
+                                {showFavorites
+                                    ? 'Todavía no tenés favoritas'
+                                    : searchQuery
+                                        ? 'No encontramos recetas'
+                                        : 'Tu recetario está vacío'}
+                            </Text>
+                            <Text className="text-[15px] text-pizca-texto2 text-center">
+                                {showFavorites
+                                    ? 'Tocá el corazón de una receta para tenerla a mano.'
+                                    : searchQuery
+                                        ? 'Probá con otro nombre o ingrediente.'
+                                        : 'Agregá tu primera receta con el botón +.'}
+                            </Text>
+                            {!showFavorites && !searchQuery ? (
+                                <Button title="Agregar receta" className="mt-4" onPress={() => setCreateMenuVisible(true)} />
+                            ) : null}
+                        </View>
+                    )
+                }
+            />
 
             {/* MODAL DE DETALLE */}
             <RecipeDetailModal

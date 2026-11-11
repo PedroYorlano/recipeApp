@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 import { View, ActivityIndicator, Platform } from 'react-native';
 import { Slot, useRouter, useSegments, useRootNavigationState } from 'expo-router';
 import { AppProvider, useApp } from '../src/context/AppContext';
+import { DialogHost } from '../src/components/ui/DialogHost';
 import { PlannerProvider } from '../src/context/PlannerContext';
 import { CreateMenuModal } from '../src/components/CreateMenuModal';
 import { RecipeFormModal } from '../src/components/recipes/RecipeFormModal';
@@ -10,6 +11,15 @@ import * as Linking from 'expo-linking';
 import Head from 'expo-router/head';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { PENDING_IMPORT_KEY } from '../src/utils/shareImport';
+import { useFonts } from 'expo-font';
+import { Ranchers_400Regular } from '@expo-google-fonts/ranchers';
+import {
+  NunitoSans_400Regular,
+  NunitoSans_600SemiBold,
+  NunitoSans_700Bold,
+  NunitoSans_800ExtraBold,
+  NunitoSans_900Black,
+} from '@expo-google-fonts/nunito-sans';
 
 const MainLayout = () => {
   // 1. Extraemos TODO lo necesario del Contexto (Auth + Modales)
@@ -20,6 +30,15 @@ const MainLayout = () => {
     editingRecipe, setEditingRecipe, saveRecipe, importRecipeAI, categories,
     createMode, setCreateMode, setInitialImportUrl
   } = useApp();
+
+  const [fontsLoaded, fontError] = useFonts({
+    Ranchers_400Regular,
+    NunitoSans_400Regular,
+    NunitoSans_600SemiBold,
+    NunitoSans_700Bold,
+    NunitoSans_800ExtraBold,
+    NunitoSans_900Black,
+  });
 
   useEffect(() => {
     const handleIncomingUrl = (url: string) => {
@@ -108,10 +127,11 @@ const MainLayout = () => {
   };
 
   // 4. Renderizado: Loading o App + Modales
-  if (isAuthLoading) {
+  // Si las fuentes fallan se sigue igual, con las del sistema.
+  if (isAuthLoading || (!fontsLoaded && !fontError)) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FAEEDA' }}>
-        <ActivityIndicator size="large" color="#EF9F27" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF9EC' }}>
+        <ActivityIndicator size="large" color="#BE9F00" />
       </View>
     );
   }
@@ -139,6 +159,9 @@ const MainLayout = () => {
         initialData={editingRecipe}
         categories={categories}
       />
+
+      {/* Avisos y confirmaciones (notify / confirmAction) sobre las pantallas */}
+      <DialogHost />
     </>
   );
 };
@@ -148,7 +171,7 @@ export default function RootLayout() {
     <AppProvider>
       {/* Título de la pestaña en web (en nativo no hace nada) */}
       <Head>
-        <title>Fogón</title>
+        <title>Pizca</title>
       </Head>
       <PlannerProvider>
         <MainLayout />
