@@ -1,71 +1,71 @@
-import yt_dlp
+import json
+import logging
 import os
 import subprocess
-from google import genai
-from google.genai import types
-import json
+import tempfile
 import time
-from google.genai import errors as genai_errors
-from decouple import config
 
-COMMON_INGREDIENTS = [
-    'huevo', 'arroz', 'pollo', 'pasta', 'tomate', 'cebolla', 'ajo',
-    'zanahoria', 'papa', 'carne', 'leche', 'queso', 'harina', 'aceite',
-    'manteca', 'sal', 'pimienta', 'limón', 'palta', 'zapallo', 'fideos',
-    'atún', 'sardina', 'lenteja', 'garbanzo', 'espinaca', 'brócoli',
-    'chocolate', 'dulce de leche', 'banana', 'frutilla', 'arandanos', 'frambuesas',
-    'naranja', 'manzana', 'pera', 'uva', 'sandia', 'melon', 'kiwi', 'mandarina', 'pomelo'
-]
+import yt_dlp
+from decouple import config
+from google import genai
+from google.genai import errors as genai_errors
+from google.genai import types
+
+logger = logging.getLogger(__name__)
+
+
+class AIInputError(ValueError):
+    """Lo que mandó el usuario no sirve (audio ilegible, video que no baja). El mensaje se le puede mostrar."""
+
+MAX_VIDEO_SECONDS = 20 * 60          # Videos más largos no son recetas (y tardan una eternidad)
+MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
+GEMINI_FILE_TIMEOUT = 60             # Segundos esperando que Gemini procese el audio subido
+
 
 def download_audio_from_url(video_url):
     """
-    Descarga el audio de un video de TikTok/Reels/YouTube
-    y devuelve la ruta del archivo .mp3 generado.
+    Descarga el audio de un video de TikTok/Reels/YouTube a una carpeta temporal propia.
+    Devuelve (carpeta, ruta_mp3, descripción, thumbnail) o (None, None, None, None) si falla.
+    Quien llama borra la carpeta.
     """
-    
-    # Configuración para yt-dlp
+    workdir = tempfile.mkdtemp(prefix='pizca-')
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
-            'preferredquality': '192',
+            'preferredquality': '128',
         }],
-        # Guardar en la carpeta temporal del sistema con un nombre único
-        'outtmpl': '%(id)s.%(ext)s', 
-        # Evitar que imprima demasiada basura en la consola
+        'outtmpl': os.path.join(workdir, '%(id)s.%(ext)s'),
         'quiet': True,
         'no_warnings': True,
-        'cookies_from_browser': ['chrome'],
+        'noplaylist': True,
+        'max_filesize': MAX_DOWNLOAD_BYTES,
+        'match_filter': yt_dlp.utils.match_filter_func(f'duration <= {MAX_VIDEO_SECONDS}'),
     }
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # 1. Extraemos info del video sin descargar todavía
-            info = ydl.extract_info(video_url, download=False)
-            video_title = info.get('title', 'Video sin titulo')
-            video_description = info.get('description', 'Video sin descripcion')
-            thumbnail_url = info.get('thumbnail', None)
+            info = ydl.extract_info(video_url, download=True)
+            if not info:
+                raise ValueError('yt-dlp no devolvió información')
+            mp3_path = os.path.join(workdir, f"{info['id']}.mp3")
+            if not os.path.exists(mp3_path):
+                raise ValueError('El video no se descargó (¿demasiado largo o pesado?)')
+            return workdir, mp3_path, info.get('description') or '', info.get('thumbnail')
+    except Exception:
+        logger.exception('Error descargando %s', video_url)
+        return workdir, None, None, None
 
-            print(f"Detectado: {video_title}")
 
-            # 2. Descargamos y convertimos
-            error_code = ydl.download([video_url])
-            
-            if error_code != 0:
-                raise Exception("Falló la descarga")
-
-            # yt-dlp guarda el archivo con el ID del video. 
-            # Calculamos el nombre del archivo final.
-            video_id = info['id']
-            filename = f"{video_id}.mp3"
-            
-            # Devolvemos la ruta absoluta para que luego Gemini la encuentre
-            return os.path.abspath(filename), video_description, thumbnail_url
-
-    except Exception as e:
-        print(f"Error descargando: {e}")
-        return None, None, None
+# Reglas comunes a todas las extracciones de recetas.
+INGREDIENT_RULES = """REGLAS PARA INGREDIENTES:
+    - "quantity" DEBE ser un número decimal (ej: 200, 0.5, 1.5). Si no hay cantidad, usa null.
+    - "unit" es la unidad de medida como string (ej: "g", "ml", "cucharada", "taza", "unidad", "pizca"). Si no hay unidad, usa "".
+    - Siempre separa la cantidad numérica de la unidad. Ejemplo: "200g de harina" → quantity: 200, unit: "g", name: "harina"
+    - Para cantidades como "3 huevos" → quantity: 3, unit: "unidad", name: "huevos"
+    - Para "sal a gusto" → quantity: null, unit: "", name: "sal a gusto"
+    - "medio"/"media" va con el ingrediente que le sigue, no con el anterior: "tres huevos y media cebolla" → huevos: 3 y cebolla: 0.5"""
 
 GENAI_API_KEY = config('GENAI_API_KEY')
 client = genai.Client(api_key=GENAI_API_KEY)
@@ -94,11 +94,11 @@ def generate_json(contents, retries=3, wait=10):
         except genai_errors.APIError as e:
             if e.code != 429 and (e.code or 0) < 500:
                 raise
-            print(f"⚠️ Gemini respondió {e.code} (intento {attempt}/{retries}).")
+            logger.warning('Gemini respondió %s (intento %s/%s).', e.code, attempt, retries)
             if attempt == retries:
                 raise
         except json.JSONDecodeError:
-            print(f"⚠️ Gemini devolvió un JSON inválido (intento {attempt}/{retries}).")
+            logger.warning('Gemini devolvió un JSON inválido (intento %s/%s).', attempt, retries)
             if attempt == retries:
                 raise
         time.sleep(wait)
@@ -118,7 +118,7 @@ def convert_audio_to_mp3(input_path):
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
         if os.path.exists(output_path):
             os.remove(output_path)
-        raise ValueError('No pudimos leer el audio. Probá con otro archivo.') from e
+        raise AIInputError('No pudimos leer el audio. Probá con otro archivo.') from e
     return output_path
 
 
@@ -129,22 +129,39 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None, 
     Con `require_audio=True` (audio subido por el usuario, sin descripción) no se usa el
     modo "solo texto": sin el audio no hay de dónde sacar la receta y la IA la inventaría.
     """
-    print("1. Subiendo audio a la IA...")
-
-    try:
-        myfile = client.files.upload(file=audio_path)
-        while myfile.state == "PROCESSING":
-            time.sleep(1)
-            myfile = client.files.get(name=myfile.name)
-    except Exception as e:
-        print(f"Error subiendo audio: {e}. Pasando a modo Solo-Texto.")
-        myfile = None
-
+    myfile = upload_audio(audio_path)
     if require_audio and not myfile:
         return None
+    try:
+        return _extract_recipe_from_audio(myfile, description_text, thumbnail_url, require_audio)
+    finally:
+        if myfile:
+            # Gemini los borra solo a las 48 h, pero no hay por qué dejarlos ahí.
+            try:
+                client.files.delete(name=myfile.name)
+            except Exception:
+                logger.warning('No se pudo borrar %s de Gemini', myfile.name)
 
-    print("2. Analizando receta...")
 
+def upload_audio(audio_path):
+    """Sube el audio a Gemini y espera a que esté listo. None si no se pudo."""
+    try:
+        myfile = client.files.upload(file=audio_path)
+        deadline = time.monotonic() + GEMINI_FILE_TIMEOUT
+        while myfile.state == 'PROCESSING':
+            if time.monotonic() > deadline:
+                raise TimeoutError('Gemini tardó demasiado en procesar el audio')
+            time.sleep(1)
+            myfile = client.files.get(name=myfile.name)
+        if myfile.state == 'FAILED':
+            raise ValueError('Gemini no pudo procesar el audio')
+        return myfile
+    except Exception:
+        logger.exception('Error subiendo el audio a Gemini; se sigue solo con la descripción')
+        return None
+
+
+def _extract_recipe_from_audio(myfile, description_text, thumbnail_url, require_audio):
     prompt = f"""
     Actúa como un chef experto transcribiendo una receta.
     
@@ -170,21 +187,14 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None, 
         ]
     }}
     
-    REGLAS PARA INGREDIENTES:
-    - "quantity" DEBE ser un número decimal (ej: 200, 0.5, 1.5). Si no hay cantidad, usa null.
-    - "unit" es la unidad de medida como string (ej: "g", "ml", "cucharada", "taza", "unidad", "pizca"). Si no hay unidad, usa "".
-    - Siempre separa la cantidad numérica de la unidad. Ejemplo: "200g de harina" → quantity: 200, unit: "g", name: "harina"
-    - Para cantidades como "3 huevos" → quantity: 3, unit: "unidad", name: "huevos"
-    - Para "sal a gusto" → quantity: null, unit: "", name: "sal a gusto"
-    - "medio"/"media" va con el ingrediente que le sigue, no con el anterior: "tres huevos y media cebolla" → huevos: 3 y cebolla: 0.5
+    {INGREDIENT_RULES}
     
     Devuelve SOLO el JSON limpio.
     """
 
     def build_contents(with_audio):
+        # La descripción ya va dentro del prompt.
         contenido = []
-        if description_text:
-            contenido.append(f"DESCRIPCIÓN DEL VIDEO (Prioridad para cantidades): {description_text}")
         if with_audio:
             contenido.append(myfile)
         else:
@@ -194,15 +204,15 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None, 
 
     try:
         result_json = generate_json(build_contents(with_audio=bool(myfile)))
-    except Exception as e:
-        print(f"Error analizando el audio: {e}")
+    except Exception:
+        logger.exception('Error analizando el audio')
         # Último recurso para videos: si hay descripción, armamos la receta solo con ella.
         if not myfile or require_audio or not description_text:
             return None
         try:
             result_json = generate_json(build_contents(with_audio=False), retries=1)
-        except Exception as e2:
-            print(f"Error analizando la descripción: {e2}")
+        except Exception:
+            logger.exception('Error analizando la descripción')
             return None
 
     if thumbnail_url and isinstance(result_json, dict):
@@ -215,8 +225,6 @@ def extract_recipe_from_text(description_text: str, strict_mode: bool = False):
     Envía texto plano libre escrito por el usuario a Gemini para organizar
     en formato de Receta JSON. Autocompleta detalles faltantes si es necesario.
     """
-    print("Analizando receta desde texto libre con Gemini...")
-
     if strict_mode:
         behavior = 'ADVERTENCIA: Extrae ÚNICAMENTE la información presente en el texto. NO inventes recetas, ingredientes, cantidades ni pasos que no existan. Si el texto claramente no contiene una receta (por ejemplo, es un mensaje de error, acceso denegado, Incapsula, Cloudflare, etc.), devuelve exactamente esto en el JSON: {"title": "ERROR_NO_RECIPE"}'
     else:
@@ -244,32 +252,21 @@ def extract_recipe_from_text(description_text: str, strict_mode: bool = False):
         ]
     }}
     
-    REGLAS PARA INGREDIENTES:
-    - "quantity" DEBE ser un número decimal (ej: 200, 0.5, 1.5). Si no hay cantidad, usa null.
-    - "unit" es la unidad de medida como string (ej: "g", "ml", "cucharada", "taza", "unidad", "pizca"). Si no hay unidad, usa "".
-    - Siempre separa la cantidad numérica de la unidad. Ejemplo: "200g de harina" → quantity: 200, unit: "g", name: "harina"
-    - Para cantidades como "3 huevos" → quantity: 3, unit: "unidad", name: "huevos"
-    - Para "sal a gusto" → quantity: null, unit: "", name: "sal a gusto"
-    - "medio"/"media" va con el ingrediente que le sigue, no con el anterior: "tres huevos y media cebolla" → huevos: 3 y cebolla: 0.5
+    {INGREDIENT_RULES}
     
     Devuelve SOLO el JSON limpio.
     """
 
     try:
         result_json = generate_json(prompt, wait=3)
-    except Exception as e:
-        print(f"Error analizando el texto: {e}")
+    except Exception:
+        logger.exception('Error analizando el texto')
         return None
 
     if result_json.get('title') == 'ERROR_NO_RECIPE':
-        print("Gemini determinó que el texto no contenía una receta válida.")
+        logger.info('Gemini determinó que el texto no contenía una receta.')
         return None
     return result_json
-
-def extract_keywords(text: str) -> list[str]:
-    """Extrae ingredientes mencionados en el mensaje del usuario."""
-    text_lower = text.lower()
-    return [ing for ing in COMMON_INGREDIENTS if ing in text_lower]
 
 def build_recipes_summary(recipes_qs) -> list[dict]:
     """Convierte un queryset de recetas en resumen compacto para Gemini."""

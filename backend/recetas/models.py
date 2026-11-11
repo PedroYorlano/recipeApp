@@ -1,12 +1,15 @@
-from django.db import models
-from django.contrib.auth.models import User
-from datetime import date, timedelta
-from django.utils import timezone
 import uuid
-from django.db.models.signals import pre_save, post_delete
-from django.dispatch import receiver
+from datetime import timedelta
 
-# Create your models here.
+from django.contrib.auth.models import User
+from django.db import models, transaction
+from django.db.models import F
+from django.db.models.signals import post_delete, pre_save
+from django.dispatch import receiver
+from django.utils import timezone
+
+OTP_TTL = timedelta(minutes=10)
+MAX_OTP_ATTEMPTS = 5
 
 class Category(models.Model):
     name = models.CharField(max_length=100)
@@ -31,6 +34,10 @@ class Recipe(models.Model):
     prep_time = models.PositiveIntegerField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # La lista principal: recetas de un usuario, las más nuevas primero (paginación por cursor).
+        indexes = [models.Index(fields=['user', '-created_at'], name='recipe_user_created_idx')]
 
     def __str__(self):
         return self.title
@@ -94,7 +101,6 @@ class UserUsage(models.Model):
 
     def record_import(self):
         self.reset_if_new_day()
-        from django.db.models import F
         UserUsage.objects.filter(pk=self.pk).update(import_count=F('import_count') + 1)
         self.refresh_from_db()
 
@@ -103,7 +109,6 @@ class UserUsage(models.Model):
         return self.image_count < max_daily
 
     def record_image(self):
-        from django.db.models import F
         UserUsage.objects.filter(pk=self.pk).update(image_count=F('image_count') + 1)
 
     def __str__(self):
@@ -124,7 +129,6 @@ class GlobalUsage(models.Model):
         return self.gemini_requests < max_daily
 
     def record_request(self):
-        from django.db.models import F
         GlobalUsage.objects.filter(pk=self.pk).update(gemini_requests=F('gemini_requests') + 1)
         self.refresh_from_db()
 
@@ -163,57 +167,69 @@ class ShoppingListItem(models.Model):
 
     class Meta:
         ordering = ['user', 'week_start', 'ingredient_name']
+        indexes = [models.Index(fields=['user', 'week_start'], name='shopping_user_week_idx')]
 
     def __str__(self):
         qty = self.quantity if self.quantity is not None else ''
         return f"{qty} {self.category} {self.ingredient_name}".strip()
 
+def _delete_image_after_commit(name):
+    """Borra la foto del bucket recién cuando la base confirmó el cambio: si el save falla, la foto sigue."""
+    if name:
+        storage = Recipe._meta.get_field('image').storage
+        transaction.on_commit(lambda: storage.delete(name))
+
+
 @receiver(pre_save, sender=Recipe)
 def delete_old_image(sender, instance, **kwargs):
     if not instance.pk:
         return
-    try:
-        old_image = Recipe.objects.get(pk=instance.pk).image
-    except Recipe.DoesNotExist:
-        return
-    if old_image and old_image != instance.image:
-        old_image.delete(save=False)
+    old = Recipe.objects.filter(pk=instance.pk).values_list('image', flat=True).first()
+    if old != instance.image.name:
+        _delete_image_after_commit(old)
 
 
 @receiver(post_delete, sender=Recipe)
 def delete_image_on_recipe_delete(sender, instance, **kwargs):
     """Limpia la imagen de R2/disco cuando se elimina una receta."""
-    if instance.image:
-        instance.image.delete(save=False)
+    _delete_image_after_commit(instance.image.name)
 
 
 def default_otp_expiry():
-    return timezone.now() + timedelta(minutes=2)
+    return timezone.now() + OTP_TTL
 
 
-class PendingRegistration(models.Model):
-    username = models.CharField(max_length=150, unique=True)
-    email = models.EmailField(unique=True)
-    password = models.CharField(max_length=128)  # Hashed password
+class OTPMixin(models.Model):
     otp_code = models.CharField(max_length=6)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(default=default_otp_expiry)
+    # Intentos fallidos: al llegar a MAX_OTP_ATTEMPTS el código deja de servir (frena la fuerza bruta).
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        abstract = True
 
     def is_expired(self):
         return timezone.now() > self.expires_at
+
+    def is_locked(self):
+        return self.attempts >= MAX_OTP_ATTEMPTS
+
+    def register_failed_attempt(self):
+        type(self).objects.filter(pk=self.pk).update(attempts=F('attempts') + 1)
+
+
+class PendingRegistration(OTPMixin):
+    username = models.CharField(max_length=150, unique=True)
+    email = models.EmailField(unique=True)
+    password = models.CharField(max_length=128)  # Hashed password
 
     def __str__(self):
         return f"Pending: {self.username} ({self.email})"
 
 
-class PasswordResetOTP(models.Model):
+class PasswordResetOTP(OTPMixin):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_reset_otps')
-    otp_code = models.CharField(max_length=6)
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField(default=default_otp_expiry)
-
-    def is_expired(self):
-        return timezone.now() > self.expires_at
 
     def __str__(self):
         return f"Reset OTP for {self.user.username}"

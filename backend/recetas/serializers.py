@@ -1,37 +1,16 @@
-from rest_framework import serializers
-from .models import Category, Recipe, Ingredient, Step, Favorite, MealPlan, ShoppingListItem, UserUsage
-from .images import InvalidImage, image_from_base64, image_from_url
+import re
+from datetime import timedelta
+from decimal import Decimal, InvalidOperation
+
 from django.conf import settings
 from django.db import transaction
-import re
-from decimal import Decimal, InvalidOperation
-from django.contrib.auth.models import User
 from django.db.models import Q
+from django.utils import timezone
+from rest_framework import serializers
 
-class UserRegistrationSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=True, min_length=8, style={'input_type': 'password'})
+from .images import InvalidImage, image_from_base64, image_from_url
+from .models import Category, Favorite, Ingredient, MealPlan, Recipe, ShoppingListItem, Step, UserUsage
 
-    class Meta:
-        model = User
-        fields = ['username', 'email', 'password']
-        extra_kwargs = {
-            'email': {'required': True}
-        }
-
-    def validate_username(self, value):
-        if len(value) < 3:
-            raise serializers.ValidationError("El nombre de usuario debe tener al menos 3 caracteres.")
-        if len(value) > 30:
-            raise serializers.ValidationError("El nombre de usuario no puede tener más de 30 caracteres.")
-        return value
-
-    def create(self, validated_data):
-        user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data['email'],
-            password=validated_data['password']
-        )
-        return user
 
 def new_cover_image(request, img_b64, img_url):
     """
@@ -170,14 +149,25 @@ class RecipeSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("El título debe tener al menos 2 caracteres.")
         return value.strip()
 
+    # Las listas los traen anotados (ver RecipeViewSet.get_queryset); si no, una consulta por receta.
     def get_is_favorite(self, obj):
+        if hasattr(obj, 'is_favorite_annotated'):
+            return obj.is_favorite_annotated
         request = self.context.get('request')
-        if request and request.user and request.user.is_authenticated:
+        if request and request.user.is_authenticated:
             return Favorite.objects.filter(user=request.user, recipe=obj).exists()
         return False
 
     def get_favorite_count(self, obj):
+        if hasattr(obj, 'favorite_count_annotated'):
+            return obj.favorite_count_annotated
         return obj.favorited_by.count()
+
+    @staticmethod
+    def _create_ingredients(recipe, ingredients_data):
+        Ingredient.objects.bulk_create(
+            Ingredient(recipe=recipe, **{'order': i, **item}) for i, item in enumerate(ingredients_data)
+        )
 
     def create(self, validated_data):
         ingredients_data = validated_data.pop('ingredients')
@@ -193,20 +183,12 @@ class RecipeSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             recipe = Recipe.objects.create(**validated_data)
-
             recipe.categories.set(categories_data)
-            
-            for i, ingredient in enumerate(ingredients_data):
-                ingredient.setdefault('order', i)
-                Ingredient.objects.create(recipe=recipe, **ingredient)
-
-            for step in steps_data:
-                Step.objects.create(recipe=recipe, **step)
-        
+            self._create_ingredients(recipe, ingredients_data)
+            Step.objects.bulk_create(Step(recipe=recipe, **step) for step in steps_data)
         return recipe
 
     def update(self, instance, validated_data):
-        # 1. Extraer datos anidados
         ingredients_data = validated_data.pop('ingredients', None)
         steps_data = validated_data.pop('steps', None)
         categories_data = validated_data.pop('categories', None)
@@ -214,55 +196,44 @@ class RecipeSerializer(serializers.ModelSerializer):
         img_url = validated_data.pop('image_url', None)
         remove_image = validated_data.pop('remove_image', False)
 
-        # 2. Actualizar campos simples (title, description, servings, prep_time, original_url, is_public...)
         for field, value in validated_data.items():
             setattr(instance, field, value)
 
-        # 3. Imagen de portada: una nueva gana sobre "quitar"
+        # Imagen de portada: una nueva gana sobre "quitar".
         image = new_cover_image(self.context['request'], img_b64, img_url)
         if image:
             instance.image = image
         elif remove_image and not (img_b64 or img_url):
             instance.image = None
-        
-        instance.save()
 
-        # 4. Actualizar Categorías
-        if categories_data is not None:
-            instance.categories.set(categories_data)
+        with transaction.atomic():
+            instance.save()
 
-        # 5. Actualizar Ingredientes (borrar y recrear — son texto simple con cantidad)
-        if ingredients_data is not None:
-            instance.ingredients.all().delete()
-            for i, item in enumerate(ingredients_data):
-                item.setdefault('order', i)
-                Ingredient.objects.create(recipe=instance, **item)
+            if categories_data is not None:
+                instance.categories.set(categories_data)
 
-        # 6. ACTUALIZACIÓN DE PASOS
-        if steps_data is not None:
-            # Lista para guardar los IDs de pasos que procesamos para no borrarlos
-            keep_step_ids = []
+            # Ingredientes: se reemplazan (son texto simple con cantidad, nadie los referencia).
+            if ingredients_data is not None:
+                instance.ingredients.all().delete()
+                self._create_ingredients(instance, ingredients_data)
 
-            for item in steps_data:
-                step_id = item.get('id')
-                if step_id:
-                    # CASO A: El paso ya existe -> Lo actualizamos
-                    try:
-                        step_obj = Step.objects.get(id=step_id, recipe=instance)
-                        step_obj.order = item.get('order', step_obj.order)
-                        step_obj.instruction = item.get('instruction', step_obj.instruction)
-                        step_obj.save()
-                        keep_step_ids.append(step_obj.id)
-                    except Step.DoesNotExist:
-                        continue # Si mandaron un ID raro, lo ignoramos
-                else:
-                    # CASO B: El paso es nuevo -> Lo creamos
-                    new_step = Step.objects.create(recipe=instance, **item)
-                    keep_step_ids.append(new_step.id)
-
-            # CASO C: Borrar pasos que el usuario eliminó en el frontend
-            # (Borramos todos los pasos de esta receta que NO estén en la lista de keep_ids)
-            instance.steps.exclude(id__in=keep_step_ids).delete()
+            # Pasos: se conservan los ids que vuelven (los usa el modo cocina), se crean los nuevos
+            # y se borran los que el usuario quitó.
+            if steps_data is not None:
+                existing = {step.id: step for step in instance.steps.all()}
+                to_update, to_create = [], []
+                for item in steps_data:
+                    step = existing.get(item.get('id'))
+                    if step:
+                        step.order = item.get('order', step.order)
+                        step.instruction = item.get('instruction', step.instruction)
+                        to_update.append(step)
+                    else:
+                        item.pop('id', None)  # un id ajeno o inventado se trata como paso nuevo
+                        to_create.append(Step(recipe=instance, **item))
+                instance.steps.exclude(id__in=[step.id for step in to_update]).delete()
+                Step.objects.bulk_update(to_update, ['order', 'instruction'])
+                Step.objects.bulk_create(to_create)
 
         return instance
 
@@ -291,8 +262,6 @@ class MealPlanSerializer(serializers.ModelSerializer):
         return value
 
     def validate_date(self, value):
-        from datetime import timedelta
-        from django.utils import timezone
         today = timezone.localdate()
         max_date = today + timedelta(weeks=4)
         if value < today:

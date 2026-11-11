@@ -10,10 +10,12 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
-from pathlib import Path
-from decouple import config
 import os
+from datetime import timedelta
+from pathlib import Path
+
 import dj_database_url
+from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -85,6 +87,7 @@ DATABASES = {
     'default': dj_database_url.config(
         default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
         conn_max_age=600,
+        conn_health_checks=True,  # una conexión que el server cortó no rompe el próximo request
     )
 }
 
@@ -183,11 +186,11 @@ REST_FRAMEWORK = {
         'user': '60/minute',      # CRUD general: 60 requests/min por usuario
         'import': '5/minute',     # Importaciones IA: 5/min por usuario
         'ideas': '10/minute',     # Ideas (chat IA): 10/min por usuario
+        'auth': '10/minute',      # Registro, códigos y reseteo de contraseña: 10/min por IP
     }
 }
 
 # --- JWT ---
-from datetime import timedelta
 # Login con usuario o email (el front pide "Email o Usuario")
 AUTHENTICATION_BACKENDS = ['recetas.backends.EmailOrUsernameModelBackend']
 
@@ -209,7 +212,8 @@ if not CORS_ALLOW_ALL_ORIGINS:
         'CORS_ALLOWED_ORIGINS',
         default='http://localhost:3000,http://localhost:8081'
     ).split(',')
-CORS_ALLOW_CREDENTIALS = True
+# La API usa JWT en el header Authorization, no cookies: no hace falta mandar credenciales.
+CORS_ALLOW_CREDENTIALS = False
 
 # --- Seguridad en producción ---
 if not DEBUG:
@@ -230,3 +234,14 @@ EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Pizca <hola@pizca.app>')
 
+
+# --- Logs ---
+# A la consola (en producción la junta el host). Los errores de las vistas usan logger.exception.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {'simple': {'format': '{levelname} {name}: {message}', 'style': '{'}},
+    'handlers': {'console': {'class': 'logging.StreamHandler', 'formatter': 'simple'}},
+    'root': {'handlers': ['console'], 'level': 'INFO'},
+    'loggers': {'django': {'handlers': ['console'], 'level': config('DJANGO_LOG_LEVEL', default='INFO'), 'propagate': False}},
+}

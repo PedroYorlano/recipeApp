@@ -2,13 +2,23 @@ import base64
 from io import BytesIO
 from unittest import mock
 
+from datetime import timedelta
+from decimal import Decimal
+
 from django.contrib.auth.models import User
+from django.core import mail
+from django.core.cache import cache
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 from PIL import Image
 from rest_framework.test import APIClient
 
 from .images import InvalidImage, image_from_base64, image_from_url, process_image
-from .models import Recipe
+from .models import Favorite, Ingredient, MealPlan, PasswordResetOTP, PendingRegistration, Recipe, Step
+from .net import FetchError, fetch_public
+from .shopping import categorize_ingredient, format_quantity
 
 # Los tests nunca tocan el bucket real.
 IN_MEMORY = {
@@ -98,28 +108,28 @@ PRIVATE = [(2, 1, 6, '', ('169.254.169.254', 0))]
 
 
 class ImageFromUrlTests(TestCase):
-    @mock.patch('recetas.images.socket.getaddrinfo', return_value=PUBLIC)
-    @mock.patch('recetas.images.requests.get')
+    @mock.patch('recetas.net.socket.getaddrinfo', return_value=PUBLIC)
+    @mock.patch('recetas.net.requests.get')
     def test_baja_y_procesa(self, get, _):
         get.return_value = FakeResponse(body=make_image())
         self.assertTrue(image_from_url('https://cdn.example.com/a.jpg').name.endswith('.webp'))
 
-    @mock.patch('recetas.images.socket.getaddrinfo', return_value=PRIVATE)
-    @mock.patch('recetas.images.requests.get')
+    @mock.patch('recetas.net.socket.getaddrinfo', return_value=PRIVATE)
+    @mock.patch('recetas.net.requests.get')
     def test_no_entra_a_ips_internas(self, get, _):
         self.assertIsNone(image_from_url('https://metadata.internal/latest'))
         get.assert_not_called()
 
-    @mock.patch('recetas.images.socket.getaddrinfo')
-    @mock.patch('recetas.images.requests.get')
+    @mock.patch('recetas.net.socket.getaddrinfo')
+    @mock.patch('recetas.net.requests.get')
     def test_redireccion_a_ip_interna(self, get, addrinfo):
         addrinfo.side_effect = lambda host, *_: PUBLIC if host == 'cdn.example.com' else PRIVATE
         get.return_value = FakeResponse(302, {'Location': 'http://169.254.169.254/latest/meta-data'})
         self.assertIsNone(image_from_url('https://cdn.example.com/a.jpg'))
         self.assertEqual(get.call_count, 1)
 
-    @mock.patch('recetas.images.socket.getaddrinfo', return_value=PUBLIC)
-    @mock.patch('recetas.images.requests.get')
+    @mock.patch('recetas.net.socket.getaddrinfo', return_value=PUBLIC)
+    @mock.patch('recetas.net.requests.get')
     def test_corta_descargas_gigantes_sin_content_length(self, get, _):
         get.return_value = FakeResponse(body=b'x' * (6 * 1024 * 1024))
         self.assertIsNone(image_from_url('https://cdn.example.com/a.jpg'))
@@ -159,7 +169,8 @@ class RecipeImageApiTests(TestCase):
         recipe = Recipe.objects.get(uuid=r.data['uuid'])
         old = recipe.image.name
         storage = recipe.image.storage
-        r = self.client.patch(f'/api/recetas/{recipe.pk}/', {'image_base64': data_uri(make_image(size=(60, 60)))}, format='json')
+        with self.captureOnCommitCallbacks(execute=True):
+            r = self.client.patch(f'/api/recetas/{recipe.pk}/', {'image_base64': data_uri(make_image(size=(60, 60)))}, format='json')
         self.assertEqual(r.status_code, 200, r.content)
         self.assertFalse(storage.exists(old))
 
@@ -201,3 +212,144 @@ class NotFoundTests(TestCase):
         r = client.get('/api/recetas/999999/')
         self.assertEqual(r.status_code, 404)
         self.assertEqual(r.data['detail'], 'No encontramos lo que buscabas.')
+
+
+class FetchPublicTests(TestCase):
+    @mock.patch('recetas.net.socket.getaddrinfo', return_value=PUBLIC)
+    @mock.patch('recetas.net.requests.get')
+    def test_import_web_no_sigue_redirecciones_a_ip_interna(self, get, addrinfo):
+        addrinfo.side_effect = lambda host, *_: PUBLIC if host == 'blog.example.com' else PRIVATE
+        get.return_value = FakeResponse(302, {'Location': 'https://169.254.169.254/latest/meta-data'})
+        with self.assertRaises(FetchError):
+            fetch_public('https://blog.example.com/receta', 1024, schemes=('https',))
+        self.assertEqual(get.call_count, 1)
+
+    def test_solo_https_si_se_pide(self):
+        with self.assertRaises(FetchError):
+            fetch_public('http://blog.example.com/receta', 1024, schemes=('https',))
+
+
+class RecipeListTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('dani', 'dani@example.com', 'contraseña-segura')
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+    def make_recipe(self, title):
+        recipe = Recipe.objects.create(user=self.user, title=title)
+        Ingredient.objects.create(recipe=recipe, name='harina', quantity=Decimal('200'), unit='g')
+        Step.objects.create(recipe=recipe, order=1, instruction='Mezclar')
+        return recipe
+
+    def test_la_lista_no_hace_una_consulta_por_receta(self):
+        for i in range(3):
+            self.make_recipe(f'Receta {i}')
+        with CaptureQueriesContext(connection) as few:
+            self.client.get('/api/recetas/')
+        for i in range(3, 10):
+            self.make_recipe(f'Receta {i}')
+        with CaptureQueriesContext(connection) as many:
+            r = self.client.get('/api/recetas/')
+        self.assertEqual(len(r.data['results']), 10)
+        self.assertEqual(len(few), len(many))
+
+    def test_favoritas(self):
+        fav = self.make_recipe('Favorita')
+        self.make_recipe('Otra')
+        Favorite.objects.create(user=self.user, recipe=fav)
+        r = self.client.get('/api/recetas/?favorites=true')
+        self.assertEqual([x['title'] for x in r.data['results']], ['Favorita'])
+        self.assertTrue(r.data['results'][0]['is_favorite'])
+        self.assertEqual(r.data['results'][0]['favorite_count'], 1)
+
+    def test_editar_pasos_conserva_ids_y_borra_los_quitados(self):
+        recipe = self.make_recipe('Tarta')
+        first = recipe.steps.get()
+        extra = Step.objects.create(recipe=recipe, order=2, instruction='Hornear')
+        payload = {
+            'title': 'Tarta', 'ingredients': [{'name': 'harina'}],
+            'steps': [{'id': first.id, 'order': 1, 'instruction': 'Mezclar bien'}, {'order': 2, 'instruction': 'Enfriar'}],
+        }
+        r = self.client.put(f'/api/recetas/{recipe.pk}/', payload, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        steps = list(recipe.steps.order_by('order').values_list('id', 'instruction'))
+        self.assertEqual(steps[0], (first.id, 'Mezclar bien'))
+        self.assertEqual(steps[1][1], 'Enfriar')
+        self.assertFalse(Step.objects.filter(pk=extra.pk).exists())
+
+
+class ShoppingConsolidationTests(TestCase):
+    def test_categorias_por_palabra(self):
+        self.assertEqual(categorize_ingredient('Huevos'), 'Carnes y proteínas')
+        self.assertEqual(categorize_ingredient('mostaza de Dijon'), 'Despensa')
+        self.assertEqual(categorize_ingredient('Espinaca'), 'Verduras y frescos')  # antes caía en "pan"
+        self.assertEqual(categorize_ingredient('Albahaca'), 'Otros')
+
+    def test_formato_de_cantidad(self):
+        self.assertEqual(format_quantity(Decimal('200.00'), 'g'), '200 g')
+        self.assertEqual(format_quantity(Decimal('0.50'), 'taza'), '0.5 taza')
+        self.assertEqual(format_quantity(None, 'a gusto'), 'a gusto')
+
+    def test_suma_misma_unidad_y_separa_cantidad_pegada(self):
+        user = User.objects.create_user('eli', 'eli@example.com', 'contraseña-segura')
+        client = APIClient()
+        client.force_authenticate(user)
+        monday = timezone.localdate() - timedelta(days=timezone.localdate().weekday())
+        for day, unit, qty in ((0, 'g', Decimal('200')), (1, '300g', None)):
+            recipe = Recipe.objects.create(user=user, title=f'R{day}')
+            Ingredient.objects.create(recipe=recipe, name='Harina', quantity=qty, unit=unit)
+            MealPlan.objects.create(user=user, date=monday + timedelta(days=day), meal_type='lunch', recipe=recipe)
+        r = client.post('/api/planner/generate_shopping_list/', {'week_start': monday.isoformat()}, format='json')
+        self.assertEqual([(i['ingredient_name'], i['quantity']) for i in r.data], [('Harina', '500 g')])
+
+    def test_semana_invalida_es_400(self):
+        user = User.objects.create_user('fede', 'fede@example.com', 'contraseña-segura')
+        client = APIClient()
+        client.force_authenticate(user)
+        self.assertEqual(client.get('/api/shopping/?week_start=ayer').status_code, 400)
+
+
+class OtpTests(TestCase):
+    def setUp(self):
+        cache.clear()  # el throttle de 'auth' cuenta por IP y todos los tests salen de la misma
+        self.client = APIClient()
+
+    def register(self):
+        r = self.client.post('/api/register/', {'username': 'gabi', 'email': 'Gabi@Example.com', 'password': 'una-clave-larga-9'}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        return PendingRegistration.objects.get(email='gabi@example.com')
+
+    def test_registro_completo(self):
+        pending = self.register()
+        self.assertIn(pending.otp_code, mail.outbox[0].body)
+        r = self.client.post('/api/register/verify/', {'email': 'gabi@example.com', 'otp_code': pending.otp_code}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertTrue(User.objects.get(username='gabi').check_password('una-clave-larga-9'))
+
+    def test_se_bloquea_despues_de_cinco_intentos(self):
+        pending = self.register()
+        wrong = '000000' if pending.otp_code != '000000' else '111111'
+        for _ in range(5):
+            self.client.post('/api/register/verify/', {'email': 'gabi@example.com', 'otp_code': wrong}, format='json')
+        r = self.client.post('/api/register/verify/', {'email': 'gabi@example.com', 'otp_code': pending.otp_code}, format='json')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('límite de intentos', r.data['error'])
+        self.assertFalse(User.objects.filter(username='gabi').exists())
+
+    def test_rechaza_contrasenas_comunes(self):
+        r = self.client.post('/api/register/', {'username': 'hugo', 'email': 'hugo@example.com', 'password': 'password'}, format='json')
+        self.assertEqual(r.status_code, 400)
+
+    def test_reset_no_revela_si_la_cuenta_existe(self):
+        User.objects.create_user('ines', 'ines@example.com', 'contraseña-segura')
+        self.client.post('/api/password-reset/request/', {'email': 'ines@example.com'}, format='json')
+        otp = PasswordResetOTP.objects.get()
+        wrong = '000000' if otp.otp_code != '000000' else '111111'
+        payload = {'otp_code': wrong, 'new_password': 'otra-clave-larga-7'}
+        existe = self.client.post('/api/password-reset/verify/', {'email': 'ines@example.com', **payload}, format='json')
+        no_existe = self.client.post('/api/password-reset/verify/', {'email': 'nadie@example.com', **payload}, format='json')
+        self.assertEqual(existe.data, no_existe.data)
+
+        r = self.client.post('/api/password-reset/verify/', {'email': 'ines@example.com', 'otp_code': otp.otp_code, 'new_password': 'otra-clave-larga-7'}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertTrue(User.objects.get(username='ines').check_password('otra-clave-larga-7'))
