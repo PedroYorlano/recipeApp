@@ -1,10 +1,11 @@
 import yt_dlp
 import os
+import subprocess
 from google import genai
 from google.genai import types
 import json
 import time
-import google.api_core.exceptions as exceptions
+from google.genai import errors as genai_errors
 from decouple import config
 
 COMMON_INGREDIENTS = [
@@ -69,10 +70,64 @@ def download_audio_from_url(video_url):
 GENAI_API_KEY = config('GENAI_API_KEY')
 client = genai.Client(api_key=GENAI_API_KEY)
 
-def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
+# El Flash-Lite actual: el más barato de Gemini con audio y sin fecha de apagado. Se cambia desde el .env sin tocar código.
+GEMINI_MODEL = config('GEMINI_MODEL', default='gemini-3.5-flash-lite')
+
+
+def generate_json(contents, retries=3, wait=10):
+    """
+    Llama a Gemini pidiendo JSON y devuelve un dict.
+    Reintenta si se pasó la cuota (429), si Google falla (5xx) o si el JSON vino roto;
+    cualquier otro error (key inválida, modelo inexistente) se propaga de una.
+    """
+    for attempt in range(1, retries + 1):
+        try:
+            result = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=contents,
+                config=types.GenerateContentConfig(response_mime_type="application/json"),
+            )
+            data = json.loads(result.text)
+            if isinstance(data, list):
+                data = data[0] if data else {}
+            return data
+        except genai_errors.APIError as e:
+            if e.code != 429 and (e.code or 0) < 500:
+                raise
+            print(f"⚠️ Gemini respondió {e.code} (intento {attempt}/{retries}).")
+            if attempt == retries:
+                raise
+        except json.JSONDecodeError:
+            print(f"⚠️ Gemini devolvió un JSON inválido (intento {attempt}/{retries}).")
+            if attempt == retries:
+                raise
+        time.sleep(wait)
+
+def convert_audio_to_mp3(input_path):
+    """
+    Convierte cualquier audio (m4a del iPhone, webm del navegador, opus de WhatsApp...)
+    a un mp3 mono liviano, un formato que Gemini acepta seguro.
+    Devuelve la ruta del mp3; tira ValueError si ffmpeg no lo pudo leer.
+    """
+    output_path = f"{input_path}.mp3"
+    try:
+        subprocess.run(
+            ['ffmpeg', '-y', '-loglevel', 'error', '-i', input_path, '-vn', '-ac', '1', '-b:a', '64k', output_path],
+            check=True, capture_output=True, timeout=120,
+        )
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
+        if os.path.exists(output_path):
+            os.remove(output_path)
+        raise ValueError('No pudimos leer el audio. Probá con otro archivo.') from e
+    return output_path
+
+
+def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None, require_audio=False):
     """
     Sube el audio a Gemini directamente y extrae la receta estructurada en JSON.
     No usa Groq Whisper — Gemini procesa el audio nativo.
+    Con `require_audio=True` (audio subido por el usuario, sin descripción) no se usa el
+    modo "solo texto": sin el audio no hay de dónde sacar la receta y la IA la inventaría.
     """
     print("1. Subiendo audio a la IA...")
 
@@ -85,10 +140,10 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
         print(f"Error subiendo audio: {e}. Pasando a modo Solo-Texto.")
         myfile = None
 
-    print("2. Analizando receta...")
+    if require_audio and not myfile:
+        return None
 
-    # Usamos el modelo Flash que es rápido y barato
-    model_name = "gemini-3.1-flash-lite"
+    print("2. Analizando receta...")
 
     prompt = f"""
     Actúa como un chef experto transcribiendo una receta.
@@ -121,78 +176,38 @@ def extract_recipe_from_audio(audio_path, description_text, thumbnail_url=None):
     - Siempre separa la cantidad numérica de la unidad. Ejemplo: "200g de harina" → quantity: 200, unit: "g", name: "harina"
     - Para cantidades como "3 huevos" → quantity: 3, unit: "unidad", name: "huevos"
     - Para "sal a gusto" → quantity: null, unit: "", name: "sal a gusto"
+    - "medio"/"media" va con el ingrediente que le sigue, no con el anterior: "tres huevos y media cebolla" → huevos: 3 y cebolla: 0.5
     
     Devuelve SOLO el JSON limpio.
     """
 
-    max_retries = 3
-    retry_delay = 10
+    def build_contents(with_audio):
+        contenido = []
+        if description_text:
+            contenido.append(f"DESCRIPCIÓN DEL VIDEO (Prioridad para cantidades): {description_text}")
+        if with_audio:
+            contenido.append(myfile)
+        else:
+            contenido.append("No hay audio disponible. Extrae la receta basándote SOLO en la descripción proporcionada arriba.")
+        contenido.append(prompt)
+        return contenido
 
-    for attempt in range(max_retries):
+    try:
+        result_json = generate_json(build_contents(with_audio=bool(myfile)))
+    except Exception as e:
+        print(f"Error analizando el audio: {e}")
+        # Último recurso para videos: si hay descripción, armamos la receta solo con ella.
+        if not myfile or require_audio or not description_text:
+            return None
         try:
-            contenido = []
-            
-            # Si tenemos descripción, la agregamos
-            if description_text:
-                contenido.append(f"DESCRIPCIÓN DEL VIDEO (Prioridad para cantidades): {description_text}")
-            
-            # Si el archivo de audio cargó bien, lo agregamos
-            if myfile:
-                contenido.append(myfile)
-            else:
-                # Si no hay audio, avisamos a la IA que dependa del texto
-                contenido.append("No hay audio disponible. Extrae la receta basándote SOLO en la descripción proporcionada arriba.")
-
-            contenido.append(prompt)
-
-            # LLAMADA A LA IA
-            print(f"Intento {attempt + 1} con modelo {model_name}...")
-            result = client.models.generate_content(
-                model=model_name,
-                contents=contenido,
-                config=types.GenerateContentConfig(response_mime_type="application/json")
-            )
-            result_json = json.loads(result.text)
-            
-            if isinstance(result_json, list):
-                if len(result_json) > 0:
-                    result_json = result_json[0]
-                else:
-                    result_json = {}
-            
-            # Inyectar url de thumbnail si viene
-            if thumbnail_url and isinstance(result_json, dict):
-                result_json['image_url'] = thumbnail_url
-
-            return result_json
-        except exceptions.ResourceExhausted:
-            print(f"⚠️ Cuota excedida (Intento {attempt+1}). Esperando {retry_delay}s...")
-            time.sleep(retry_delay)
-            
-            # ESTRATEGIA DE EMERGENCIA:
-            # Si falló el último intento y teníamos audio, probamos UNA vez más SOLO con texto
-            if attempt == max_retries - 1 and myfile:
-                print("🚨 Último recurso: Intentando sin audio para ahorrar cuota...")
-                myfile = None # Quitamos el audio
-                max_retries += 1
-
-        except (exceptions.InternalServerError, exceptions.ServiceUnavailable):
-            print(f"⚠️ Error temporal de Google (Intento {attempt+1}). Esperando {retry_delay}s...")
-            time.sleep(retry_delay)
-            
-            # La misma lógica de emergencia: si es el último intento, probamos solo texto
-            if attempt == max_retries - 1 and myfile:
-                print("🚨 Último recurso: Intentando sin audio...")
-                myfile = None 
-                max_retries += 1
-            
-        except Exception as e:
-            # Si es otro error (ej: internet caído), fallamos de una vez
-            print(f"Error inesperado: {e}")
+            result_json = generate_json(build_contents(with_audio=False), retries=1)
+        except Exception as e2:
+            print(f"Error analizando la descripción: {e2}")
             return None
 
-    print("Error: Se agotaron los reintentos. Intenta más tarde.")
-    return None
+    if thumbnail_url and isinstance(result_json, dict):
+        result_json['image_url'] = thumbnail_url
+    return result_json
 
 
 def extract_recipe_from_text(description_text: str, strict_mode: bool = False):
@@ -201,7 +216,6 @@ def extract_recipe_from_text(description_text: str, strict_mode: bool = False):
     en formato de Receta JSON. Autocompleta detalles faltantes si es necesario.
     """
     print("Analizando receta desde texto libre con Gemini...")
-    model_name = "gemini-2.5-flash"
 
     if strict_mode:
         behavior = 'ADVERTENCIA: Extrae ÚNICAMENTE la información presente en el texto. NO inventes recetas, ingredientes, cantidades ni pasos que no existan. Si el texto claramente no contiene una receta (por ejemplo, es un mensaje de error, acceso denegado, Incapsula, Cloudflare, etc.), devuelve exactamente esto en el JSON: {"title": "ERROR_NO_RECIPE"}'
@@ -236,36 +250,21 @@ def extract_recipe_from_text(description_text: str, strict_mode: bool = False):
     - Siempre separa la cantidad numérica de la unidad. Ejemplo: "200g de harina" → quantity: 200, unit: "g", name: "harina"
     - Para cantidades como "3 huevos" → quantity: 3, unit: "unidad", name: "huevos"
     - Para "sal a gusto" → quantity: null, unit: "", name: "sal a gusto"
+    - "medio"/"media" va con el ingrediente que le sigue, no con el anterior: "tres huevos y media cebolla" → huevos: 3 y cebolla: 0.5
     
     Devuelve SOLO el JSON limpio.
     """
 
-    for attempt in range(3):
-        try:
-            print(f"Intento {attempt + 1} de Texto con modelo {model_name}...")
-            result = client.models.generate_content(
-                model=model_name,
-                contents=prompt,
-                config=types.GenerateContentConfig(response_mime_type="application/json")
-            )
-            result_json = json.loads(result.text)
-            
-            if isinstance(result_json, list):
-                if len(result_json) > 0:
-                    result_json = result_json[0]
-                else:
-                    result_json = {}
-            
-            if result_json.get('title') == 'ERROR_NO_RECIPE':
-                print("Gemini determinó que el texto no contenía una receta válida.")
-                return None
-                
-            return result_json
-        except Exception as e:
-            print(f"Error parseando texto: {e}")
-            time.sleep(3)
+    try:
+        result_json = generate_json(prompt, wait=3)
+    except Exception as e:
+        print(f"Error analizando el texto: {e}")
+        return None
 
-    return None
+    if result_json.get('title') == 'ERROR_NO_RECIPE':
+        print("Gemini determinó que el texto no contenía una receta válida.")
+        return None
+    return result_json
 
 def extract_keywords(text: str) -> list[str]:
     """Extrae ingredientes mencionados en el mensaje del usuario."""
@@ -300,10 +299,4 @@ def call_fogoncito(user_message: str, recipes_summary: list[dict]) -> dict:
     Devolvé SOLO un JSON con esta estructura:
     {{"message": "texto conversacional breve", "suggestions": [{{"uuid": "...", "title": "..."}}]}}
     """
-    model_name = "gemini-2.5-flash"
-    result = client.models.generate_content(
-        model=model_name,
-        contents=prompt,
-        config=types.GenerateContentConfig(response_mime_type="application/json")
-    )
-    return json.loads(result.text)
+    return generate_json(prompt, retries=2, wait=3)

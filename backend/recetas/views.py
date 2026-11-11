@@ -24,7 +24,7 @@ from .models import Recipe, Category, Favorite, UserUsage, GlobalUsage, MealPlan
 from .serializers import RecipeSerializer, CategorySerializer, UserRegistrationSerializer, MealPlanSerializer, ShoppingListItemSerializer
 from datetime import date, timedelta
 import os
-from .utils import download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text, build_recipes_summary, call_fogoncito
+from .utils import download_audio_from_url, convert_audio_to_mp3, extract_recipe_from_audio, extract_recipe_from_text, build_recipes_summary, call_fogoncito
 import tempfile
 import requests
 from bs4 import BeautifulSoup
@@ -671,29 +671,37 @@ def import_recipe_from_file_view(request):
     if not can_proceed:
         return Response({'error': limit_msg}, status=status.HTTP_429_TOO_MANY_REQUESTS)
 
+    temp_path = mp3_path = None
     try:
-        temp = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{uploaded_file.name}")
+        # Solo la extensión del nombre original: el nombre lo manda el cliente.
+        ext = os.path.splitext(uploaded_file.name or '')[1][:10]
+        temp = tempfile.NamedTemporaryFile(delete=False, suffix=ext)
         for chunk in uploaded_file.chunks():
             temp.write(chunk)
         temp.close()
         temp_path = temp.name
 
-        recipe_data = extract_recipe_from_audio(temp_path, "", None)
+        try:
+            mp3_path = convert_audio_to_mp3(temp_path)
+        except ValueError as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
-        os.remove(temp_path)
+        recipe_data = extract_recipe_from_audio(mp3_path, "", None, require_audio=True)
 
         if not recipe_data:
-            return Response({'error': 'IA falló al extraer la receta'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({'error': 'No pudimos entender el audio. Probá de nuevo en un rato.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         # Registrar uso exitoso
         record_usage(request.user)
 
         return Response({'message': 'Receta importada exitosamente', 'recipe': recipe_data}, status=status.HTTP_201_CREATED)
-    
+
     except Exception as e:
-        if 'temp_path' in locals() and os.path.exists(temp_path):
-            os.remove(temp_path)
         return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    finally:
+        for path in (temp_path, mp3_path):
+            if path and os.path.exists(path):
+                os.remove(path)
 
 
 @api_view(['POST'])
