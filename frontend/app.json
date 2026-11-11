@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "Pizca",
-    "slug": "fogon",
+    "slug": "pizca",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -10,13 +10,13 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.pedroyorlano.fogon",
+      "bundleIdentifier": "com.pedroyorlano.pizca",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.pedroyorlano.fogon",
+      "package": "com.pedroyorlano.pizca",
       "adaptiveIcon": {
         "backgroundColor": "#BE9F00",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -89,28 +89,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "build": {
-          "experimental": {
-            "ios": {
-              "appExtensions": [
-                {
-                  "targetName": "FOGONShareExtension",
-                  "bundleIdentifier": "com.pedroyorlano.fogon.ShareExtension",
-                  "entitlements": {
-                    "com.apple.security.application-groups": [
-                      "group.com.pedroyorlano.fogon"
-                    ]
-                  }
-                }
-              ]
-            }
-          }
-        },
-        "projectId": "61a0e1df-09ce-49c4-9575-0a96fb5c23ca"
-      },
-      "appleApplicationGroup": "group.com.pedroyorlano.fogon"
+      "router": {}
     }
   }
 }
