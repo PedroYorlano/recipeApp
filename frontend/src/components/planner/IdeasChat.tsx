@@ -9,6 +9,7 @@ import { ISOLOGO } from '../../constants/brand';
 import { RecipeCover } from '../brand/RecipeCover';
 import { ChatMessage, IdeaSuggestion } from '../../types';
 import { sendIdeasMessage } from '../../services/api';
+import { getErrorMessage } from '../../utils/dialogs';
 
 const INITIAL_MESSAGE: ChatMessage = {
     id: 'initial',
@@ -64,13 +65,13 @@ export function IdeasChat() {
                         : m
                 )
             );
-        } catch (e: any) {
+        } catch (e) {
             setMessages(prev =>
                 prev.map(m =>
                     m.id === loadingMsg.id
                         ? {
                             ...m,
-                            text: e.message || 'Ahora no puedo responder. Probá de nuevo en un rato.',
+                            text: getErrorMessage(e, 'Ahora no puedo responder. Probá de nuevo en un rato.'),
                             isLoading: false,
                             isError: true,
                         }
@@ -206,12 +207,12 @@ function TypingIndicator() {
                     Animated.timing(dot, {
                         toValue: 1,
                         duration: 300,
-                        useNativeDriver: true,
+                        useNativeDriver: Platform.OS !== 'web',
                     }),
                     Animated.timing(dot, {
                         toValue: 0,
                         duration: 300,
-                        useNativeDriver: true,
+                        useNativeDriver: Platform.OS !== 'web',
                     }),
                 ])
             );
@@ -230,7 +231,7 @@ function TypingIndicator() {
             a2.stop();
             a3.stop();
         };
-    }, []);
+    }, [dot1, dot2, dot3]);
 
     const dotStyle = (anim: Animated.Value) => ({
         opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }),

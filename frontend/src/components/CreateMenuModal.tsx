@@ -6,8 +6,7 @@ import { Text } from './ui/Typography';
 import { ICONS } from '../constants/brand';
 import { DialogHost } from './ui/DialogHost';
 import { closeDialogOr } from '../utils/dialogs';
-
-type Option = 'manual' | 'video' | 'audio' | 'text' | 'link-web';
+import type { CreateMode as Option } from '../context/AppContext';
 
 interface Props {
   visible: boolean;
@@ -17,7 +16,7 @@ interface Props {
 
 const IMPORTS: { key: Option; label: string; hint: string; icon: any }[] = [
   { key: 'link-web', label: 'Link web', hint: 'Blogs y sitios de recetas', icon: ICONS.web },
-  { key: 'video', label: 'Video', hint: 'TikTok, Instagram, YouTube', icon: ICONS.video },
+  { key: 'video', label: 'Video', hint: 'TikTok, Instagram, YouTube, Facebook', icon: ICONS.video },
   { key: 'audio', label: 'Audio', hint: 'Dictala o subí un audio', icon: ICONS.audio },
   { key: 'text', label: 'Texto', hint: 'Pegá la receta como está', icon: ICONS.texto },
 ];

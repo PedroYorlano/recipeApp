@@ -1,9 +1,8 @@
-import React from 'react';
+import React, { memo } from 'react';
 import { View, TouchableOpacity, Image } from 'react-native';
 import { Text } from '../ui/Typography';
 import { Recipe } from '../../types';
 import { getRecipeImage } from '../../utils';
-import { useApp } from '../../context/AppContext';
 import { RecipeCover } from '../brand/RecipeCover';
 import { ICONS } from '../../constants/brand';
 import { Heart } from 'lucide-react-native';
@@ -11,6 +10,7 @@ import { Heart } from 'lucide-react-native';
 interface Props {
   item: Recipe;
   onPress: (recipe: Recipe) => void;
+  onToggleFavorite: (recipeId: number) => void;
   maxWidth?: number;
 }
 
@@ -18,13 +18,13 @@ interface Props {
 export const recipeMeta = (r: { prep_time?: number | null; servings?: number | null }) =>
   [r.prep_time ? `${r.prep_time} min` : null, r.servings ? `${r.servings} porc.` : null].filter(Boolean).join(' · ');
 
-export const RecipeCard = ({ item, onPress, maxWidth }: Props) => {
-  const { toggleFavorite } = useApp();
+/** Memo: en una lista larga, solo se vuelve a dibujar la tarjeta que cambió. */
+export const RecipeCard = memo(function RecipeCard({ item, onPress, onToggleFavorite, maxWidth }: Props) {
   const meta = recipeMeta(item);
 
-  const handleToggleFavorite = async (e: any) => {
+  const handleToggleFavorite = (e: { stopPropagation?: () => void }) => {
     e.stopPropagation?.();
-    if (item.id) await toggleFavorite(item.id);
+    if (item.id) onToggleFavorite(item.id);
   };
 
   return (
@@ -66,4 +66,4 @@ export const RecipeCard = ({ item, onPress, maxWidth }: Props) => {
       </View>
     </TouchableOpacity>
   );
-};
+});

@@ -9,7 +9,7 @@ import { ILLUSTRATIONS } from '../constants/brand';
 import { CodeInput } from '../components/ui/CodeInput';
 import { useRouter } from 'expo-router';
 import { resendRegisterOTPService } from '../services/api';
-import { notify } from '../utils/dialogs';
+import { notify, getErrorMessage } from '../utils/dialogs';
 import { FEATURES } from '../constants/features';
 
 export const RegisterScreen = () => {
@@ -53,8 +53,8 @@ export const RegisterScreen = () => {
             await register(username.trim(), email.trim(), password);
             setStep('otp');
             setResendCooldown(60);
-                    } catch (error: any) {
-            notify("Error en el registro", error.message || "Algo salió mal. Revisá los datos.");
+                    } catch (error) {
+            notify("Error en el registro", getErrorMessage(error, "Algo salió mal. Revisá los datos."));
         } finally {
             setLoading(false);
         }
@@ -70,8 +70,8 @@ export const RegisterScreen = () => {
         try {
             await verifyRegisterOTP(email.trim(), otpCode);
             notify("¡Listo!", "Te damos la bienvenida a Pizca.");
-        } catch (error: any) {
-            notify("Error de verificación", error.message || "El código ingresado es incorrecto o expiró.");
+        } catch (error) {
+            notify("Error de verificación", getErrorMessage(error, "El código ingresado es incorrecto o expiró."));
         } finally {
             setLoading(false);
         }
@@ -83,8 +83,8 @@ export const RegisterScreen = () => {
             await resendRegisterOTPService(email.trim());
             setResendCooldown(60);
             notify("Código enviado", "Te mandamos uno nuevo a tu email.");
-        } catch (error: any) {
-            notify("Error", error.message || "No pudimos mandar otro código. Probá más tarde.");
+        } catch (error) {
+            notify("Error", getErrorMessage(error, "No pudimos mandar otro código. Probá más tarde."));
         } finally {
             setLoading(false);
         }

@@ -31,14 +31,14 @@ const parseDecimal = (text: string): number | null => {
  * Input de cantidad que guarda el texto tal cual mientras se escribe.
  * Si se parseara en cada tecla, "0," o "1." se volverían "0"/"1" y no se podrían cargar decimales.
  */
+const formatDecimal = (value: number | null | undefined) => (value !== null && value !== undefined ? String(value) : '');
+
 const QuantityInput = ({ value, onChange }: { value: number | null; onChange: (v: number | null) => void }) => {
-  const [text, setText] = useState(value !== null && value !== undefined ? String(value) : '');
+  const [text, setText] = useState(formatDecimal(value));
 
   useEffect(() => {
     // Sincroniza si el valor cambió desde afuera (ej: se borró un ingrediente de arriba).
-    if (parseDecimal(text) !== (value ?? null)) {
-      setText(value !== null && value !== undefined ? String(value) : '');
-    }
+    setText(prev => (parseDecimal(prev) !== (value ?? null) ? formatDecimal(value) : prev));
   }, [value]);
 
   return (

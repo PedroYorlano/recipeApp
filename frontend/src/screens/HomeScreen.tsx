@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, FlatList, ActivityIndicator, TouchableOpacity, ScrollView, StatusBar as RNStatusBar, Image, useWindowDimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Text, TextInput } from '../components/ui/Typography';
@@ -35,6 +35,7 @@ export default function HomeScreen() {
         setFormModalVisible,
         deleteRecipe,
         setCreateMenuVisible,
+        toggleFavorite,
         user,
     } = useApp();
     const { getPlansForDate } = usePlanner();
@@ -60,6 +61,13 @@ export default function HomeScreen() {
     // Calculamos el ancho máximo que debería tener la tarjeta para no estirarse cuando hay 1 solo resultado.
     // paddingHorizontal 20 a cada lado. Gap de 14 entre columnas.
     const cardMaxWidth = (Math.min(width, 1280) - 40 - ((numCols - 1) * 14)) / numCols;
+
+    const renderItem = useCallback(
+        ({ item }: { item: Recipe }) => (
+            <RecipeCard item={item} onPress={setSelectedRecipe} onToggleFavorite={toggleFavorite} maxWidth={cardMaxWidth} />
+        ),
+        [toggleFavorite, cardMaxWidth],
+    );
 
     if (isAuthLoading) return (
         <View className="flex-1 justify-center items-center bg-pizca-fondo">
@@ -203,9 +211,7 @@ export default function HomeScreen() {
                 keyboardShouldPersistTaps="handled"
                 onEndReached={fetchMoreRecipes}
                 onEndReachedThreshold={0.5}
-                renderItem={({ item }) => (
-                    <RecipeCard item={item} onPress={(recipe) => setSelectedRecipe(recipe)} maxWidth={cardMaxWidth} />
-                )}
+                renderItem={renderItem}
                 ListFooterComponent={
                     loadingMore ? (
                         <View className="py-4 items-center">

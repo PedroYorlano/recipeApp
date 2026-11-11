@@ -36,7 +36,7 @@ export default function ImportRoute() {
     setInitialImportUrl(sharedUrl);
     setFormModalVisible(true);
     router.replace('/(tabs)');
-  }, [isAuthLoading, isAuthenticated, sharedUrl]);
+  }, [isAuthLoading, isAuthenticated, sharedUrl, router, setCreateMode, setInitialImportUrl, setFormModalVisible]);
 
   return (
     <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF9EC' }}>

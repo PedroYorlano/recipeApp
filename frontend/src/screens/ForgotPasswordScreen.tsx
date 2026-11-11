@@ -8,7 +8,7 @@ import { ILLUSTRATIONS } from '../constants/brand';
 import { CodeInput } from '../components/ui/CodeInput';
 import { useRouter } from 'expo-router';
 import { requestPasswordResetService, verifyPasswordResetOTPService } from '../services/api';
-import { notify } from '../utils/dialogs';
+import { notify, getErrorMessage } from '../utils/dialogs';
 
 export const ForgotPasswordScreen = () => {
     const [step, setStep] = useState<'request' | 'verify'>('request');
@@ -45,8 +45,8 @@ export const ForgotPasswordScreen = () => {
             await requestPasswordResetService(email.trim());
             setStep('verify');
             setResendCooldown(60);
-        } catch (error: any) {
-            notify("Error", error.message || "No pudimos mandar el código. Probá de nuevo.");
+        } catch (error) {
+            notify("Error", getErrorMessage(error, "No pudimos mandar el código. Probá de nuevo."));
         } finally {
             setLoading(false);
         }
@@ -67,8 +67,8 @@ export const ForgotPasswordScreen = () => {
         try {
             await verifyPasswordResetOTPService(email.trim(), otpCode, newPassword);
             notify("¡Listo!", "Ya podés ingresar con tu nueva contraseña.", () => router.replace('/login'));
-        } catch (error: any) {
-            notify("Error", error.message || "No pudimos cambiar la contraseña. Revisá el código.");
+        } catch (error) {
+            notify("Error", getErrorMessage(error, "No pudimos cambiar la contraseña. Revisá el código."));
         } finally {
             setLoading(false);
         }
@@ -80,8 +80,8 @@ export const ForgotPasswordScreen = () => {
             await requestPasswordResetService(email);
             setResendCooldown(60);
             notify("Código enviado", "Te mandamos uno nuevo a tu email.");
-        } catch (error: any) {
-            notify("Error", error.message || "No pudimos mandar otro código.");
+        } catch (error) {
+            notify("Error", getErrorMessage(error, "No pudimos mandar otro código."));
         } finally {
             setLoading(false);
         }

@@ -3,16 +3,15 @@ import { Platform } from 'react-native';
 import * as Linking from 'expo-linking';
 
 /**
- * Resuelve la IP del servidor de desarrollo automáticamente.
+ * URL del backend.
  *
- * En desarrollo, Expo expone `hostUri` (ej: "192.168.31.254:8081").
- * Extraemos la IP y apuntamos al backend en el puerto 8000.
- *
- * Para producción, reemplazar con la URL real del backend.
+ * - Producción: EXPO_PUBLIC_API_URL (ej: "https://api.pizca.app"), se fija al compilar.
+ * - Desarrollo: Expo expone `hostUri` (ej: "192.168.31.254:8081"); se usa esa IP con el puerto 8000,
+ *   así el celu con Expo Go llega a la compu sin configurar nada.
  */
 const getServerUrl = (): string => {
-    // Producción: descomentar y poner la URL real
-    // return 'https://api.pizca.app';
+    const configured = process.env.EXPO_PUBLIC_API_URL;
+    if (configured) return configured.replace(/\/$/, '');
 
     const hostUri = Constants.expoConfig?.hostUri;
     if (hostUri) {

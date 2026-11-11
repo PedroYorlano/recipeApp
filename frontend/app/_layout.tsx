@@ -2,7 +2,7 @@ import '../global.css';
 import React, { useEffect } from 'react';
 import { View, ActivityIndicator, Platform } from 'react-native';
 import { Slot, useRouter, useSegments, useRootNavigationState } from 'expo-router';
-import { AppProvider, useApp } from '../src/context/AppContext';
+import { AppProvider, useApp, CreateMode } from '../src/context/AppContext';
 import { DialogHost } from '../src/components/ui/DialogHost';
 import { PlannerProvider } from '../src/context/PlannerContext';
 import { CreateMenuModal } from '../src/components/CreateMenuModal';
@@ -28,7 +28,7 @@ const MainLayout = () => {
     isCreateMenuVisible, setCreateMenuVisible,               // Para Modales
     formModalVisible, setFormModalVisible,
     editingRecipe, setEditingRecipe, saveRecipe, importRecipeAI, categories,
-    createMode, setCreateMode, setInitialImportUrl
+    setCreateMode, setInitialImportUrl
   } = useApp();
 
   const [fontsLoaded, fontError] = useFonts({
@@ -44,7 +44,8 @@ const MainLayout = () => {
     const handleIncomingUrl = (url: string) => {
       const parsed = Linking.parse(url);
       if (parsed.hostname === 'import' && parsed.queryParams?.url) {
-        const importUrl = decodeURIComponent(parsed.queryParams.url as string);
+        // Linking.parse ya decodifica los params: decodificar de nuevo rompe links con "%".
+        const importUrl = String(parsed.queryParams.url);
         setCreateMode('video');
         setInitialImportUrl(importUrl);
         setFormModalVisible(true);
@@ -114,14 +115,9 @@ const MainLayout = () => {
   }, [isAuthenticated, isAuthLoading, segments, rootNavigationState, router]);
 
   // 3. Lógica del Menú Flotante
-  const handleMenuSelect = (option: string) => {
+  const handleMenuSelect = (option: CreateMode) => {
     setCreateMenuVisible(false);
-
-    if (option === 'manual') setCreateMode('manual');
-    else if (option === 'video') setCreateMode('video');
-    else if (option === 'audio') setCreateMode('audio');
-    else if (option === 'text') setCreateMode('text');
-    else if (option === 'link-web') setCreateMode('link-web');
+    setCreateMode(option);
     setEditingRecipe(null);
     setFormModalVisible(true);
   };
