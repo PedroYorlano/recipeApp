@@ -97,6 +97,9 @@ if config('R2_BUCKET_NAME', default=''):
                 'secret_key': config('R2_SECRET_ACCESS_KEY'),
                 'bucket_name': config('R2_BUCKET_NAME'),
                 'endpoint_url': config('R2_ENDPOINT_URL'),
+                # R2 solo acepta 'auto' (o sus regiones propias); sin esto boto3 toma la región
+                # de AWS de la máquina (~/.aws/config) y R2 rechaza el pedido.
+                'region_name': 'auto',
                 'custom_domain': config('R2_PUBLIC_DOMAIN').replace('https://', ''),
                 'default_acl': 'public-read',
                 'file_overwrite': False,
@@ -197,6 +200,7 @@ SIMPLE_JWT = {
 # --- Fogón: Límites de uso ---
 FOGON_MAX_IMPORTS_PER_USER_PER_DAY = 10   # Importaciones por usuario por día
 FOGON_MAX_GEMINI_REQUESTS_PER_DAY = 490    # Requests a Gemini globales por día (de 500 RPD disponibles)
+FOGON_MAX_IMAGES_PER_USER_PER_DAY = 50    # Fotos de portada por usuario por día (solo frena abusos)
 
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=DEBUG, cast=bool)
 if not CORS_ALLOW_ALL_ORIGINS:

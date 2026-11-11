@@ -78,11 +78,13 @@ class UserUsage(models.Model):
     """Uso diario por usuario — limita importaciones de IA por día."""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='usage')
     import_count = models.PositiveIntegerField(default=0)
+    image_count = models.PositiveIntegerField(default=0)  # fotos de portada subidas hoy
     last_reset = models.DateField(auto_now_add=True)
 
     def reset_if_new_day(self):
         if self.last_reset < timezone.localdate():
             self.import_count = 0
+            self.image_count = 0
             self.last_reset = timezone.localdate()
             self.save()
 
@@ -95,6 +97,14 @@ class UserUsage(models.Model):
         from django.db.models import F
         UserUsage.objects.filter(pk=self.pk).update(import_count=F('import_count') + 1)
         self.refresh_from_db()
+
+    def can_upload_image(self, max_daily):
+        self.reset_if_new_day()
+        return self.image_count < max_daily
+
+    def record_image(self):
+        from django.db.models import F
+        UserUsage.objects.filter(pk=self.pk).update(image_count=F('image_count') + 1)
 
     def __str__(self):
         return f"{self.user.username}: {self.import_count} imports ({self.last_reset})"

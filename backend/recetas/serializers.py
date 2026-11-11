@@ -1,11 +1,9 @@
 from rest_framework import serializers
-from .models import Category, Recipe, Ingredient, Step, Favorite, MealPlan, ShoppingListItem
+from .models import Category, Recipe, Ingredient, Step, Favorite, MealPlan, ShoppingListItem, UserUsage
+from .images import InvalidImage, image_from_base64, image_from_url
+from django.conf import settings
 from django.db import transaction
-import base64
-import uuid
-from django.core.files.base import ContentFile
 import re
-import requests
 from decimal import Decimal, InvalidOperation
 from django.contrib.auth.models import User
 from django.db.models import Q
@@ -35,48 +33,30 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         )
         return user
 
-def decode_base64_file(data):
-    if not data:
+def new_cover_image(request, img_b64, img_url):
+    """
+    Procesa la foto nueva (si vino) y la cuenta para el tope diario.
+    Una foto que llega mal tira ValidationError; una URL que no baja devuelve None.
+    """
+    if not img_b64 and not img_url:
         return None
-    # Limitar tamaño de base64 (~5MB de imagen = ~6.7MB en base64)
-    if len(data) > 7 * 1024 * 1024:
-        raise serializers.ValidationError("La imagen es demasiado grande (máximo 5MB).")
-    format, imgstr = data.split(';base64,')
-    ext = format.split('/')[-1]
-    # Solo permitir formatos de imagen
-    allowed_formats = ['jpeg', 'jpg', 'png', 'webp', 'gif']
-    if ext.lower() not in allowed_formats:
-        raise serializers.ValidationError(f"Formato de imagen no permitido: {ext}")
-    return ContentFile(base64.b64decode(imgstr), name=f"{uuid.uuid4()}.{ext}")
+    usage, _ = UserUsage.objects.get_or_create(user=request.user)
+    max_daily = settings.FOGON_MAX_IMAGES_PER_USER_PER_DAY
+    if not usage.can_upload_image(max_daily):
+        raise serializers.ValidationError(
+            {'image': f'Llegaste al máximo de {max_daily} fotos por día. Podés guardar la receta sin foto y agregarla mañana.'}
+        )
+    if img_b64:
+        try:
+            image = image_from_base64(img_b64)
+        except InvalidImage as e:
+            raise serializers.ValidationError({'image': str(e)})
+    else:
+        image = image_from_url(img_url)
+    if image:
+        usage.record_image()
+    return image
 
-def download_image_from_url(url):
-    try:
-        import socket
-        import ipaddress
-        from urllib.parse import urlparse
-        # SSRF protection: solo permitir URLs HTTPS con IPs públicas
-        parsed = urlparse(url)
-        if parsed.scheme not in ('http', 'https'):
-            return None
-        hostname = parsed.hostname
-        if not hostname:
-            return None
-        resolved_ip = socket.gethostbyname(hostname)
-        ip_obj = ipaddress.ip_address(resolved_ip)
-        if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
-            return None
-
-        response = requests.get(url, timeout=10, stream=True)
-        if response.status_code == 200:
-            # Limitar descarga a 5MB
-            content_length = response.headers.get('Content-Length')
-            if content_length and int(content_length) > 5 * 1024 * 1024:
-                return None
-            content = response.content[:5 * 1024 * 1024]
-            return ContentFile(content, name=f"{uuid.uuid4()}.jpg")
-    except Exception:
-        return None
-        
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -207,10 +187,9 @@ class RecipeSerializer(serializers.ModelSerializer):
         img_b64 = validated_data.pop('image_base64', None)
         img_url = validated_data.pop('image_url', None)
 
-        if img_b64:
-            validated_data['image'] = decode_base64_file(img_b64)
-        elif img_url:
-            validated_data['image'] = download_image_from_url(img_url)
+        image = new_cover_image(self.context['request'], img_b64, img_url)
+        if image:
+            validated_data['image'] = image
 
         with transaction.atomic():
             recipe = Recipe.objects.create(**validated_data)
@@ -240,11 +219,10 @@ class RecipeSerializer(serializers.ModelSerializer):
             setattr(instance, field, value)
 
         # 3. Imagen de portada: una nueva gana sobre "quitar"
-        if img_b64:
-            instance.image = decode_base64_file(img_b64)
-        elif img_url:
-            instance.image = download_image_from_url(img_url)
-        elif remove_image:
+        image = new_cover_image(self.context['request'], img_b64, img_url)
+        if image:
+            instance.image = image
+        elif remove_image and not (img_b64 or img_url):
             instance.image = None
         
         instance.save()
