@@ -74,6 +74,11 @@ export const CookingModeModal = ({ visible, recipe, ingredients, servings, onClo
     requestAnimationFrame(() => listRef.current?.scrollToOffset({ offset: 0, animated: false }));
   }, [visible, recipe.uuid]);
 
+  // Al cerrar (por cualquier camino) se cancelan los temporizadores: si no, suenan con la cocina guiada cerrada.
+  useEffect(() => {
+    if (!visible) setTimers({});
+  }, [visible]);
+
   // Pantalla siempre encendida mientras se cocina.
   useEffect(() => {
     if (!visible) return;

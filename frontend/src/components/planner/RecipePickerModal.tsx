@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { View, Modal, TouchableOpacity, FlatList, ActivityIndicator, Pressable } from 'react-native';
 import { Text, TextInput } from '../ui/Typography';
 import { getRecipesService } from '../../services/api';
@@ -24,14 +25,15 @@ export function RecipePickerModal({ visible, onClose, onSelect }: Props) {
     const [loading, setLoading] = useState(false);
     const [loadingMore, setLoadingMore] = useState(false);
     const requestId = useRef(0);
+    const debouncedSearch = useDebouncedValue(search.trim(), 300);
 
     useEffect(() => {
         if (!visible) return;
         const id = ++requestId.current;
-        const timer = setTimeout(async () => {
+        (async () => {
             setLoading(true);
             try {
-                const data = await getRecipesService(null, search.trim() || undefined);
+                const data = await getRecipesService(null, debouncedSearch || undefined);
                 if (id !== requestId.current) return; // llegó tarde, hay una búsqueda más nueva
                 setRecipes(data.results);
                 setNextCursor(data.next);
@@ -40,9 +42,8 @@ export function RecipePickerModal({ visible, onClose, onSelect }: Props) {
             } finally {
                 if (id === requestId.current) setLoading(false);
             }
-        }, search ? 300 : 0);
-        return () => clearTimeout(timer);
-    }, [visible, search]);
+        })();
+    }, [visible, debouncedSearch]);
 
     const loadMore = async () => {
         if (!nextCursor || loadingMore || loading) return;

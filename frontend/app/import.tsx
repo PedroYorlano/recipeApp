@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ActivityIndicator, View } from 'react-native';
 import { useApp } from '../src/context/AppContext';
-import { PENDING_IMPORT_KEY, extractUrl } from '../src/utils/shareImport';
+import { PENDING_IMPORT_KEY, extractUrl, importModeForUrl } from '../src/utils/shareImport';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 /**
@@ -32,7 +32,7 @@ export default function ImportRoute() {
       return;
     }
 
-    setCreateMode('video');
+    setCreateMode(importModeForUrl(sharedUrl));
     setInitialImportUrl(sharedUrl);
     setFormModalVisible(true);
     router.replace('/(tabs)');

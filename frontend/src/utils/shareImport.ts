@@ -1,6 +1,15 @@
 /** Link compartido mientras no había sesión; se retoma después del login. */
 export const PENDING_IMPORT_KEY = 'pendingImportUrl';
 
+// Los mismos que acepta el backend en /api/importar/ (ALLOWED_VIDEO_DOMAINS).
+const VIDEO_DOMAINS = ['youtube.com', 'youtu.be', 'tiktok.com', 'instagram.com', 'facebook.com', 'fb.watch'];
+
+/** Modo del formulario para un link que llega de afuera: video si es de una red de videos, si no una página web. */
+export const importModeForUrl = (url: string): 'video' | 'link-web' => {
+  const host = url.match(/^https?:\/\/(?:[^/?#@]*@)?([^/?#:]+)/i)?.[1].toLowerCase() ?? '';
+  return VIDEO_DOMAINS.some(d => host === d || host.endsWith(`.${d}`)) ? 'video' : 'link-web';
+};
+
 const URL_REGEX = /https?:\/\/[^\s<>"']+/i;
 
 /** Devuelve la primera URL http(s) que aparezca en el valor (string o array de params). */

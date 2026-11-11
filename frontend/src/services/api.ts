@@ -52,26 +52,28 @@ const saveTokens = (access: string, refresh?: string) =>
 
 export const clearTokens = () => AsyncStorage.multiRemove([ACCESS_KEY, REFRESH_KEY]);
 
+/**
+ * Devuelve el access nuevo, o null si la sesión venció de verdad (el backend rechazó el refresh).
+ * Sin red, o con el server caído o limitando (429, 5xx), tira el error y los tokens quedan:
+ * un corte de un minuto no puede desloguear a nadie.
+ */
 const doRefresh = async (): Promise<string | null> => {
     const refresh = await AsyncStorage.getItem(REFRESH_KEY);
     if (!refresh) return null;
-    try {
-        const response = await fetch(`${API_BASE}/token/refresh/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refresh }),
-        });
-        if (!response.ok) {
-            await clearTokens();
-            return null;
-        }
-        const data = await response.json();
-        // ROTATE_REFRESH_TOKENS está activo: si no guardamos el nuevo, la sesión muere a los 7 días del login.
-        await saveTokens(data.access, data.refresh);
-        return data.access;
-    } catch {
+    const response = await fetch(`${API_BASE}/token/refresh/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh }),
+    });
+    if (response.status === 400 || response.status === 401) {
+        await clearTokens();
         return null;
     }
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.access) throw new ApiError(response.status, data, messageFromBody(data));
+    // ROTATE_REFRESH_TOKENS está activo: si no guardamos el nuevo, la sesión muere a los 7 días del login.
+    await saveTokens(data.access, data.refresh);
+    return data.access;
 };
 
 // Un solo refresh a la vez: si varias requests reciben 401 juntas, todas esperan el mismo.
@@ -137,8 +139,9 @@ export const loginService = async (username: string, password: string) => {
 export const registerService = (username: string, email: string, password: string) =>
     request<{ message: string; email: string }>('/register/', { method: 'POST', body: { username, email, password }, auth: false });
 
-export const verifyRegisterOTPService = async (email: string, otpCode: string) => {
-    const data = await request<Tokens>('/register/verify/', { method: 'POST', body: { email, otp_code: otpCode }, auth: false });
+/** La contraseña es la misma del registro: el backend la pide para saber que quien verifica es quien se registró. */
+export const verifyRegisterOTPService = async (email: string, otpCode: string, password: string) => {
+    const data = await request<Tokens>('/register/verify/', { method: 'POST', body: { email, otp_code: otpCode, password }, auth: false });
     await saveTokens(data.access, data.refresh);
     return data;
 };

@@ -41,7 +41,7 @@ interface AppContextType {
     importRecipeAIWeb: (url: string) => Promise<Recipe>;
     login: (u: string, p: string) => Promise<void>;
     register: (u: string, e: string, p: string) => Promise<unknown>;
-    verifyRegisterOTP: (email: string, otpCode: string) => Promise<void>;
+    verifyRegisterOTP: (email: string, otpCode: string, password: string) => Promise<void>;
     logout: () => Promise<void>;
 
     createMode: CreateMode | null;
@@ -89,6 +89,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     // anterior que tardó más) se descartan en vez de pisar la lista.
     const requestIdRef = useRef(0);
     const loadingMoreRef = useRef(false);
+    const firstPageLoadingRef = useRef(false);
 
     const logout = useCallback(async () => {
         await clearTokens().catch(() => {});
@@ -141,6 +142,7 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     // Primera página con los filtros actuales (resetea la lista).
     const fetchRecipes = useCallback(async () => {
         const requestId = ++requestIdRef.current;
+        firstPageLoadingRef.current = true;
         setLoading(true);
         try {
             const data = await getRecipesService(selectedCategory, debouncedSearch || undefined, showFavorites || undefined);
@@ -151,7 +153,10 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
             if (requestId !== requestIdRef.current || handleAuthFailure(e)) return;
             notify('Error', 'No pudimos cargar tus recetas.');
         } finally {
-            if (requestId === requestIdRef.current) setLoading(false);
+            if (requestId === requestIdRef.current) {
+                firstPageLoadingRef.current = false;
+                setLoading(false);
+            }
         }
     }, [selectedCategory, debouncedSearch, showFavorites, handleAuthFailure]);
 
@@ -161,7 +166,8 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
 
     // Siguiente página (infinite scroll). onEndReached se dispara varias veces seguidas: el ref lo frena.
     const fetchMoreRecipes = useCallback(async () => {
-        if (!nextCursor || loadingMoreRef.current) return;
+        // Mientras carga la primera página de un filtro nuevo, el cursor todavía es el del filtro anterior.
+        if (!nextCursor || loadingMoreRef.current || firstPageLoadingRef.current) return;
         const requestId = requestIdRef.current;
         loadingMoreRef.current = true;
         setLoadingMore(true);
@@ -186,8 +192,8 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
 
     const register = useCallback((u: string, e: string, p: string) => registerService(u, e, p), []);
 
-    const verifyRegisterOTP = useCallback(async (email: string, otpCode: string) => {
-        await verifyRegisterOTPService(email, otpCode);
+    const verifyRegisterOTP = useCallback(async (email: string, otpCode: string, password: string) => {
+        await verifyRegisterOTPService(email, otpCode, password);
         setUser(await getCurrentUserService());
         setIsAuthenticated(true);
     }, []);

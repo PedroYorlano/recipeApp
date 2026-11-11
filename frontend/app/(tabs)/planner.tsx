@@ -13,6 +13,7 @@ import { usePlanner, DraftSlot } from '../../src/context/PlannerContext';
 import { MealPlan, Recipe, ShoppingListItem } from '../../src/types';
 import { RecipePickerModal } from '../../src/components/planner/RecipePickerModal';
 import { IdeasChat } from '../../src/components/planner/IdeasChat';
+import { MEALS } from '../../src/components/planner/AddToWeekSheet';
 import { notify, confirmAction } from '../../src/utils/dialogs';
 import { addDays, getTodayISO, parseISODate } from '../../src/utils/dates';
 import { ICONS, ILLUSTRATIONS } from '../../src/constants/brand';
@@ -23,12 +24,6 @@ if (Platform.OS === 'android') {
 }
 
 // --- Constantes ---
-
-const MEAL_TYPES = [
-    { key: 'breakfast' as const, label: 'Desayuno', icon: ICONS.desayuno },
-    { key: 'lunch' as const, label: 'Almuerzo', icon: ICONS.almuerzo },
-    { key: 'dinner' as const, label: 'Cena', icon: ICONS.cena },
-];
 
 const DAY_NAMES = ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'];
 const DAY_LONG = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
@@ -247,7 +242,7 @@ function WeekView({ onSwitchTab }: { onSwitchTab: (tab: TabView) => void }) {
                     <View className="py-10 items-center"><ActivityIndicator size="large" color="#BE9F00" /></View>
                 ) : (
                     <View className="gap-2.5">
-                        {MEAL_TYPES.map(meal => {
+                        {MEALS.map(meal => {
                             const plan = getMergedPlanForSlot(selectedDate, meal.key);
                             return (
                                 <MealSlotCard
@@ -313,7 +308,7 @@ const WeekArrow = ({ dir, disabled, onPress }: { dir: 'left' | 'right'; disabled
 // --- Tarjeta de comida ---
 
 interface MealSlotProps {
-    meal: typeof MEAL_TYPES[number];
+    meal: typeof MEALS[number];
     plan: MealPlan | DraftSlot | undefined;
     isPast?: boolean;
     onAdd: () => void;
@@ -430,13 +425,17 @@ function ShoppingView() {
         catch { notify('Error', 'No pudimos armar la lista.'); }
     };
 
+    // El alta puede tardar (el backend le pregunta la góndola a la IA): un segundo toque no lo duplica.
+    const addingRef = React.useRef(false);
     const handleAdd = async () => {
         const name = newItemName.trim();
-        if (!name) return;
+        if (!name || addingRef.current) return;
+        addingRef.current = true;
         try {
             await addShoppingItem(name, '');
             setNewItemName('');
         } catch { notify('Error', 'No pudimos agregar el ítem.'); }
+        finally { addingRef.current = false; }
     };
 
     const collapseAndSave = async () => {

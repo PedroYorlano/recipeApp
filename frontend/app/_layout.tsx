@@ -10,7 +10,7 @@ import { RecipeFormModal } from '../src/components/recipes/RecipeFormModal';
 import * as Linking from 'expo-linking';
 import Head from 'expo-router/head';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { PENDING_IMPORT_KEY } from '../src/utils/shareImport';
+import { PENDING_IMPORT_KEY, importModeForUrl } from '../src/utils/shareImport';
 import { useFonts } from 'expo-font';
 import { Ranchers_400Regular } from '@expo-google-fonts/ranchers';
 import {
@@ -46,7 +46,7 @@ const MainLayout = () => {
       if (parsed.hostname === 'import' && parsed.queryParams?.url) {
         // Linking.parse ya decodifica los params: decodificar de nuevo rompe links con "%".
         const importUrl = String(parsed.queryParams.url);
-        setCreateMode('video');
+        setCreateMode(importModeForUrl(importUrl));
         setInitialImportUrl(importUrl);
         setFormModalVisible(true);
       }
@@ -70,7 +70,7 @@ const MainLayout = () => {
       .then(async (pendingUrl) => {
         if (!pendingUrl) return;
         await AsyncStorage.removeItem(PENDING_IMPORT_KEY);
-        setCreateMode('video');
+        setCreateMode(importModeForUrl(pendingUrl));
         setInitialImportUrl(pendingUrl);
         setFormModalVisible(true);
       })

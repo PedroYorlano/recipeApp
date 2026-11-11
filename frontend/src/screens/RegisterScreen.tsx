@@ -68,7 +68,7 @@ export const RegisterScreen = () => {
 
         setLoading(true);
         try {
-            await verifyRegisterOTP(email.trim(), otpCode);
+            await verifyRegisterOTP(email.trim(), otpCode, password);
             notify("¡Listo!", "Te damos la bienvenida a Pizca.");
         } catch (error) {
             notify("Error de verificación", getErrorMessage(error, "El código ingresado es incorrecto o expiró."));
