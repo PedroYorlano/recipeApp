@@ -181,6 +181,10 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
     ],
+    # Proxies de confianza delante de la app. Los throttles por IP (anónimos y 'auth') leen
+    # X-Forwarded-For solo si hay proxies; con 0 usan la IP de la conexión, que no se puede falsear.
+    # En producción detrás de un proxy va 1: con 0 todos los usuarios compartirían la IP del proxy.
+    'NUM_PROXIES': config('NUM_PROXIES', default=0, cast=int),
     'DEFAULT_THROTTLE_RATES': {
         'anon': '20/minute',      # Anónimos: 20 requests/min (login, register)
         'user': '60/minute',      # CRUD general: 60 requests/min por usuario
@@ -205,6 +209,9 @@ SIMPLE_JWT = {
 PIZCA_MAX_IMPORTS_PER_USER_PER_DAY = 10   # Importaciones por usuario por día
 PIZCA_MAX_GEMINI_REQUESTS_PER_DAY = 490    # Requests a Gemini globales por día (de 500 RPD disponibles)
 PIZCA_MAX_IMAGES_PER_USER_PER_DAY = 50    # Fotos de portada por usuario por día (solo frena abusos)
+# Góndolas de la lista de compras: cada ingrediente que no está en el caché es una llamada a Gemini.
+PIZCA_MAX_AISLE_CALLS_PER_USER_PER_DAY = 30  # Por usuario por día; pasado el tope va a "Otros"
+PIZCA_GEMINI_REQUESTS_RESERVED = 100         # Del cupo global, lo que las góndolas no pueden gastar
 
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=DEBUG, cast=bool)
 if not CORS_ALLOW_ALL_ORIGINS:

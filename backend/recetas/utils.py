@@ -43,7 +43,7 @@ def download_audio_from_url(video_url):
         'no_warnings': True,
         'noplaylist': True,
         'max_filesize': MAX_DOWNLOAD_BYTES,
-        'match_filter': yt_dlp.utils.match_filter_func(f'duration <= {MAX_VIDEO_SECONDS}'),
+        'match_filter': yt_dlp.utils.match_filter_func(f'duration <=? {MAX_VIDEO_SECONDS}'),
     }
 
     try:

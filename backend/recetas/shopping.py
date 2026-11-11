@@ -13,7 +13,7 @@ from decimal import Decimal
 
 from django.conf import settings
 
-from .models import AISLES, OTHER_AISLE, GlobalUsage, IngredientAisle, UserIngredientAisle
+from .models import AISLES, OTHER_AISLE, GlobalUsage, IngredientAisle, UserIngredientAisle, UserUsage
 from .serializers import split_quantity_unit
 from .utils import classify_ingredients
 
@@ -63,19 +63,35 @@ def remember_user_choice(user, name: str, aisle: str) -> None:
         UserIngredientAisle.objects.update_or_create(user=user, name=key, defaults={'aisle': aisle})
 
 
-def _ask_ai(names: list[str]) -> dict[str, str]:
+def _ask_ai(user, names: list[str]) -> dict[str, str]:
     """Clasifica con Gemini (una llamada). Devuelve {clave normalizada: góndola} y lo guarda en el caché."""
+    # Dos frenos, porque los nombres los escribe el usuario y cada uno nuevo es una llamada:
+    # un tope por persona y una parte del cupo global que queda para importar recetas e Ideas.
+    user_usage, _ = UserUsage.objects.get_or_create(user=user)
+    if not user_usage.can_classify(settings.PIZCA_MAX_AISLE_CALLS_PER_USER_PER_DAY):
+        logger.warning('%s llegó al tope diario de clasificaciones de góndola', user.username)
+        return {}
     usage = GlobalUsage.get_today()
-    if not usage.can_request(settings.PIZCA_MAX_GEMINI_REQUESTS_PER_DAY):
+    if not usage.can_request(settings.PIZCA_MAX_GEMINI_REQUESTS_PER_DAY - settings.PIZCA_GEMINI_REQUESTS_RESERVED):
         logger.warning('Sin cupo diario de Gemini: %s ingredientes quedan en "%s"', len(names), OTHER_AISLE)
         return {}
+    names = names[:MAX_NAMES_PER_CALL]
+    # Se cuenta aunque falle: un pedido que hace fallar a Gemini no puede salir gratis.
+    user_usage.record_classification()
     try:
-        answer = classify_ingredients(names[:MAX_NAMES_PER_CALL], AISLES)
+        answer = classify_ingredients(names, AISLES)
     except Exception:
         logger.exception('Gemini no pudo clasificar los ingredientes')
         return {}
     usage.record_request()
-    result = {normalize_name(n): a for n, a in answer.items() if isinstance(n, str) and a in AISLES}
+    # Solo lo que se preguntó: el caché es de todos, y un nombre con instrucciones adentro
+    # podría hacer que la IA devuelva góndolas para ingredientes que nadie pidió.
+    asked = {normalize_name(n) for n in names}
+    result = {}
+    for name, aisle in answer.items():
+        key = normalize_name(name) if isinstance(name, str) else ''
+        if key in asked and aisle in AISLES:
+            result[key] = aisle
     remember_aisles(result.items())
     return result
 
@@ -95,7 +111,7 @@ def resolve_aisles(user, names, use_ai: bool = True) -> dict[str, str]:
         for name, key in keys.items():
             if key in missing:
                 originals.setdefault(key, name.strip())
-        found.update(_ask_ai(list(originals.values())))
+        found.update(_ask_ai(user, list(originals.values())))
 
     return {name: found.get(key, OTHER_AISLE) for name, key in keys.items()}
 

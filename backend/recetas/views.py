@@ -5,11 +5,11 @@ import secrets
 import shutil
 import tempfile
 from datetime import date, timedelta
-from urllib.parse import urlparse
+from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
 from django.conf import settings
-from django.contrib.auth.hashers import make_password
+from django.contrib.auth.hashers import check_password, make_password
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -306,6 +306,7 @@ class RegisterVerifyView(AuthView):
     def post(self, request):
         email = clean_email(request.data.get('email'))
         otp_code = str(request.data.get('otp_code', '')).strip()
+        password = str(request.data.get('password', ''))
         if not email or not otp_code:
             return error('Faltan el mail o el código.')
 
@@ -315,6 +316,10 @@ class RegisterVerifyView(AuthView):
         otp_error = check_otp(pending, otp_code)
         if otp_error:
             return error(otp_error)
+        # El código le llega al dueño del mail, pero el registro lo pudo haber pisado otra persona
+        # con su propia contraseña. Solo quien la eligió puede terminar de crear la cuenta.
+        if not check_password(password, pending.password):
+            return error('Este registro no coincide con el que empezaste. Volvé a registrarte.')
 
         try:
             with transaction.atomic():
@@ -520,7 +525,9 @@ def import_recipe_view(request):
         workdir, audio_path, description, thumbnail = download_audio_from_url(url)
         try:
             if not audio_path:
-                raise AIInputError('No pudimos bajar el video. Revisá que sea público.')
+                raise AIInputError(
+                    'No pudimos bajar el video. Revisá que sea público y que no dure más de 20 minutos.'
+                )
             return extract_recipe_from_audio(audio_path, description, thumbnail)
         finally:
             shutil.rmtree(workdir, ignore_errors=True)
@@ -593,7 +600,10 @@ def import_recipe_from_web_view(request):
             strict_mode=True,
         )
         if recipe and og_image and og_image.get('content'):
-            recipe['image_url'] = og_image['content']
+            # Muchos sitios la ponen relativa ("/img/a.jpg") o sin protocolo ("//cdn.../a.jpg").
+            image_url = urljoin(url, str(og_image['content']).strip())
+            if urlparse(image_url).scheme in ('http', 'https') and len(image_url) <= 2000:
+                recipe['image_url'] = image_url
         return recipe
 
     return run_ai_import(

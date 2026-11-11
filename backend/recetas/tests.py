@@ -112,19 +112,19 @@ PRIVATE = [(2, 1, 6, '', ('169.254.169.254', 0))]
 
 class ImageFromUrlTests(TestCase):
     @mock.patch('recetas.net.socket.getaddrinfo', return_value=PUBLIC)
-    @mock.patch('recetas.net.requests.get')
+    @mock.patch('recetas.net._open')
     def test_baja_y_procesa(self, get, _):
         get.return_value = FakeResponse(body=make_image())
         self.assertTrue(image_from_url('https://cdn.example.com/a.jpg').name.endswith('.webp'))
 
     @mock.patch('recetas.net.socket.getaddrinfo', return_value=PRIVATE)
-    @mock.patch('recetas.net.requests.get')
+    @mock.patch('recetas.net._open')
     def test_no_entra_a_ips_internas(self, get, _):
         self.assertIsNone(image_from_url('https://metadata.internal/latest'))
         get.assert_not_called()
 
     @mock.patch('recetas.net.socket.getaddrinfo')
-    @mock.patch('recetas.net.requests.get')
+    @mock.patch('recetas.net._open')
     def test_redireccion_a_ip_interna(self, get, addrinfo):
         addrinfo.side_effect = lambda host, *_: PUBLIC if host == 'cdn.example.com' else PRIVATE
         get.return_value = FakeResponse(302, {'Location': 'http://169.254.169.254/latest/meta-data'})
@@ -132,7 +132,7 @@ class ImageFromUrlTests(TestCase):
         self.assertEqual(get.call_count, 1)
 
     @mock.patch('recetas.net.socket.getaddrinfo', return_value=PUBLIC)
-    @mock.patch('recetas.net.requests.get')
+    @mock.patch('recetas.net._open')
     def test_corta_descargas_gigantes_sin_content_length(self, get, _):
         get.return_value = FakeResponse(body=b'x' * (6 * 1024 * 1024))
         self.assertIsNone(image_from_url('https://cdn.example.com/a.jpg'))
@@ -222,7 +222,7 @@ class NotFoundTests(TestCase):
 
 class FetchPublicTests(TestCase):
     @mock.patch('recetas.net.socket.getaddrinfo', return_value=PUBLIC)
-    @mock.patch('recetas.net.requests.get')
+    @mock.patch('recetas.net._open')
     def test_import_web_no_sigue_redirecciones_a_ip_interna(self, get, addrinfo):
         addrinfo.side_effect = lambda host, *_: PUBLIC if host == 'blog.example.com' else PRIVATE
         get.return_value = FakeResponse(302, {'Location': 'https://169.254.169.254/latest/meta-data'})
@@ -233,6 +233,16 @@ class FetchPublicTests(TestCase):
     def test_solo_https_si_se_pide(self):
         with self.assertRaises(FetchError):
             fetch_public('http://blog.example.com/receta', 1024, schemes=('https',))
+
+    @mock.patch('recetas.net.socket.getaddrinfo', return_value=PUBLIC)
+    @mock.patch('recetas.net.requests.Session')
+    def test_conecta_a_la_ip_revisada_sin_volver_a_resolver(self, session_cls, addrinfo):
+        session = session_cls.return_value.__enter__.return_value
+        session.get.return_value = FakeResponse(body=b'hola')
+        self.assertEqual(fetch_public('https://blog.example.com:8443/receta?a=1', 1024), b'hola')
+        self.assertEqual(session.get.call_args.args[0], 'https://93.184.216.34:8443/receta?a=1')
+        self.assertEqual(session.get.call_args.kwargs['headers']['Host'], 'blog.example.com:8443')
+        self.assertEqual(addrinfo.call_count, 1)
 
 
 class RecipeListTests(TestCase):
@@ -267,6 +277,17 @@ class RecipeListTests(TestCase):
         self.assertEqual([x['title'] for x in r.data['results']], ['Favorita'])
         self.assertTrue(r.data['results'][0]['is_favorite'])
         self.assertEqual(r.data['results'][0]['favorite_count'], 1)
+
+    def test_crear_ignora_el_id_de_paso_que_manda_el_cliente(self):
+        ajeno = Step.objects.create(recipe=self.make_recipe('Ajena'), order=1, instruction='x')
+        r = self.client.post('/api/recetas/', {
+            'title': 'Nueva', 'ingredients': [],
+            'steps': [{'id': ajeno.pk, 'order': 1, 'instruction': 'a'}, {'id': 999999, 'order': 2, 'instruction': 'b'}],
+        }, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        ids = [s['id'] for s in r.data['steps']]
+        self.assertNotIn(ajeno.pk, ids)
+        self.assertNotIn(999999, ids)
 
     def test_editar_pasos_conserva_ids_y_borra_los_quitados(self):
         recipe = self.make_recipe('Tarta')
@@ -303,6 +324,20 @@ class ShoppingConsolidationTests(TestCase):
             r = client.post('/api/planner/generate_shopping_list/', {'week_start': monday.isoformat()}, format='json')
         self.assertEqual([(i['ingredient_name'], i['quantity']) for i in r.data], [('Harina', '500 g')])
 
+    def test_plan_con_receta_borrada_no_bloquea_el_lugar(self):
+        user = User.objects.create_user('flor', 'flor@example.com', 'contraseña-segura')
+        client = APIClient()
+        client.force_authenticate(user)
+        day = timezone.localdate()
+        MealPlan.objects.create(user=user, date=day, meal_type='dinner', recipe=None)
+        recipe = Recipe.objects.create(user=user, title='Tarta')
+        r = client.post('/api/planner/', {'date': day.isoformat(), 'meal_type': 'dinner', 'recipe': str(recipe.uuid)}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertEqual(MealPlan.objects.get(user=user).recipe, recipe)
+        # Con receta sí está ocupado.
+        r = client.post('/api/planner/', {'date': day.isoformat(), 'meal_type': 'dinner', 'recipe': str(recipe.uuid)}, format='json')
+        self.assertEqual(r.status_code, 400)
+
     def test_semana_invalida_es_400(self):
         user = User.objects.create_user('fede', 'fede@example.com', 'contraseña-segura')
         client = APIClient()
@@ -323,16 +358,26 @@ class OtpTests(TestCase):
     def test_registro_completo(self):
         pending = self.register()
         self.assertIn(pending.otp_code, mail.outbox[0].body)
-        r = self.client.post('/api/register/verify/', {'email': 'gabi@example.com', 'otp_code': pending.otp_code}, format='json')
+        r = self.client.post('/api/register/verify/', {'email': 'gabi@example.com', 'otp_code': pending.otp_code, 'password': 'una-clave-larga-9'}, format='json')
         self.assertEqual(r.status_code, 201, r.content)
         self.assertTrue(User.objects.get(username='gabi').check_password('una-clave-larga-9'))
+
+    def test_registro_pisado_por_otro_no_se_puede_verificar(self):
+        self.register()
+        # Otra persona repite el registro con el mismo mail y su propia contraseña.
+        self.client.post('/api/register/', {'username': 'intruso', 'email': 'gabi@example.com', 'password': 'clave-del-intruso-4'}, format='json')
+        pending = PendingRegistration.objects.get(email='gabi@example.com')
+        # A Gabi le llega el código nuevo y lo carga con la contraseña que eligió.
+        r = self.client.post('/api/register/verify/', {'email': 'gabi@example.com', 'otp_code': pending.otp_code, 'password': 'una-clave-larga-9'}, format='json')
+        self.assertEqual(r.status_code, 400)
+        self.assertFalse(User.objects.exists())
 
     def test_se_bloquea_despues_de_cinco_intentos(self):
         pending = self.register()
         wrong = '000000' if pending.otp_code != '000000' else '111111'
         for _ in range(5):
             self.client.post('/api/register/verify/', {'email': 'gabi@example.com', 'otp_code': wrong}, format='json')
-        r = self.client.post('/api/register/verify/', {'email': 'gabi@example.com', 'otp_code': pending.otp_code}, format='json')
+        r = self.client.post('/api/register/verify/', {'email': 'gabi@example.com', 'otp_code': pending.otp_code, 'password': 'una-clave-larga-9'}, format='json')
         self.assertEqual(r.status_code, 400)
         self.assertIn('límite de intentos', r.data['error'])
         self.assertFalse(User.objects.filter(username='gabi').exists())
@@ -442,6 +487,28 @@ class AisleTests(TestCase):
         IngredientAisle.objects.create(name='yerba', aisle='Almacén')
         r = self.client.post('/api/shopping/', {'week_start': self.monday.isoformat(), 'ingredient_name': 'Yerba'}, format='json')
         self.assertEqual(r.data['category'], 'Almacén')
+        classify.assert_not_called()
+
+    def test_la_ia_no_puede_cachear_ingredientes_que_nadie_pidio(self, classify):
+        classify.return_value = {'Rúcula': 'Verduras y frutas', 'Leche': 'Limpieza', 'harina': 'Bebidas'}
+        self.plan('Rúcula')
+        self.generate()
+        self.assertEqual(dict(IngredientAisle.objects.values_list('name', 'aisle')), {'rucula': 'Verduras y frutas'})
+
+    @override_settings(PIZCA_MAX_AISLE_CALLS_PER_USER_PER_DAY=2)
+    def test_tope_diario_de_clasificaciones_por_usuario(self, classify):
+        classify.return_value = {}
+        for name in ('uno', 'dos', 'tres', 'cuatro'):
+            r = self.client.post('/api/shopping/', {'week_start': self.monday.isoformat(), 'ingredient_name': name}, format='json')
+            self.assertEqual(r.status_code, 201, r.content)
+            self.assertEqual(r.data['category'], 'Otros')
+        self.assertEqual(classify.call_count, 2)
+
+    @override_settings(PIZCA_MAX_GEMINI_REQUESTS_PER_DAY=10, PIZCA_GEMINI_REQUESTS_RESERVED=4)
+    def test_las_gondolas_no_gastan_la_reserva_del_cupo_global(self, classify):
+        GlobalUsage.objects.create(date=timezone.localdate(), gemini_requests=6)
+        self.plan('Rúcula')
+        self.generate()
         classify.assert_not_called()
 
     def test_importar_guarda_las_gondolas_y_las_saca_de_la_receta(self, classify):

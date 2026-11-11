@@ -185,7 +185,10 @@ class RecipeSerializer(serializers.ModelSerializer):
             recipe = Recipe.objects.create(**validated_data)
             recipe.categories.set(categories_data)
             self._create_ingredients(recipe, ingredients_data)
-            Step.objects.bulk_create(Step(recipe=recipe, **step) for step in steps_data)
+            # El id de un paso nunca lo elige el cliente (al editar sirve para reconocer los que ya existen).
+            Step.objects.bulk_create(
+                Step(recipe=recipe, **{k: v for k, v in step.items() if k != 'id'}) for step in steps_data
+            )
         return recipe
 
     def update(self, instance, validated_data):
@@ -275,11 +278,32 @@ class MealPlanSerializer(serializers.ModelSerializer):
         date_val = data.get('date', getattr(self.instance, 'date', None))
         meal_type_val = data.get('meal_type', getattr(self.instance, 'meal_type', None))
         if date_val and meal_type_val:
+            # Un plan cuya receta se borró no ocupa el lugar (ver _clear_orphans).
             if MealPlan.objects.filter(
-                user=user, date=date_val, meal_type=meal_type_val
+                user=user, date=date_val, meal_type=meal_type_val, recipe__isnull=False
             ).exclude(pk=self.instance.pk if self.instance else None).exists():
                 raise serializers.ValidationError("Ya tenés una receta en ese slot.")
         return data
+
+    @staticmethod
+    def _clear_orphans(user, date, meal_type, keep=None):
+        """Borra el plan sin receta que quedó en ese lugar: la semana no lo muestra y choca con el único por slot."""
+        MealPlan.objects.filter(
+            user=user, date=date, meal_type=meal_type, recipe__isnull=True,
+        ).exclude(pk=keep).delete()
+
+    def create(self, validated_data):
+        with transaction.atomic():
+            self._clear_orphans(validated_data['user'], validated_data['date'], validated_data['meal_type'])
+            return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        with transaction.atomic():
+            self._clear_orphans(
+                instance.user, validated_data.get('date', instance.date),
+                validated_data.get('meal_type', instance.meal_type), keep=instance.pk,
+            )
+            return super().update(instance, validated_data)
 
 class ShoppingListItemSerializer(serializers.ModelSerializer):
     class Meta:

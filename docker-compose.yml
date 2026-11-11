@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: pizca
       POSTGRES_PASSWORD: pizca
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pizca_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
@@ -40,4 +40,6 @@ services:
         condition: service_healthy
 
 volumes:
-  postgres_data:
+  # Volumen nuevo a propósito: el anterior (postgres_data) se creó con el usuario y la base
+  # "fogon", y Postgres no los renombra al cambiar las variables de entorno.
+  pizca_data:

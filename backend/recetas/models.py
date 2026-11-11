@@ -1,3 +1,4 @@
+import logging
 import uuid
 from datetime import timedelta
 
@@ -7,6 +8,8 @@ from django.db.models import F
 from django.db.models.signals import post_delete, pre_save
 from django.dispatch import receiver
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 OTP_TTL = timedelta(minutes=10)
 MAX_OTP_ATTEMPTS = 5
@@ -102,12 +105,14 @@ class UserUsage(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='usage')
     import_count = models.PositiveIntegerField(default=0)
     image_count = models.PositiveIntegerField(default=0)  # fotos de portada subidas hoy
+    aisle_count = models.PositiveIntegerField(default=0)  # llamadas a la IA para ubicar ingredientes en góndolas hoy
     last_reset = models.DateField(auto_now_add=True)
 
     def reset_if_new_day(self):
         if self.last_reset < timezone.localdate():
             self.import_count = 0
             self.image_count = 0
+            self.aisle_count = 0
             self.last_reset = timezone.localdate()
             self.save()
 
@@ -126,6 +131,13 @@ class UserUsage(models.Model):
 
     def record_image(self):
         UserUsage.objects.filter(pk=self.pk).update(image_count=F('image_count') + 1)
+
+    def can_classify(self, max_daily):
+        self.reset_if_new_day()
+        return self.aisle_count < max_daily
+
+    def record_classification(self):
+        UserUsage.objects.filter(pk=self.pk).update(aisle_count=F('aisle_count') + 1)
 
     def __str__(self):
         return f"{self.user.username}: {self.import_count} imports ({self.last_reset})"
@@ -218,9 +230,18 @@ class UserIngredientAisle(models.Model):
 
 def _delete_image_after_commit(name):
     """Borra la foto del bucket recién cuando la base confirmó el cambio: si el save falla, la foto sigue."""
-    if name:
-        storage = Recipe._meta.get_field('image').storage
-        transaction.on_commit(lambda: storage.delete(name))
+    if not name:
+        return
+    storage = Recipe._meta.get_field('image').storage
+
+    def delete():
+        # El cambio ya está guardado: si el bucket falla queda una foto huérfana, no un 500.
+        try:
+            storage.delete(name)
+        except Exception:
+            logger.exception('No se pudo borrar la imagen %s', name)
+
+    transaction.on_commit(delete)
 
 
 @receiver(pre_save, sender=Recipe)
