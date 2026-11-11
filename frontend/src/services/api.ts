@@ -1,6 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE } from '../constants';
-import { Category, Recipe, MealPlan, ShoppingListItem, FogoncitoResponse } from '../types';
+import { Category, Recipe, MealPlan, ShoppingListItem, IdeasResponse } from '../types';
 
 // --- Token Refresh con mutex ---
 // Evita múltiples refresh simultáneos cuando varias requests reciben 401 al mismo tiempo
@@ -505,17 +505,17 @@ export const deleteShoppingItem = async (id: number): Promise<void> => {
     if (!response.ok) throw new Error('Error al eliminar ítem');
 };
 
-// --- FOGONCITO SERVICE ---
+// --- IDEAS (chat IA) ---
 
-export const sendFogoncitoMessage = async (message: string): Promise<FogoncitoResponse> => {
-    const response = await authenticatedFetch(`${API_BASE}/fogoncito/`, {
+export const sendIdeasMessage = async (message: string): Promise<IdeasResponse> => {
+    const response = await authenticatedFetch(`${API_BASE}/ideas/`, {
         method: 'POST',
         headers: buildHeaders(),
         body: JSON.stringify({ message }),
     });
     if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Fogoncito no está disponible en este momento');
+        throw new Error(errorData.error || 'Ideas no está disponible en este momento');
     }
     return await response.json();
 };

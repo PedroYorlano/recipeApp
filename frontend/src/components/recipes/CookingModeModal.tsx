@@ -9,7 +9,7 @@ import { Button } from '../ui/Button';
 import { ICONS, ILLUSTRATIONS } from '../../constants/brand';
 import { Recipe } from '../../types';
 import { detectTimers, formatClock, StepTimer } from '../../utils/cooking';
-import { confirmAction, notify } from '../../utils/dialogs';
+import { confirmAction, notify, closeDialogOr } from '../../utils/dialogs';
 import { DialogHost } from '../ui/DialogHost';
 
 export interface CookingIngredient {
@@ -311,7 +311,7 @@ export const CookingModeModal = ({ visible, recipe, ingredients, servings, onClo
   };
 
   return (
-    <Modal visible={visible} animationType="slide" onRequestClose={handleClose}>
+    <Modal visible={visible} animationType="slide" onRequestClose={closeDialogOr(handleClose)}>
       <View className="flex-1 bg-pizca-fondo gap-3.5" style={{ paddingTop: Math.max(insets.top, 16) + 8, paddingBottom: Math.max(insets.bottom, 16) + 12 }}>
         {/* Encabezado */}
         <View className="px-4 gap-3.5 w-full max-w-2xl self-center">

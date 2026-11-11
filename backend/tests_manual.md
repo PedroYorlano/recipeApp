@@ -1,4 +1,4 @@
-# Fogón — Tests Manuales Documentados
+# Pizca — Tests Manuales Documentados
 
 > Tests reutilizables con `curl`. Asegurate de tener el servidor corriendo en `localhost:8000`.  
 > Reemplazá `<TOKEN>` con un JWT válido obtenido del endpoint de login.

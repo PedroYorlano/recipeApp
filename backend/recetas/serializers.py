@@ -41,7 +41,7 @@ def new_cover_image(request, img_b64, img_url):
     if not img_b64 and not img_url:
         return None
     usage, _ = UserUsage.objects.get_or_create(user=request.user)
-    max_daily = settings.FOGON_MAX_IMAGES_PER_USER_PER_DAY
+    max_daily = settings.PIZCA_MAX_IMAGES_PER_USER_PER_DAY
     if not usage.can_upload_image(max_daily):
         raise serializers.ValidationError(
             {'image': f'Llegaste al máximo de {max_daily} fotos por día. Podés guardar la receta sin foto y agregarla mañana.'}
@@ -315,4 +315,5 @@ class MealPlanSerializer(serializers.ModelSerializer):
 class ShoppingListItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShoppingListItem
-        fields = ['id', 'week_start', 'ingredient_name', 'quantity', 'category', 'is_checked']
+        fields = ['id', 'week_start', 'ingredient_name', 'quantity', 'category', 'is_checked', 'is_manual']
+        read_only_fields = ['is_manual']

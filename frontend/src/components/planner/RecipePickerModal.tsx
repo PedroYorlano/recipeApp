@@ -8,6 +8,7 @@ import { Search, X } from 'lucide-react-native';
 import { RecipeCover } from '../brand/RecipeCover';
 import { recipeMeta } from '../recipes/RecipeCard';
 import { DialogHost } from '../ui/DialogHost';
+import { closeDialogOr } from '../../utils/dialogs';
 
 interface Props {
     visible: boolean;
@@ -74,7 +75,7 @@ export function RecipePickerModal({ visible, onClose, onSelect }: Props) {
             visible={visible}
             animationType="slide"
             presentationStyle="pageSheet"
-            onRequestClose={handleClose}
+            onRequestClose={closeDialogOr(handleClose)}
         >
             <View className="flex-1 bg-pizca-fondo">
                 <View className="flex-row items-center justify-between px-5 pt-5 pb-3">

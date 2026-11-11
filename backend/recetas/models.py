@@ -158,6 +158,8 @@ class ShoppingListItem(models.Model):
     quantity = models.CharField(max_length=50, blank=True, null=True)
     category = models.CharField(max_length=50, blank=True, default='')
     is_checked = models.BooleanField(default=False)
+    # Lo agregó el usuario a mano: sobrevive a regenerar la lista desde el plan.
+    is_manual = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['user', 'week_start', 'ingredient_name']

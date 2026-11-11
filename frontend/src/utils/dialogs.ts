@@ -59,6 +59,17 @@ export const dialogStore = {
     },
 };
 
+/**
+ * Para el `onRequestClose` de los Modal. En Android el botón atrás va al Modal y no al
+ * BackHandler, así que sin esto cerraba el Modal con el diálogo abierto encima.
+ * Si hay un diálogo abierto lo cancela; si no, cierra el Modal.
+ */
+export const closeDialogOr = (onClose: () => void) => () => {
+    const open = snapshot.current;
+    if (open) dialogStore.resolve(open.id, false);
+    else onClose();
+};
+
 const push = (req: Omit<DialogRequest, 'id'>) => {
     queue = [...queue, { ...req, id: nextId++ }];
     emit();

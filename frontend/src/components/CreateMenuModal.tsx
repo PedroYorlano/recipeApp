@@ -5,6 +5,7 @@ import { X, ChevronRight, Lightbulb } from 'lucide-react-native';
 import { Text } from './ui/Typography';
 import { ICONS } from '../constants/brand';
 import { DialogHost } from './ui/DialogHost';
+import { closeDialogOr } from '../utils/dialogs';
 
 type Option = 'manual' | 'video' | 'audio' | 'text' | 'link-web';
 
@@ -24,7 +25,7 @@ const IMPORTS: { key: Option; label: string; hint: string; icon: any }[] = [
 export const CreateMenuModal = ({ visible, onClose, onSelect }: Props) => {
   const insets = useSafeAreaInsets();
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={onClose}>
+    <Modal animationType="slide" transparent visible={visible} onRequestClose={closeDialogOr(onClose)}>
       <Pressable className="flex-1 bg-[#3F3128]/50" onPress={onClose} accessibilityLabel="Cerrar" />
       <View
         className="bg-pizca-fondo rounded-t-[32px] px-5 pt-3 gap-[18px] w-full max-w-xl self-center"

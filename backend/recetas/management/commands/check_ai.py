@@ -7,7 +7,7 @@ from django.core.management.base import BaseCommand
 
 from recetas.utils import (
     GEMINI_MODEL,
-    call_fogoncito,
+    call_ideas,
     convert_audio_to_mp3,
     extract_recipe_from_audio,
     extract_recipe_from_text,
@@ -45,7 +45,7 @@ class Command(BaseCommand):
         self.stdout.write(f"Modelo: {GEMINI_MODEL}")
         results = [
             self.probar("Texto", lambda: extract_recipe_from_text(SAMPLE_TEXT, strict_mode=True)),
-            self.probar("Ideas", lambda: call_fogoncito(
+            self.probar("Ideas", lambda: call_ideas(
                 "algo rápido con huevo",
                 [{"uuid": "1", "title": "Tortilla de papas", "categories": [], "ingredients": ["huevo", "papa"], "prep_time": 30}],
             )),

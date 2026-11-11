@@ -9,7 +9,7 @@ import { MealPlan, Recipe } from '../../types';
 import { addDays, getCurrentMonday, getTodayISO, parseISODate } from '../../utils/dates';
 import { createMealPlan, deleteMealPlan, getWeekPlans } from '../../services/api';
 import { usePlanner } from '../../context/PlannerContext';
-import { notify, getErrorMessage } from '../../utils/dialogs';
+import { notify, getErrorMessage, closeDialogOr } from '../../utils/dialogs';
 import { DialogHost } from '../ui/DialogHost';
 
 export const MEALS = [
@@ -78,7 +78,7 @@ export function AddToWeekSheet({ visible, recipe, onClose }: Props) {
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={closeDialogOr(onClose)}>
       <Pressable className="flex-1 bg-[#3F3128]/45" onPress={onClose} accessibilityLabel="Cerrar" />
       <View className="bg-pizca-fondo rounded-t-[28px] px-5 pt-5 gap-5" style={{ paddingBottom: Math.max(insets.bottom, 16) + 8 }}>
         <View className="flex-row items-center justify-between">

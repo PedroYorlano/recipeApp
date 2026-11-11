@@ -171,6 +171,7 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
     ),
+    'EXCEPTION_HANDLER': 'recetas.exceptions.exception_handler',
     'DEFAULT_PAGINATION_CLASS': 'recetas.pagination.RecipeCursorPagination',
     'PAGE_SIZE': 12,
     'DEFAULT_THROTTLE_CLASSES': [
@@ -181,7 +182,7 @@ REST_FRAMEWORK = {
         'anon': '20/minute',      # Anónimos: 20 requests/min (login, register)
         'user': '60/minute',      # CRUD general: 60 requests/min por usuario
         'import': '5/minute',     # Importaciones IA: 5/min por usuario
-        'fogoncito': '10/minute', # Chat IA: 10/min por usuario
+        'ideas': '10/minute',     # Ideas (chat IA): 10/min por usuario
     }
 }
 
@@ -197,10 +198,10 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': False,
 }
 
-# --- Fogón: Límites de uso ---
-FOGON_MAX_IMPORTS_PER_USER_PER_DAY = 10   # Importaciones por usuario por día
-FOGON_MAX_GEMINI_REQUESTS_PER_DAY = 490    # Requests a Gemini globales por día (de 500 RPD disponibles)
-FOGON_MAX_IMAGES_PER_USER_PER_DAY = 50    # Fotos de portada por usuario por día (solo frena abusos)
+# --- Pizca: límites de uso ---
+PIZCA_MAX_IMPORTS_PER_USER_PER_DAY = 10   # Importaciones por usuario por día
+PIZCA_MAX_GEMINI_REQUESTS_PER_DAY = 490    # Requests a Gemini globales por día (de 500 RPD disponibles)
+PIZCA_MAX_IMAGES_PER_USER_PER_DAY = 50    # Fotos de portada por usuario por día (solo frena abusos)
 
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=DEBUG, cast=bool)
 if not CORS_ALLOW_ALL_ORIGINS:
@@ -227,5 +228,5 @@ EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Fogón <hola@fogon.com>')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Pizca <hola@pizca.app>')
 

@@ -66,23 +66,25 @@ export interface ShoppingListItem {
   quantity: string;
   category: string;
   is_checked: boolean;
+  /** Lo agregó el usuario a mano (no sale del plan). */
+  is_manual: boolean;
 }
 
-export interface FogoncitoSuggestion {
+export interface IdeaSuggestion {
   uuid: string;
   title: string;
 }
 
-export interface FogoncitoResponse {
+export interface IdeasResponse {
   message: string;
-  suggestions: FogoncitoSuggestion[];
+  suggestions: IdeaSuggestion[];
 }
 
 export interface ChatMessage {
   id: string;
   role: 'user' | 'bot';
   text: string;
-  suggestions?: FogoncitoSuggestion[];
+  suggestions?: IdeaSuggestion[];
   isLoading?: boolean;
   isError?: boolean;
 }

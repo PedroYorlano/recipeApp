@@ -12,7 +12,7 @@ import { Button } from '../../src/components/ui/Button';
 import { usePlanner, DraftSlot } from '../../src/context/PlannerContext';
 import { MealPlan, Recipe, ShoppingListItem } from '../../src/types';
 import { RecipePickerModal } from '../../src/components/planner/RecipePickerModal';
-import { FogoncitoChat } from '../../src/components/planner/FogoncitoChat';
+import { IdeasChat } from '../../src/components/planner/IdeasChat';
 import { notify, confirmAction } from '../../src/utils/dialogs';
 import { addDays, getTodayISO, parseISODate } from '../../src/utils/dates';
 import { ICONS, ILLUSTRATIONS } from '../../src/constants/brand';
@@ -126,7 +126,7 @@ export default function PlannerScreen() {
             <View className="flex-1 w-full max-w-3xl self-center">
                 {activeTab === 'week' && <WeekView onSwitchTab={setActiveTab} />}
                 {activeTab === 'shopping' && <ShoppingView />}
-                {activeTab === 'ideas' && <FogoncitoChat />}
+                {activeTab === 'ideas' && <IdeasChat />}
             </View>
         </SafeAreaView>
     );
@@ -381,6 +381,8 @@ const ProgressRing = ({ done, total }: { done: number; total: number }) => {
     );
 };
 
+const MANUAL_SECTION = 'Agregado por vos';
+
 const sectionIcon = (category: string) =>
     /verdu|fruta/i.test(category) ? ICONS.ingredientes : ICONS.categorias;
 
@@ -402,11 +404,16 @@ function ShoppingView() {
 
     const grouped = useMemo(() => {
         const map: Record<string, ShoppingListItem[]> = {};
+        const manual: ShoppingListItem[] = [];
         for (const item of shoppingList) {
+            if (item.is_manual) { manual.push(item); continue; }
             const cat = item.category || 'Otros';
             (map[cat] ??= []).push(item);
         }
-        return Object.entries(map);
+        // Lo que agregaste vos va al final, separado de lo que sale de las recetas.
+        const sections = Object.entries(map);
+        if (manual.length) sections.push([MANUAL_SECTION, manual]);
+        return sections;
     }, [shoppingList]);
 
     const checkedCount = shoppingList.filter(i => i.is_checked).length;
@@ -416,7 +423,7 @@ function ShoppingView() {
         if (shoppingList.length > 0) {
             const ok = await confirmAction({
                 title: 'Regenerar lista',
-                message: 'Se arma de nuevo a partir del plan de esta semana. Los ítems tachados y los que agregaste a mano se borran.',
+                message: 'Se arma de nuevo a partir del plan de esta semana. Los ítems tachados se borran; lo que agregaste vos queda.',
                 confirmText: 'Regenerar',
             });
             if (!ok) return;

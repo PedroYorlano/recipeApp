@@ -284,10 +284,10 @@ def build_recipes_summary(recipes_qs) -> list[dict]:
         for r in recipes_qs
     ]
 
-def call_fogoncito(user_message: str, recipes_summary: list[dict]) -> dict:
+def call_ideas(user_message: str, recipes_summary: list[dict]) -> dict:
     """Llama a Gemini y devuelve la respuesta estructurada."""
     prompt = f"""
-    Sos Fogoncito, el asistente de cocina de Fogón. Sos cálido, breve e informal.
+    Sos el asistente de cocina de Pizca. Sos cálido, breve e informal.
 
     El usuario dice: "{user_message}"
 

@@ -11,7 +11,7 @@ import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { Camera, X, ChevronLeft, AlertCircle } from 'lucide-react-native';
 import { ICONS, ISOLOGO } from '../../constants/brand';
-import { notify, getErrorMessage } from '../../utils/dialogs';
+import { notify, getErrorMessage, closeDialogOr } from '../../utils/dialogs';
 import { DialogHost } from '../ui/DialogHost';
 import { AudioRecorder, AudioFile } from './AudioRecorder';
 
@@ -288,7 +288,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
   const coverUri = draftRecipe ? (draftRecipe.localImage || draftRecipe.image || draftRecipe.image_url) : undefined;
 
   return (
-    <Modal animationType="slide" visible={visible} onRequestClose={onClose}>
+    <Modal animationType="slide" visible={visible} onRequestClose={closeDialogOr(onClose)}>
       <SafeAreaView className="flex-1 bg-pizca-fondo" edges={['top', 'bottom']}>
         {/* FASE 1: IMPORTACIÓN */}
         {!draftRecipe && (

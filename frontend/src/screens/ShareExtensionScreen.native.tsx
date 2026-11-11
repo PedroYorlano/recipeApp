@@ -15,7 +15,7 @@ export default function ShareExtensionScreen({ url: initialUrl, text }: InitialP
 
   const handleImport = () => {
     if (!url) return;
-    openHostApp(`fogon://import?url=${encodeURIComponent(url)}`);
+    openHostApp(`pizca://import?url=${encodeURIComponent(url)}`);
     close();
   };
 

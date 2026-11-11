@@ -13,6 +13,8 @@ from django.contrib.auth.models import User
 from django.contrib.auth.hashers import make_password
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Q
+from django.http import Http404
+from rest_framework.exceptions import NotFound
 from django.conf import settings
 from django.core.mail import send_mail
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -24,7 +26,7 @@ from .models import Recipe, Category, Favorite, UserUsage, GlobalUsage, MealPlan
 from .serializers import RecipeSerializer, CategorySerializer, UserRegistrationSerializer, MealPlanSerializer, ShoppingListItemSerializer
 from datetime import date, timedelta
 import os
-from .utils import download_audio_from_url, convert_audio_to_mp3, extract_recipe_from_audio, extract_recipe_from_text, build_recipes_summary, call_fogoncito
+from .utils import download_audio_from_url, convert_audio_to_mp3, extract_recipe_from_audio, extract_recipe_from_text, build_recipes_summary, call_ideas
 import tempfile
 import requests
 from bs4 import BeautifulSoup
@@ -39,9 +41,9 @@ class ImportRateThrottle(UserRateThrottle):
     scope = 'import'
 
 
-class FogoncitoRateThrottle(UserRateThrottle):
-    """Limita el chat de Fogoncito a 10 por minuto por usuario."""
-    scope = 'fogoncito'
+class IdeasRateThrottle(UserRateThrottle):
+    """Limita el chat de Ideas a 10 por minuto por usuario."""
+    scope = 'ideas'
 
 
 # --- Whitelist de hosts para video ---
@@ -133,8 +135,8 @@ def check_usage_limits(user):
     2. Límite global de requests a Gemini/día
     Retorna (can_proceed: bool, error_message: str | None)
     """
-    max_per_user = getattr(settings, 'FOGON_MAX_IMPORTS_PER_USER_PER_DAY')
-    max_global = getattr(settings, 'FOGON_MAX_GEMINI_REQUESTS_PER_DAY')
+    max_per_user = getattr(settings, 'PIZCA_MAX_IMPORTS_PER_USER_PER_DAY')
+    max_global = getattr(settings, 'PIZCA_MAX_GEMINI_REQUESTS_PER_DAY')
 
     # 1. Límite por usuario
     usage, _ = UserUsage.objects.get_or_create(user=user)
@@ -216,6 +218,13 @@ class SharedRecipeView(RetrieveAPIView):
             visible |= Q(user=self.request.user)
         return Recipe.objects.filter(visible)
 
+    def get_object(self):
+        # El 404 genérico de DRF sale en inglés ("No Recipe matches the given query.").
+        try:
+            return super().get_object()
+        except Http404:
+            raise NotFound('Esta receta no existe o ya no está compartida.')
+
 class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
     permission_classes = [IsAuthenticated]
@@ -279,8 +288,8 @@ class RegisterView(APIView):
         # Enviar email
         try:
             send_mail(
-                subject='Código de Verificación - Fogón',
-                message=f'Tu código de verificación para registrarte en Fogón es: {otp_code}\n\nEste código vencerá en 10 minutos.',
+                subject='Código de Verificación - Pizca',
+                message=f'Tu código de verificación para registrarte en Pizca es: {otp_code}\n\nEste código vencerá en 10 minutos.',
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[email],
                 fail_silently=False,
@@ -359,7 +368,7 @@ class RegisterResendView(APIView):
         # Enviar email
         try:
             send_mail(
-                subject='Nuevo Código de Verificación - Fogón',
+                subject='Nuevo Código de Verificación - Pizca',
                 message=f'Tu nuevo código de verificación es: {otp_code}\n\nEste código vencerá en 10 minutos.',
                 from_email=settings.DEFAULT_FROM_EMAIL,
                 recipient_list=[email],
@@ -400,7 +409,7 @@ class PasswordResetRequestView(APIView):
             # Enviar email
             try:
                 send_mail(
-                    subject='Restablecer Contraseña - Fogón',
+                    subject='Restablecer Contraseña - Pizca',
                     message=f'Hola {user_opt.username},\n\nPediste restablecer tu contraseña. Tu código es: {otp_code}\n\nEste código vencerá en 10 minutos.',
                     from_email=settings.DEFAULT_FROM_EMAIL,
                     recipient_list=[email],
@@ -551,23 +560,14 @@ class MealPlanViewSet(viewsets.ModelViewSet):
                             else:
                                 consolidated[key]['quantity'] = qty
 
-        # Borramos todos los ítems de esa semana (para regenerar y eliminar los ya tachados)
+        # Regeneramos: se va lo armado desde el plan y lo tachado; lo agregado a mano y sin tachar queda.
         from django.db import transaction
         with transaction.atomic():
+            week_items = ShoppingListItem.objects.filter(user=request.user, week_start=start)
             # Obtenemos los ingredientes ya tachados para no volver a crearlos
-            checked_names = set(
-                ShoppingListItem.objects.filter(
-                    user=request.user,
-                    week_start=start,
-                    is_checked=True
-                ).values_list('ingredient_name', flat=True)
-            )
+            checked_names = set(week_items.filter(is_checked=True).values_list('ingredient_name', flat=True))
 
-            # Borramos TODOS los ítems actuales de la semana
-            ShoppingListItem.objects.filter(
-                user=request.user,
-                week_start=start
-            ).delete()
+            week_items.filter(Q(is_manual=False) | Q(is_checked=True)).delete()
 
             # Creamos solo ítems que no estén en la lista de tachados
             items = [
@@ -607,7 +607,7 @@ class ShoppingListItemViewSet(viewsets.ModelViewSet):
         return qs.order_by('category', 'ingredient_name')
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        serializer.save(user=self.request.user, is_manual=True)
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
@@ -815,8 +815,8 @@ def current_user_view(request):
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-@throttle_classes([FogoncitoRateThrottle])
-def fogoncito(request):
+@throttle_classes([IdeasRateThrottle])
+def ideas(request):
     user_message = request.data.get('message', '').strip()
     if not user_message:
         return Response({'error': 'Mensaje vacío'}, status=400)
@@ -872,12 +872,12 @@ def fogoncito(request):
 
     # 4. Llamar a Gemini
     try:
-        result = call_fogoncito(user_message, recipes_summary)
+        result = call_ideas(user_message, recipes_summary)
         # Registrar uso exitoso
         record_usage(request.user)
     except Exception as e:
         return Response(
-            {'error': 'Fogoncito no está disponible en este momento. Intentá de nuevo.'},
+            {'error': 'Ideas no está disponible en este momento. Intentá de nuevo.'},
             status=503
         )
 

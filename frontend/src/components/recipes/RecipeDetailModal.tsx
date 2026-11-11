@@ -13,7 +13,7 @@ import { Button } from '../ui/Button';
 import { AddToWeekSheet } from '../planner/AddToWeekSheet';
 import { CookingModeModal, CookingIngredient } from './CookingModeModal';
 import { detectTimers } from '../../utils/cooking';
-import { notify, confirmAction, getErrorMessage } from '../../utils/dialogs';
+import { notify, confirmAction, getErrorMessage, closeDialogOr } from '../../utils/dialogs';
 import { setRecipePublicService } from '../../services/api';
 import { getShareUrl } from '../../constants';
 import { DialogHost } from '../ui/DialogHost';
@@ -72,7 +72,7 @@ export const RecipeDetailModal = ({ visible, recipe, onClose, onEdit, onDelete }
   };
 
   return (
-    <Modal animationType="slide" visible={visible} onRequestClose={onClose}>
+    <Modal animationType="slide" visible={visible} onRequestClose={closeDialogOr(onClose)}>
       <RecipeDetailView
         recipe={recipe}
         onBack={onClose}

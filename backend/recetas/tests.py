@@ -125,7 +125,7 @@ class ImageFromUrlTests(TestCase):
         self.assertIsNone(image_from_url('https://cdn.example.com/a.jpg'))
 
 
-@override_settings(STORAGES=IN_MEMORY, FOGON_MAX_IMAGES_PER_USER_PER_DAY=2)
+@override_settings(STORAGES=IN_MEMORY, PIZCA_MAX_IMAGES_PER_USER_PER_DAY=2)
 class RecipeImageApiTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user('ana', 'ana@example.com', 'contraseña-segura')
@@ -162,3 +162,42 @@ class RecipeImageApiTests(TestCase):
         r = self.client.patch(f'/api/recetas/{recipe.pk}/', {'image_base64': data_uri(make_image(size=(60, 60)))}, format='json')
         self.assertEqual(r.status_code, 200, r.content)
         self.assertFalse(storage.exists(old))
+
+
+class ShoppingListTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('beto', 'beto@example.com', 'contraseña-segura')
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+
+    def test_regenerar_mantiene_lo_agregado_a_mano(self):
+        week = '2026-11-09'
+        r = self.client.post('/api/shopping/', {'week_start': week, 'ingredient_name': 'Servilletas'}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        self.assertTrue(r.data['is_manual'])
+        self.client.post('/api/shopping/', {'week_start': week, 'ingredient_name': 'Pan', 'is_checked': True}, format='json')
+
+        r = self.client.post('/api/planner/generate_shopping_list/', {'week_start': week}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        names = {i['ingredient_name'] for i in r.data}
+        self.assertIn('Servilletas', names)
+        self.assertNotIn('Pan', names)  # lo tachado se va igual
+
+    def test_no_se_puede_marcar_como_manual_desde_afuera(self):
+        r = self.client.post('/api/shopping/', {'week_start': '2026-11-09', 'ingredient_name': 'x', 'is_manual': False}, format='json')
+        self.assertTrue(r.data['is_manual'])
+
+
+class NotFoundTests(TestCase):
+    def test_404_en_castellano(self):
+        r = APIClient().get('/api/compartidas/00000000-0000-0000-0000-000000000000/')
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r.data['detail'], 'Esta receta no existe o ya no está compartida.')
+
+    def test_404_generico_en_castellano(self):
+        user = User.objects.create_user('caro', 'caro@example.com', 'contraseña-segura')
+        client = APIClient()
+        client.force_authenticate(user)
+        r = client.get('/api/recetas/999999/')
+        self.assertEqual(r.status_code, 404)
+        self.assertEqual(r.data['detail'], 'No encontramos lo que buscabas.')

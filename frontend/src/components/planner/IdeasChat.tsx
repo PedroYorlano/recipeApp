@@ -7,8 +7,8 @@ import { useApp } from '../../context/AppContext';
 import { getRecipeImage } from '../../utils';
 import { ISOLOGO } from '../../constants/brand';
 import { RecipeCover } from '../brand/RecipeCover';
-import { ChatMessage, FogoncitoSuggestion } from '../../types';
-import { sendFogoncitoMessage } from '../../services/api';
+import { ChatMessage, IdeaSuggestion } from '../../types';
+import { sendIdeasMessage } from '../../services/api';
 
 const INITIAL_MESSAGE: ChatMessage = {
     id: 'initial',
@@ -16,7 +16,7 @@ const INITIAL_MESSAGE: ChatMessage = {
     text: '¡Hola! Contame qué tenés en casa y qué te dan ganas de comer. Busco entre tus recetas guardadas.',
 };
 
-export function FogoncitoChat() {
+export function IdeasChat() {
     const router = useRouter();
     const { recipes } = useApp();
     const [messages, setMessages] = useState<ChatMessage[]>([INITIAL_MESSAGE]);
@@ -51,7 +51,7 @@ export function FogoncitoChat() {
         scrollToEnd();
 
         try {
-            const response = await sendFogoncitoMessage(text);
+            const response = await sendIdeasMessage(text);
             setMessages(prev =>
                 prev.map(m =>
                     m.id === loadingMsg.id
@@ -81,7 +81,7 @@ export function FogoncitoChat() {
         scrollToEnd();
     };
 
-    const handleSuggestionPress = (suggestion: FogoncitoSuggestion) => {
+    const handleSuggestionPress = (suggestion: IdeaSuggestion) => {
         router.push(`/receta/${suggestion.uuid}`);
     };
 

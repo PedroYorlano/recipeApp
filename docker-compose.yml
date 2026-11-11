@@ -2,15 +2,15 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: fogon
-      POSTGRES_USER: fogon
-      POSTGRES_PASSWORD: fogon
+      POSTGRES_DB: pizca
+      POSTGRES_USER: pizca
+      POSTGRES_PASSWORD: pizca
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U fogon" ]
+      test: [ "CMD-SHELL", "pg_isready -U pizca" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -32,7 +32,7 @@ services:
       - ./backend/.env
     environment:
       # Override DATABASE_URL para apuntar al servicio 'db' de Docker
-      - DATABASE_URL=postgres://fogon:fogon@db:5432/fogon
+      - DATABASE_URL=postgres://pizca:pizca@db:5432/pizca
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
     depends_on:

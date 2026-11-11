@@ -12,7 +12,7 @@ import * as Linking from 'expo-linking';
  */
 const getServerUrl = (): string => {
     // Producción: descomentar y poner la URL real
-    // return 'https://api.fogon.app';
+    // return 'https://api.pizca.app';
 
     const hostUri = Constants.expoConfig?.hostUri;
     if (hostUri) {
@@ -29,7 +29,7 @@ export const API_BASE = `${SERVER_URL}/api`;
 
 /**
  * URL pública de la web (para links que se comparten). En web es el origin actual;
- * en nativo hace falta EXPO_PUBLIC_WEB_URL (si no, cae a un deep link fogon://).
+ * en nativo hace falta EXPO_PUBLIC_WEB_URL (si no, cae a un deep link pizca://).
  */
 export const WEB_URL: string | null =
     process.env.EXPO_PUBLIC_WEB_URL ||
