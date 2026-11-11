@@ -1,8 +1,17 @@
-import React, { createContext, useState, useEffect, useContext, useRef, useCallback } from 'react';
-import { Alert } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useState, useEffect, useContext, useRef, useCallback, useMemo } from 'react';
+
 import { Category, Recipe, User } from '../types';
-import { getRecipesService, saveRecipeService, deleteRecipeService, importRecipeService, importRecipeServiceAudio, importRecipeServiceText, importRecipeServiceWeb, loginService, registerService, verifyRegisterOTPService, logoutService, getCategoriesService, createCategoryService, toggleFavoriteService, getCurrentUserService } from '../services/api';
+import {
+    ApiError, SessionExpiredError, clearTokens, hasStoredSession,
+    getRecipesService, saveRecipeService, deleteRecipeService, toggleFavoriteService,
+    importRecipeService, importRecipeServiceAudio, importRecipeServiceText, importRecipeServiceWeb,
+    loginService, registerService, verifyRegisterOTPService, getCurrentUserService,
+    getCategoriesService, createCategoryService,
+} from '../services/api';
+import { notify } from '../utils/dialogs';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+
+export type CreateMode = 'manual' | 'video' | 'audio' | 'text' | 'link-web';
 
 interface AppContextType {
     recipes: Recipe[];
@@ -21,21 +30,22 @@ interface AppContextType {
     user: User | null;
     fetchRecipes: () => Promise<void>;
     fetchMoreRecipes: () => Promise<void>;
-    createCategory: (name: string) => Promise<void>;
+    createCategory: (name: string) => Promise<Category>;
     saveRecipe: (recipe: Recipe) => Promise<void>;
     deleteRecipe: (id: number) => Promise<void>;
     toggleFavorite: (recipeId: number) => Promise<void>;
+    markRecipePublic: (recipeId: number) => void;
     importRecipeAI: (url: string) => Promise<Recipe>;
-    importRecipeAIAudio: (fileUri: string, fileName: string, fileType: string) => Promise<Recipe>;
+    importRecipeAIAudio: (fileUri: string, fileName: string, fileType: string, webFile?: File) => Promise<Recipe>;
     importRecipeAIText: (text: string) => Promise<Recipe>;
     importRecipeAIWeb: (url: string) => Promise<Recipe>;
     login: (u: string, p: string) => Promise<void>;
-    register: (u: string, e: string, p: string) => Promise<any>;
-    verifyRegisterOTP: (email: string, otpCode: string) => Promise<void>;
+    register: (u: string, e: string, p: string) => Promise<unknown>;
+    verifyRegisterOTP: (email: string, otpCode: string, password: string) => Promise<void>;
     logout: () => Promise<void>;
 
-    createMode: 'manual' | 'video' | 'audio' | 'text' | 'link-web' | null;
-    setCreateMode: (mode: 'manual' | 'video' | 'audio' | 'text' | 'link-web' | null) => void;
+    createMode: CreateMode | null;
+    setCreateMode: (mode: CreateMode | null) => void;
 
     // Control de Modales Globales
     isCreateMenuVisible: boolean;
@@ -49,6 +59,9 @@ interface AppContextType {
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
+
+const isAuthFailure = (e: unknown) =>
+    e instanceof SessionExpiredError || (e instanceof ApiError && e.status === 401);
 
 export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const [recipes, setRecipes] = useState<Recipe[]>([]);
@@ -67,246 +80,195 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     const [isCreateMenuVisible, setCreateMenuVisible] = useState(false);
     const [formModalVisible, setFormModalVisible] = useState(false);
     const [editingRecipe, setEditingRecipe] = useState<Recipe | null>(null);
-    const [createMode, setCreateMode] = useState<'manual' | 'video' | 'audio' | 'text' | 'link-web' | null>(null);
+    const [createMode, setCreateMode] = useState<CreateMode | null>(null);
     const [initialImportUrl, setInitialImportUrl] = useState<string | null>(null);
 
-    // Ref para debounce de búsqueda
-    const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    // Ref para evitar fetch duplicados al montar
-    const initialFetchDone = useRef(false);
+    // Búsqueda server-side: se pide recién cuando se deja de tipear.
+    const debouncedSearch = useDebouncedValue(searchQuery, 400);
+    // Cada carga de la primera página tiene un número; las respuestas viejas (de una búsqueda
+    // anterior que tardó más) se descartan en vez de pisar la lista.
+    const requestIdRef = useRef(0);
+    const loadingMoreRef = useRef(false);
+    const firstPageLoadingRef = useRef(false);
 
-    // Inicialización
-    useEffect(() => {
-        checkAuth();
-    }, []);
-
-    // Carga inicial cuando se autentica
-    useEffect(() => {
-        if (isAuthenticated && !initialFetchDone.current) {
-            initialFetchDone.current = true;
-            fetchInitialData();
-        }
-        if (!isAuthenticated) {
-            initialFetchDone.current = false;
-        }
-    }, [isAuthenticated]);
-
-    // Re-fetch cuando cambian filtros (categoría o favoritos)
-    useEffect(() => {
-        if (isAuthenticated && initialFetchDone.current) {
-            fetchRecipes();
-        }
-    }, [selectedCategory, showFavorites]);
-
-    // Debounce para búsqueda server-side (400ms)
-    useEffect(() => {
-        if (!isAuthenticated || !initialFetchDone.current) return;
-
-        if (searchTimerRef.current) {
-            clearTimeout(searchTimerRef.current);
-        }
-
-        searchTimerRef.current = setTimeout(() => {
-            fetchRecipes();
-        }, 400);
-
-        return () => {
-            if (searchTimerRef.current) {
-                clearTimeout(searchTimerRef.current);
-            }
-        };
-    }, [searchQuery]);
-
-    const checkAuth = async () => {
-        try {
-            const token = await AsyncStorage.getItem('authToken');
-            if (!token) {
-                setIsAuthenticated(false);
-                return;
-            }
-            // Validar el token haciendo una request real al backend
-            const userData = await getCurrentUserService();
-            setUser(userData);
-            setIsAuthenticated(true);
-        } catch (e) {
-            // Token inválido o expirado — limpiar
-            await AsyncStorage.removeItem('authToken');
-            await AsyncStorage.removeItem('refreshToken');
-            setIsAuthenticated(false);
-        } finally {
-            setIsAuthLoading(false);
-        }
-    };
-
-    const fetchInitialData = async () => {
-        setLoading(true);
-        try {
-            const [recData, catData, userData] = await Promise.all([
-                getRecipesService(),
-                getCategoriesService(),
-                getCurrentUserService()
-            ]);
-            setRecipes(recData.results);
-            setNextCursor(recData.next);
-            setCategories(catData);
-            setUser(userData);
-        } catch (e: any) {
-            console.log("Error al cargar datos:", e.message);
-            if (e.message === 'Sesión expirada') {
-                await logout();
-            } else {
-                Alert.alert('Error', 'No se pudieron cargar los datos');
-            }
-        }
-        finally { setLoading(false); }
-    };
-
-    // Fetch primera página (resetea lista) — se usa con filtros actuales
-    const fetchRecipes = useCallback(async () => {
-        setLoading(true);
-        try {
-            const data = await getRecipesService(
-                selectedCategory,
-                searchQuery || undefined,
-                showFavorites || undefined,
-            );
-            setRecipes(data.results);
-            setNextCursor(data.next);
-        } catch (e: any) {
-            console.error("Error fetching recipes:", e);
-            if (e.message === 'Sesión expirada') {
-                await logout();
-            }
-        }
-        finally { setLoading(false); }
-    }, [selectedCategory, searchQuery, showFavorites]);
-
-    // Fetch siguiente página (append a la lista) — para infinite scroll
-    const fetchMoreRecipes = useCallback(async () => {
-        if (!nextCursor || loadingMore) return;
-        setLoadingMore(true);
-        try {
-            const data = await getRecipesService(null, undefined, undefined, nextCursor);
-            setRecipes(prev => [...prev, ...data.results]);
-            setNextCursor(data.next);
-        } catch (e) {
-            console.error("Error loading more recipes:", e);
-        }
-        finally { setLoadingMore(false); }
-    }, [nextCursor, loadingMore]);
-
-    const login = async (u: string, p: string) => {
-        const data = await loginService(u, p);
-        if (data && data.access) {
-            setIsAuthenticated(true);
-        } else {
-            throw new Error("Login fallido: No se recibió token");
-        }
-    };
-
-    const register = async (u: string, e: string, p: string) => {
-        return await registerService(u, e, p);
-    };
-
-    const verifyRegisterOTP = async (email: string, otpCode: string) => {
-        const data = await verifyRegisterOTPService(email, otpCode);
-        if (data && data.access) {
-            const userData = await getCurrentUserService();
-            setUser(userData);
-            setIsAuthenticated(true);
-        } else {
-            throw new Error("No se recibieron tokens de acceso.");
-        }
-    };
-
-    const logout = async () => {
-        try {
-            await logoutService();
-        } catch (e) {
-            console.log("Error en logout service", e);
-        }
+    const logout = useCallback(async () => {
+        await clearTokens().catch(() => {});
+        requestIdRef.current++;
         setIsAuthenticated(false);
         setUser(null);
         setRecipes([]);
         setCategories([]);
         setNextCursor(null);
-    };
-
-    const saveRecipe = async (recipe: Recipe) => {
-        await saveRecipeService(recipe);
-        fetchRecipes();
+        // Que el próximo usuario no herede filtros ni modales abiertos.
+        setSelectedCategory(null);
+        setSearchQuery('');
+        setShowFavorites(false);
         setFormModalVisible(false);
-    };
+        setCreateMenuVisible(false);
+        setEditingRecipe(null);
+    }, []);
 
-    const deleteRecipe = async (id: number) => {
-        await deleteRecipeService(id);
-        fetchRecipes();
-    };
+    /** Si la sesión venció, afuera. Devuelve true si el error ya quedó resuelto así. */
+    const handleAuthFailure = useCallback((e: unknown) => {
+        if (!isAuthFailure(e)) return false;
+        logout();
+        return true;
+    }, [logout]);
 
-    const toggleFavorite = async (recipeId: number) => {
+    // Al abrir la app: si hay token guardado, se valida pidiendo el usuario.
+    useEffect(() => {
+        (async () => {
+            try {
+                if (!(await hasStoredSession())) return;
+                setUser(await getCurrentUserService());
+                setIsAuthenticated(true);
+            } catch (e) {
+                // Sin red se conservan los tokens para el próximo intento; solo se borran si el backend los rechazó.
+                if (isAuthFailure(e)) await clearTokens().catch(() => {});
+            } finally {
+                setIsAuthLoading(false);
+            }
+        })();
+    }, []);
+
+    // Categorías: una vez por sesión.
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        getCategoriesService()
+            .then(setCategories)
+            .catch(e => { if (!handleAuthFailure(e)) console.warn('Error cargando categorías', e); });
+    }, [isAuthenticated, handleAuthFailure]);
+
+    // Primera página con los filtros actuales (resetea la lista).
+    const fetchRecipes = useCallback(async () => {
+        const requestId = ++requestIdRef.current;
+        firstPageLoadingRef.current = true;
+        setLoading(true);
         try {
-            const result = await toggleFavoriteService(recipeId);
-            // Actualizar el estado local inmediatamente (optimistic UI)
-            setRecipes(prev => prev.map(r =>
-                r.id === recipeId
-                    ? { ...r, is_favorite: result.is_favorite }
-                    : r
-            ));
+            const data = await getRecipesService(selectedCategory, debouncedSearch || undefined, showFavorites || undefined);
+            if (requestId !== requestIdRef.current) return;
+            setRecipes(data.results);
+            setNextCursor(data.next);
         } catch (e) {
-            console.error("Error toggling favorite:", e);
+            if (requestId !== requestIdRef.current || handleAuthFailure(e)) return;
+            notify('Error', 'No pudimos cargar tus recetas.');
+        } finally {
+            if (requestId === requestIdRef.current) {
+                firstPageLoadingRef.current = false;
+                setLoading(false);
+            }
         }
-    };
+    }, [selectedCategory, debouncedSearch, showFavorites, handleAuthFailure]);
 
-    const importRecipeAI = async (url: string) => {
-        const data = await importRecipeService(url);
-        return data.recipe || data;
-    };
+    useEffect(() => {
+        if (isAuthenticated) fetchRecipes();
+    }, [isAuthenticated, fetchRecipes]);
 
-    const importRecipeAIAudio = async (fileUri: string, fileName: string, fileType: string) => {
-        const data = await importRecipeServiceAudio(fileUri, fileName, fileType);
-        return data.recipe || data;
-    };
-
-    const importRecipeAIText = async (text: string) => {
-        const data = await importRecipeServiceText(text);
-        return data.recipe || data;
-    };
-
-    const importRecipeAIWeb = async (url: string) => {
-        const data = await importRecipeServiceWeb(url);
-        return data.recipe || data;
-    };
-
-    const createCategory = async (name: string) => {
+    // Siguiente página (infinite scroll). onEndReached se dispara varias veces seguidas: el ref lo frena.
+    const fetchMoreRecipes = useCallback(async () => {
+        // Mientras carga la primera página de un filtro nuevo, el cursor todavía es el del filtro anterior.
+        if (!nextCursor || loadingMoreRef.current || firstPageLoadingRef.current) return;
+        const requestId = requestIdRef.current;
+        loadingMoreRef.current = true;
+        setLoadingMore(true);
         try {
-            const newCategory = await createCategoryService(name);
-            setCategories((prevCols) => [...prevCols, newCategory]);
-        } catch (e) { console.error(e); }
-    };
+            const data = await getRecipesService(null, undefined, undefined, nextCursor);
+            if (requestId !== requestIdRef.current) return; // cambiaron los filtros mientras tanto
+            setRecipes(prev => [...prev, ...data.results]);
+            setNextCursor(data.next);
+        } catch (e) {
+            if (!handleAuthFailure(e)) console.warn('Error cargando más recetas', e);
+        } finally {
+            loadingMoreRef.current = false;
+            setLoadingMore(false);
+        }
+    }, [nextCursor, handleAuthFailure]);
 
-    return (
-        <AppContext.Provider value={{
-            recipes, categories, selectedCategory, setSelectedCategory,
-            searchQuery, setSearchQuery,
-            showFavorites, setShowFavorites,
-            loading, loadingMore, hasMore: !!nextCursor,
-            isAuthenticated, isAuthLoading, user,
-            fetchRecipes, fetchMoreRecipes,
-            saveRecipe, deleteRecipe, toggleFavorite,
-            importRecipeAI, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, login, register, verifyRegisterOTP, logout, createCategory,
-            isCreateMenuVisible, setCreateMenuVisible,
-            formModalVisible, setFormModalVisible,
-            editingRecipe, setEditingRecipe,
-            createMode, setCreateMode,
-            initialImportUrl, setInitialImportUrl
-        }}>
-            {children}
-        </AppContext.Provider>
+    const login = useCallback(async (u: string, p: string) => {
+        await loginService(u, p);
+        setUser(await getCurrentUserService());
+        setIsAuthenticated(true);
+    }, []);
+
+    const register = useCallback((u: string, e: string, p: string) => registerService(u, e, p), []);
+
+    const verifyRegisterOTP = useCallback(async (email: string, otpCode: string, password: string) => {
+        await verifyRegisterOTPService(email, otpCode, password);
+        setUser(await getCurrentUserService());
+        setIsAuthenticated(true);
+    }, []);
+
+    const saveRecipe = useCallback(async (recipe: Recipe) => {
+        await saveRecipeService(recipe);
+        setFormModalVisible(false);
+        fetchRecipes();
+    }, [fetchRecipes]);
+
+    const deleteRecipe = useCallback(async (id: number) => {
+        await deleteRecipeService(id);
+        setRecipes(prev => prev.filter(r => r.id !== id));
+    }, []);
+
+    const toggleFavorite = useCallback(async (recipeId: number) => {
+        try {
+            const { is_favorite } = await toggleFavoriteService(recipeId);
+            setRecipes(prev => showFavorites && !is_favorite
+                // En "Favoritas", la que se desmarca se va de la lista.
+                ? prev.filter(r => r.id !== recipeId)
+                : prev.map(r => (r.id === recipeId ? { ...r, is_favorite } : r)));
+        } catch (e) {
+            if (!handleAuthFailure(e)) notify('Error', 'No pudimos actualizar la favorita.');
+        }
+    }, [showFavorites, handleAuthFailure]);
+
+    const markRecipePublic = useCallback((recipeId: number) => {
+        setRecipes(prev => prev.map(r => (r.id === recipeId ? { ...r, is_public: true } : r)));
+    }, []);
+
+    const importRecipeAI = useCallback(async (url: string) => (await importRecipeService(url)).recipe, []);
+    const importRecipeAIAudio = useCallback(
+        async (fileUri: string, fileName: string, fileType: string, webFile?: File) =>
+            (await importRecipeServiceAudio(fileUri, fileName, fileType, webFile)).recipe,
+        [],
     );
+    const importRecipeAIText = useCallback(async (text: string) => (await importRecipeServiceText(text)).recipe, []);
+    const importRecipeAIWeb = useCallback(async (url: string) => (await importRecipeServiceWeb(url)).recipe, []);
+
+    const createCategory = useCallback(async (name: string) => {
+        const created = await createCategoryService(name.trim());
+        setCategories(prev => [...prev, created]);
+        return created;
+    }, []);
+
+    // Memoizado: sin esto, cualquier cambio (p. ej. cada tecla del buscador) re-renderiza a todos los consumidores.
+    const value = useMemo<AppContextType>(() => ({
+        recipes, categories, selectedCategory, setSelectedCategory,
+        searchQuery, setSearchQuery,
+        showFavorites, setShowFavorites,
+        loading, loadingMore, hasMore: !!nextCursor,
+        isAuthenticated, isAuthLoading, user,
+        fetchRecipes, fetchMoreRecipes,
+        saveRecipe, deleteRecipe, toggleFavorite, markRecipePublic,
+        importRecipeAI, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb,
+        login, register, verifyRegisterOTP, logout, createCategory,
+        isCreateMenuVisible, setCreateMenuVisible,
+        formModalVisible, setFormModalVisible,
+        editingRecipe, setEditingRecipe,
+        createMode, setCreateMode,
+        initialImportUrl, setInitialImportUrl,
+    }), [
+        recipes, categories, selectedCategory, searchQuery, showFavorites, loading, loadingMore, nextCursor,
+        isAuthenticated, isAuthLoading, user, fetchRecipes, fetchMoreRecipes, saveRecipe, deleteRecipe,
+        toggleFavorite, markRecipePublic, importRecipeAI, importRecipeAIAudio, importRecipeAIText,
+        importRecipeAIWeb, login, register, verifyRegisterOTP, logout, createCategory,
+        isCreateMenuVisible, formModalVisible, editingRecipe, createMode, initialImportUrl,
+    ]);
+
+    return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 };
 
 export const useApp = () => {
     const context = useContext(AppContext);
-    if (!context) throw new Error("useApp must be used within AppProvider");
+    if (!context) throw new Error('useApp must be used within AppProvider');
     return context;
 };

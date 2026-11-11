@@ -21,7 +21,7 @@ from recetas.views import (
     RecipeViewSet, CategoryViewSet, MealPlanViewSet, ShoppingListItemViewSet,
     import_recipe_view, import_recipe_from_file_view, import_recipe_from_text_view,
     import_recipe_from_web_view, SharedRecipeView, RegisterView, RegisterVerifyView,
-    RegisterResendView, PasswordResetRequestView, PasswordResetVerifyView, current_user_view, fogoncito
+    RegisterResendView, PasswordResetRequestView, PasswordResetVerifyView, current_user_view, ideas
 )
 from django.conf import settings
 from django.conf.urls.static import static
@@ -52,7 +52,7 @@ urlpatterns = [
     path('api/me/', current_user_view, name='current_user'),
     path('api/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
-    path('api/fogoncito/', fogoncito, name='fogoncito'),
+    path('api/ideas/', ideas, name='ideas'),
 ]
 
 if settings.DEBUG and hasattr(settings, 'MEDIA_ROOT'):

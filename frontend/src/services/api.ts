@@ -1,491 +1,278 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { API_BASE } from '../constants';
-import { Category, Recipe, MealPlan, ShoppingListItem, FogoncitoResponse } from '../types';
+import { Category, IdeasResponse, MealPlan, Recipe, ShoppingListItem, User } from '../types';
 
-// --- Token Refresh con mutex ---
-// Evita múltiples refresh simultáneos cuando varias requests reciben 401 al mismo tiempo
-let isRefreshing = false;
-let refreshPromise: Promise<string | null> | null = null;
+// --- Errores ---
+
+/** La API respondió con error. `message` ya es legible para el usuario (puede venir vacío). */
+export class ApiError extends Error {
+    constructor(public status: number, public body: unknown, message: string) {
+        super(message);
+        this.name = 'ApiError';
+    }
+}
+
+/** No hay forma de renovar el token: hay que volver a entrar. */
+export class SessionExpiredError extends Error {
+    constructor() {
+        super('Tu sesión venció. Volvé a entrar.');
+        this.name = 'SessionExpiredError';
+    }
+}
 
 /**
- * Intenta refrescar el access token usando el refresh token almacenado.
- * Retorna el nuevo access token o null si falla (sesión expirada).
+ * Saca el primer mensaje legible de un error de DRF:
+ * `{error: "..."}`, `{detail: "..."}` o errores por campo (`{title: ["..."]}`, también anidados).
  */
-const refreshAccessToken = async (): Promise<string | null> => {
-    const refreshToken = await AsyncStorage.getItem('refreshToken');
-    if (!refreshToken) return null;
-
-    try {
-        const response = await fetch(`${API_BASE}/token/refresh/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ refresh: refreshToken }),
-        });
-
-        if (!response.ok) {
-            // Refresh token también expiró → limpiar todo
-            await AsyncStorage.removeItem('authToken');
-            await AsyncStorage.removeItem('refreshToken');
-            return null;
+const messageFromBody = (body: unknown): string => {
+    if (!body) return '';
+    if (typeof body === 'string') return body.length < 200 ? body : '';
+    if (Array.isArray(body)) return messageFromBody(body[0]);
+    if (typeof body === 'object') {
+        const obj = body as Record<string, unknown>;
+        if (typeof obj.error === 'string') return obj.error;
+        if (typeof obj.detail === 'string') return obj.detail;
+        for (const value of Object.values(obj)) {
+            const msg = messageFromBody(value);
+            if (msg) return msg;
         }
+    }
+    return '';
+};
 
-        const data = await response.json();
-        await AsyncStorage.setItem('authToken', data.access);
-        return data.access;
-    } catch {
+// --- Tokens ---
+
+const ACCESS_KEY = 'authToken';
+const REFRESH_KEY = 'refreshToken';
+
+export const hasStoredSession = async () => !!(await AsyncStorage.getItem(ACCESS_KEY));
+
+const saveTokens = (access: string, refresh?: string) =>
+    AsyncStorage.multiSet(refresh ? [[ACCESS_KEY, access], [REFRESH_KEY, refresh]] : [[ACCESS_KEY, access]]);
+
+export const clearTokens = () => AsyncStorage.multiRemove([ACCESS_KEY, REFRESH_KEY]);
+
+/**
+ * Devuelve el access nuevo, o null si la sesión venció de verdad (el backend rechazó el refresh).
+ * Sin red, o con el server caído o limitando (429, 5xx), tira el error y los tokens quedan:
+ * un corte de un minuto no puede desloguear a nadie.
+ */
+const doRefresh = async (): Promise<string | null> => {
+    const refresh = await AsyncStorage.getItem(REFRESH_KEY);
+    if (!refresh) return null;
+    const response = await fetch(`${API_BASE}/token/refresh/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh }),
+    });
+    if (response.status === 400 || response.status === 401) {
+        await clearTokens();
         return null;
     }
+    const data = await response.json().catch(() => null);
+    if (!response.ok || !data?.access) throw new ApiError(response.status, data, messageFromBody(data));
+    // ROTATE_REFRESH_TOKENS está activo: si no guardamos el nuevo, la sesión muere a los 7 días del login.
+    await saveTokens(data.access, data.refresh);
+    return data.access;
 };
 
-/**
- * Wrapper de fetch que maneja token refresh automáticamente.
- * Si recibe 401, refresca el token y reintenta la request original UNA vez.
- */
-const authenticatedFetch = async (url: string, options: RequestInit = {}): Promise<Response> => {
-    // Primera request con el token actual
-    const token = await AsyncStorage.getItem('authToken');
-    const headers = new Headers(options.headers || {});
-    if (token) {
-        headers.set('Authorization', `Bearer ${token}`);
-    }
+// Un solo refresh a la vez: si varias requests reciben 401 juntas, todas esperan el mismo.
+let refreshInFlight: Promise<string | null> | null = null;
+const refreshAccessToken = () => {
+    refreshInFlight ??= doRefresh().finally(() => { refreshInFlight = null; });
+    return refreshInFlight;
+};
 
-    let response = await fetch(url, { ...options, headers });
+/** fetch con el token. Ante un 401 renueva el token y reintenta una vez. */
+const authenticatedFetch = async (url: string, init: RequestInit): Promise<Response> => {
+    const headers = new Headers(init.headers);
+    const token = await AsyncStorage.getItem(ACCESS_KEY);
+    if (token) headers.set('Authorization', `Bearer ${token}`);
 
-    // Si no es 401, devolver directamente
-    if (response.status !== 401) {
-        return response;
-    }
+    const response = await fetch(url, { ...init, headers });
+    if (response.status !== 401) return response;
 
-    // 401 → Intentar refresh (con mutex para evitar múltiples refresh simultáneos)
-    if (!isRefreshing) {
-        isRefreshing = true;
-        refreshPromise = refreshAccessToken().finally(() => {
-            isRefreshing = false;
-            refreshPromise = null;
-        });
-    }
-
-    const newToken = await (refreshPromise || refreshAccessToken());
-
-    if (!newToken) {
-        // Refresh falló → sesión expirada, propagar el 401
-        throw new Error('Sesión expirada');
-    }
-
-    // Reintentar con el nuevo token
+    const newToken = await refreshAccessToken();
+    if (!newToken) throw new SessionExpiredError();
     headers.set('Authorization', `Bearer ${newToken}`);
-    return fetch(url, { ...options, headers });
+    return fetch(url, { ...init, headers });
 };
 
-// Helper: construir headers (para requests que no usan authenticatedFetch)
-const buildHeaders = (isMultiPart: boolean = false): Record<string, string> => {
-    const headers: Record<string, string> = {};
-    if (!isMultiPart) {
-        headers['Content-Type'] = 'application/json';
+// --- Request genérico ---
+
+interface RequestOptions {
+    method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+    /** Objeto (va como JSON) o FormData (multipart, el boundary lo pone fetch). */
+    body?: unknown;
+    /** false para login, registro y demás endpoints sin sesión. */
+    auth?: boolean;
+}
+
+/** `path` relativo a API_BASE ("/recetas/") o una URL absoluta (cursores de paginación). */
+const request = async <T>(path: string, { method = 'GET', body, auth = true }: RequestOptions = {}): Promise<T> => {
+    const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
+    const init: RequestInit = { method };
+    if (body instanceof FormData) {
+        init.body = body;
+    } else if (body !== undefined) {
+        init.headers = { 'Content-Type': 'application/json' };
+        init.body = JSON.stringify(body);
     }
-    return headers;
+
+    const response = auth ? await authenticatedFetch(url, init) : await fetch(url, init);
+    // Un 502 del proxy o un 204 no traen JSON.
+    const data = response.status === 204 ? null : await response.json().catch(() => null);
+    if (!response.ok) throw new ApiError(response.status, data, messageFromBody(data));
+    return data as T;
 };
 
-// --- AUTH SERVICES ---
+// --- Auth ---
+
+interface Tokens { access: string; refresh: string }
+
 export const loginService = async (username: string, password: string) => {
-    const response = await fetch(`${API_BASE}/token/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
-    });
-    if (!response.ok) throw new Error('Credenciales inválidas');
-    const data = await response.json();
-
-    await AsyncStorage.setItem('authToken', data.access);
-    await AsyncStorage.setItem('refreshToken', data.refresh);
-
+    const data = await request<Tokens>('/token/', { method: 'POST', body: { username, password }, auth: false });
+    await saveTokens(data.access, data.refresh);
     return data;
 };
 
-export const registerService = async (username: string, email: string, password: string) => {
-    const response = await fetch(`${API_BASE}/register/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, email, password }),
-    });
-    if (!response.ok) {
-        const errorData = await response.json();
-        const errorMsg = Object.values(errorData).flat().join(', ');
-        throw new Error(errorMsg || 'Error al iniciar registro');
-    }
-    return await response.json();
-};
+export const registerService = (username: string, email: string, password: string) =>
+    request<{ message: string; email: string }>('/register/', { method: 'POST', body: { username, email, password }, auth: false });
 
-export const verifyRegisterOTPService = async (email: string, otpCode: string) => {
-    const response = await fetch(`${API_BASE}/register/verify/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, otp_code: otpCode }),
-    });
-    if (!response.ok) {
-        const errorData = await response.json();
-        const errorMsg = Object.values(errorData).flat().join(', ');
-        throw new Error(errorMsg || 'Error al verificar código');
-    }
-    const data = await response.json();
-    
-    // Almacenar tokens tras verificar exitosamente
-    await AsyncStorage.setItem('authToken', data.access);
-    await AsyncStorage.setItem('refreshToken', data.refresh);
-    
+/** La contraseña es la misma del registro: el backend la pide para saber que quien verifica es quien se registró. */
+export const verifyRegisterOTPService = async (email: string, otpCode: string, password: string) => {
+    const data = await request<Tokens>('/register/verify/', { method: 'POST', body: { email, otp_code: otpCode, password }, auth: false });
+    await saveTokens(data.access, data.refresh);
     return data;
 };
 
-export const resendRegisterOTPService = async (email: string) => {
-    const response = await fetch(`${API_BASE}/register/resend/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+export const resendRegisterOTPService = (email: string) =>
+    request<{ message: string }>('/register/resend/', { method: 'POST', body: { email }, auth: false });
+
+export const requestPasswordResetService = (email: string) =>
+    request<{ message: string }>('/password-reset/request/', { method: 'POST', body: { email }, auth: false });
+
+export const verifyPasswordResetOTPService = (email: string, otpCode: string, newPassword: string) =>
+    request<{ message: string }>('/password-reset/verify/', {
+        method: 'POST', body: { email, otp_code: otpCode, new_password: newPassword }, auth: false,
     });
-    if (!response.ok) {
-        const errorData = await response.json();
-        const errorMsg = Object.values(errorData).flat().join(', ');
-        throw new Error(errorMsg || 'Error al reenviar código');
-    }
-    return await response.json();
-};
 
-export const requestPasswordResetService = async (email: string) => {
-    const response = await fetch(`${API_BASE}/password-reset/request/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
-    });
-    if (!response.ok) {
-        const errorData = await response.json();
-        const errorMsg = Object.values(errorData).flat().join(', ');
-        throw new Error(errorMsg || 'Error al solicitar OTP de recuperación');
-    }
-    return await response.json();
-};
+export const logoutService = clearTokens;
 
-export const verifyPasswordResetOTPService = async (email: string, otpCode: string, newPassword: string) => {
-    const response = await fetch(`${API_BASE}/password-reset/verify/`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, otp_code: otpCode, new_password: newPassword }),
-    });
-    if (!response.ok) {
-        const errorData = await response.json();
-        const errorMsg = Object.values(errorData).flat().join(', ');
-        throw new Error(errorMsg || 'Error al restablecer contraseña');
-    }
-    return await response.json();
-};
+export const getCurrentUserService = () => request<User>('/me/');
 
-export const logoutService = async () => {
-    await AsyncStorage.removeItem('authToken');
-    await AsyncStorage.removeItem('refreshToken');
-};
+// --- Recetas ---
 
-export const getCurrentUserService = async () => {
-    const response = await authenticatedFetch(`${API_BASE}/me/`);
-    if (!response.ok) throw new Error('Error al cargar el usuario');
-    return await response.json();
-};
-
-// Obtener Categorías
-export const getCategoriesService = async () => {
-    const response = await authenticatedFetch(`${API_BASE}/categorias/`);
-    if (!response.ok) throw new Error('Error al cargar categorías');
-    return await response.json();
-};
-
-// Tipo de respuesta paginada del backend (DRF CursorPagination)
+/** Respuesta paginada de DRF (CursorPagination). */
 export interface PaginatedResponse<T> {
     next: string | null;
     previous: string | null;
     results: T[];
 }
 
-// Obtener Recetas con paginación por cursor (con filtros de búsqueda, categoría y favoritos)
-export const getRecipesService = async (
+/** Primera página con filtros, o la siguiente si viene `cursorUrl` (ya trae los filtros). */
+export const getRecipesService = (
     categoryId?: number | null,
     search?: string,
     favorites?: boolean,
     cursorUrl?: string | null,
 ): Promise<PaginatedResponse<Recipe>> => {
-    // Si tenemos cursorUrl, usarla directamente (ya incluye filtros + cursor)
-    if (cursorUrl) {
-        const response = await authenticatedFetch(cursorUrl, {
-            headers: buildHeaders(),
-        });
-        if (!response.ok) throw new Error('Error al cargar recetas');
-        return await response.json();
-    }
-
-    // Primera carga: construir URL con filtros
+    if (cursorUrl) return request(cursorUrl);
     const params = new URLSearchParams();
-    if (categoryId) params.append('categories', categoryId.toString());
+    if (categoryId) params.append('categories', String(categoryId));
     if (search) params.append('search', search);
     if (favorites) params.append('favorites', 'true');
+    return request(`/recetas/?${params}`);
+};
 
-    const response = await authenticatedFetch(`${API_BASE}/recetas/?${params.toString()}`, {
-        headers: buildHeaders(),
-    });
+/** Con id edita (PUT), sin id crea (POST). */
+export const saveRecipeService = (recipe: Recipe) =>
+    recipe.id
+        ? request<Recipe>(`/recetas/${recipe.id}/`, { method: 'PUT', body: recipe })
+        : request<Recipe>('/recetas/', { method: 'POST', body: recipe });
 
-    if (!response.ok) {
-        console.error('Error fetching recipes:', response.status, response.statusText);
-        throw new Error('Error al cargar recetas');
+export const deleteRecipeService = (id: number) => request<void>(`/recetas/${id}/`, { method: 'DELETE' });
+
+export const toggleFavoriteService = (recipeId: number) =>
+    request<{ is_favorite: boolean }>(`/recetas/${recipeId}/favorite/`, { method: 'POST' });
+
+/** Marca una receta como pública (necesario para que el link compartido funcione). */
+export const setRecipePublicService = (id: number, isPublic: boolean) =>
+    request<Recipe>(`/recetas/${id}/`, { method: 'PATCH', body: { is_public: isPublic } });
+
+/** Receta pública por uuid. Con sesión también devuelve las propias aunque no sean públicas. */
+export const getSharedRecipeService = async (uuid: string): Promise<Recipe> => {
+    const path = `/compartidas/${uuid}/`;
+    if (!(await hasStoredSession())) return request(path, { auth: false });
+    try {
+        return await request(path);
+    } catch (e) {
+        // Sesión vencida: probamos como anónimo.
+        if (e instanceof SessionExpiredError) return request(path, { auth: false });
+        throw e;
     }
-
-    return await response.json();
 };
 
-// Guardar Receta (Decide si es Crear o Editar automáticamente)
-export const saveRecipeService = async (recipe: Recipe) => {
-    // Si tiene ID, es EDITAR (PUT). Si no, es CREAR (POST).
-    const isEditing = !!recipe.id;
-    const url = isEditing ? `${API_BASE}/recetas/${recipe.id}/` : `${API_BASE}/recetas/`;
-    const method = isEditing ? 'PUT' : 'POST';
+// --- Importar con IA (todas devuelven { message, recipe }) ---
 
-    const response = await authenticatedFetch(url, {
-        method,
-        headers: buildHeaders(),
-        body: JSON.stringify(recipe),
-    });
+interface ImportResponse { message: string; recipe: Recipe }
 
-    if (!response.ok) {
-        // Intentamos leer el error del backend para saber qué pasó
-        const errorData = await response.json();
-        throw new Error(JSON.stringify(errorData));
-    }
+export const importRecipeService = (url: string) =>
+    request<ImportResponse>('/importar/', { method: 'POST', body: { url } });
 
-    return await response.json();
-};
-
-// Borrar Receta
-export const deleteRecipeService = async (id: number) => {
-    const response = await authenticatedFetch(`${API_BASE}/recetas/${id}/`, {
-        method: 'DELETE',
-        headers: buildHeaders(),
-    });
-
-    if (!response.ok) throw new Error('Error al eliminar la receta');
-    return true; // Retornamos true si salió bien
-};
-
-// Importar desde IA
-export const importRecipeService = async (url: string) => {
-    const response = await authenticatedFetch(`${API_BASE}/importar/`, {
-        method: 'POST',
-        headers: buildHeaders(),
-        body: JSON.stringify({ url }),
-    });
-
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(JSON.stringify(errorData));
-    }
-    return await response.json();
-};
-
-export const importRecipeServiceAudio = async (fileUri: string, fileName: string, fileType: string) => {
+export const importRecipeServiceAudio = (fileUri: string, fileName: string, fileType: string, webFile?: File) => {
     const formData = new FormData();
-    formData.append('file', {
-        uri: fileUri,
-        name: fileName,
-        type: fileType,
-    } as any);
-
-    const response = await authenticatedFetch(`${API_BASE}/importar-archivo/`, {
-        method: 'POST',
-        headers: buildHeaders(true),
-        body: formData,
-    });
-
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(JSON.stringify(errorData));
+    if (webFile) {
+        // En web FormData necesita un File/Blob real; el objeto {uri, name, type} es solo de React Native.
+        formData.append('file', webFile, fileName);
+    } else {
+        formData.append('file', { uri: fileUri, name: fileName, type: fileType } as unknown as Blob);
     }
-    return await response.json();
+    return request<ImportResponse>('/importar-archivo/', { method: 'POST', body: formData });
 };
 
-export const importRecipeServiceText = async (text: string) => {
-    const response = await authenticatedFetch(`${API_BASE}/importar-texto/`, {
-        method: 'POST',
-        headers: buildHeaders(),
-        body: JSON.stringify({ text }),
-    });
+export const importRecipeServiceText = (text: string) =>
+    request<ImportResponse>('/importar-texto/', { method: 'POST', body: { text } });
 
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(JSON.stringify(errorData));
-    }
-    return await response.json();
-};
+export const importRecipeServiceWeb = (url: string) =>
+    request<ImportResponse>('/importar-web/', { method: 'POST', body: { url } });
 
-export const importRecipeServiceWeb = async (url: string) => {
-    const response = await authenticatedFetch(`${API_BASE}/importar-web/`, {
-        method: 'POST',
-        headers: buildHeaders(),
-        body: JSON.stringify({ url }),
-    });
+// --- Categorías ---
 
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(JSON.stringify(errorData));
-    }
-    return await response.json();
-};
+export const getCategoriesService = () => request<Category[]>('/categorias/');
 
-export const getSharedRecipeService = async (uuid: string) => {
-    const response = await fetch(`${API_BASE}/compartidas/${uuid}/`);
-    if (!response.ok) throw new Error('Receta no encontrada');
-    return await response.json();
-};
+export const createCategoryService = (name: string) =>
+    request<Category>('/categorias/', { method: 'POST', body: { name } });
 
-// crear categoria
-export const createCategoryService = async (name: string) => {
-    const response = await authenticatedFetch(`${API_BASE}/categorias/`, {
-        method: 'POST',
-        headers: buildHeaders(),
-        body: JSON.stringify({ name }),
-    });
+// --- Planificador ---
 
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(JSON.stringify(errorData));
-    }
-    return await response.json();
-};
+export const getWeekPlans = (weekStart: string) => request<MealPlan[]>(`/planner/week/?week_start=${weekStart}`);
 
-// Toggle Favorito (like/unlike)
-export const toggleFavoriteService = async (recipeId: number) => {
-    const response = await authenticatedFetch(`${API_BASE}/recetas/${recipeId}/favorite/`, {
-        method: 'POST',
-        headers: buildHeaders(),
-    });
+export const createMealPlan = (data: { date: string; meal_type: string; recipe: string }) =>
+    request<MealPlan>('/planner/', { method: 'POST', body: data });
 
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(JSON.stringify(errorData));
-    }
-    return await response.json();
-};
+export const deleteMealPlan = (id: number) => request<void>(`/planner/${id}/`, { method: 'DELETE' });
 
-// --- PLANNER SERVICES ---
+// --- Lista de compras ---
 
-export const getWeekPlans = async (weekStart: string): Promise<MealPlan[]> => {
-    const response = await authenticatedFetch(
-        `${API_BASE}/planner/week/?week_start=${weekStart}`,
-        { headers: buildHeaders() }
-    );
-    if (!response.ok) throw new Error('Error al cargar el plan semanal');
-    return await response.json();
-};
+export const generateShoppingList = (weekStart: string) =>
+    request<ShoppingListItem[]>('/planner/generate_shopping_list/', { method: 'POST', body: { week_start: weekStart } });
 
-export const createMealPlan = async (data: {
-    date: string;
-    meal_type: string;
-    recipe: string;
-}): Promise<MealPlan> => {
-    const response = await authenticatedFetch(`${API_BASE}/planner/`, {
-        method: 'POST',
-        headers: buildHeaders(),
-        body: JSON.stringify(data),
-    });
-    if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(JSON.stringify(errorData));
-    }
-    return await response.json();
-};
+export const getShoppingList = (weekStart: string) =>
+    request<ShoppingListItem[]>(`/shopping/?week_start=${weekStart}`);
 
-export const deleteMealPlan = async (id: number): Promise<void> => {
-    const response = await authenticatedFetch(`${API_BASE}/planner/${id}/`, {
-        method: 'DELETE',
-        headers: buildHeaders(),
-    });
-    if (!response.ok) throw new Error('Error al eliminar del plan');
-};
+export const toggleShoppingItem = (id: number, isChecked: boolean) =>
+    request<ShoppingListItem>(`/shopping/${id}/`, { method: 'PATCH', body: { is_checked: isChecked } });
 
-// --- SHOPPING LIST SERVICES ---
+export const createShoppingItem = (data: { week_start: string; ingredient_name: string; quantity?: string; category?: string }) =>
+    request<ShoppingListItem>('/shopping/', { method: 'POST', body: data });
 
-export const generateShoppingList = async (weekStart: string): Promise<ShoppingListItem[]> => {
-    const response = await authenticatedFetch(`${API_BASE}/planner/generate_shopping_list/`, {
-        method: 'POST',
-        headers: buildHeaders(),
-        body: JSON.stringify({ week_start: weekStart }),
-    });
-    if (!response.ok) throw new Error('Error al generar la lista de compras');
-    return await response.json();
-};
+export const updateShoppingItem = (id: number, data: Partial<ShoppingListItem>) =>
+    request<ShoppingListItem>(`/shopping/${id}/`, { method: 'PATCH', body: data });
 
-export const getShoppingList = async (weekStart: string): Promise<ShoppingListItem[]> => {
-    const response = await authenticatedFetch(
-        `${API_BASE}/shopping/?week_start=${weekStart}`,
-        { headers: buildHeaders() }
-    );
-    if (!response.ok) throw new Error('Error al cargar la lista de compras');
-    return await response.json();
-};
+export const deleteShoppingItem = (id: number) => request<void>(`/shopping/${id}/`, { method: 'DELETE' });
 
-export const toggleShoppingItem = async (
-    id: number,
-    isChecked: boolean
-): Promise<ShoppingListItem> => {
-    const response = await authenticatedFetch(`${API_BASE}/shopping/${id}/`, {
-        method: 'PATCH',
-        headers: buildHeaders(),
-        body: JSON.stringify({ is_checked: isChecked }),
-    });
-    if (!response.ok) throw new Error('Error al actualizar ítem');
-    return await response.json();
-};
+// --- Ideas (chat IA) ---
 
-export const createShoppingItem = async (data: {
-    week_start: string;
-    ingredient_name: string;
-    quantity?: string;
-    category?: string;
-}): Promise<ShoppingListItem> => {
-    const response = await authenticatedFetch(`${API_BASE}/shopping/`, {
-        method: 'POST',
-        headers: buildHeaders(),
-        body: JSON.stringify(data),
-    });
-    if (!response.ok) throw new Error('Error al agregar ítem');
-    return await response.json();
-};
-
-export const updateShoppingItem = async (
-    id: number,
-    data: Partial<ShoppingListItem>
-): Promise<ShoppingListItem> => {
-    const response = await authenticatedFetch(`${API_BASE}/shopping/${id}/`, {
-        method: 'PATCH',
-        headers: buildHeaders(),
-        body: JSON.stringify(data),
-    });
-    if (!response.ok) throw new Error('Error al editar ítem');
-    return await response.json();
-};
-
-export const deleteShoppingItem = async (id: number): Promise<void> => {
-    const response = await authenticatedFetch(`${API_BASE}/shopping/${id}/`, {
-        method: 'DELETE',
-        headers: buildHeaders(),
-    });
-    if (!response.ok) throw new Error('Error al eliminar ítem');
-};
-
-// --- FOGONCITO SERVICE ---
-
-export const sendFogoncitoMessage = async (message: string): Promise<FogoncitoResponse> => {
-    const response = await authenticatedFetch(`${API_BASE}/fogoncito/`, {
-        method: 'POST',
-        headers: buildHeaders(),
-        body: JSON.stringify({ message }),
-    });
-    if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Fogoncito no está disponible en este momento');
-    }
-    return await response.json();
-};
+export const sendIdeasMessage = (message: string) =>
+    request<IdeasResponse>('/ideas/', { method: 'POST', body: { message } });

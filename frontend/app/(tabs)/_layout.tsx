@@ -4,27 +4,26 @@ import { TouchableOpacity, View } from 'react-native';
 import { useApp } from '../../src/context/AppContext';
 import { Home, Compass, Plus, CalendarDays, User } from 'lucide-react-native';
 import { COLORS } from '../../src/theme';
+import { FEATURES } from '../../src/constants/features';
+import { FONT } from '../../src/components/ui/Typography';
 
 export default function TabsLayout() {
   const { setCreateMenuVisible } = useApp();
 
   return (
     <Tabs screenOptions={{
-      tabBarActiveTintColor: COLORS.primary,
+      tabBarActiveTintColor: COLORS.secondary,
       tabBarInactiveTintColor: COLORS.text.secondary,
-      tabBarShowLabel: false,
+      tabBarLabelStyle: { fontSize: 11, fontFamily: FONT.extrabold, marginTop: 2 },
       headerShown: false,
+      sceneStyle: { backgroundColor: COLORS.background },
       tabBarStyle: {
         backgroundColor: COLORS.card,
         borderTopWidth: 1,
-        borderTopColor: 'rgba(168, 144, 112, 0.12)',
-        height: 80,
-        paddingTop: 10,
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: -2 },
-        shadowOpacity: 0.03,
-        shadowRadius: 8,
-        elevation: 8,
+        borderTopColor: COLORS.border,
+        height: 88,
+        paddingTop: 8,
+        elevation: 0,
       }
     }}>
       {/* 1. HOME */}
@@ -32,7 +31,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Inicio',
-          tabBarIcon: ({ color }) => <Home size={24} color={color} strokeWidth={2} />,
+          tabBarIcon: ({ color, focused }) => <Home size={24} color={color} strokeWidth={2} fill={focused ? COLORS.primary : 'transparent'} />,
         }}
       />
 
@@ -41,7 +40,8 @@ export default function TabsLayout() {
         name="explore"
         options={{
           title: 'Explorar',
-          tabBarIcon: ({ color }) => <Compass size={24} color={color} strokeWidth={2} />,
+          href: FEATURES.EXPLORE ? undefined : null,
+          tabBarIcon: ({ color, focused }) => <Compass size={24} color={color} strokeWidth={2} fill={focused ? COLORS.primary : 'transparent'} />,
         }}
       />
 
@@ -49,19 +49,24 @@ export default function TabsLayout() {
       <Tabs.Screen
         name="create"
         options={{
+          tabBarLabel: () => null,
+          tabBarAccessibilityLabel: 'Agregar receta',
           tabBarIcon: () => (
             <View style={{
               backgroundColor: COLORS.primary,
-              width: 52,
-              height: 52,
+              width: 56,
+              height: 56,
               borderRadius: 18,
               justifyContent: 'center',
               alignItems: 'center',
-              marginTop: -20,
-              borderWidth: 3,
-              borderColor: COLORS.card,
+              marginTop: -18,
+              shadowColor: COLORS.primary,
+              shadowOffset: { width: 0, height: 6 },
+              shadowOpacity: 0.35,
+              shadowRadius: 14,
+              elevation: 6,
             }}>
-              <Plus size={28} color={COLORS.secondary} strokeWidth={3} />
+              <Plus size={26} color={COLORS.secondary} strokeWidth={2.6} />
             </View>
           ),
           tabBarButton: (props) => (
@@ -81,7 +86,7 @@ export default function TabsLayout() {
         name="planner"
         options={{
           title: 'Planificar',
-          tabBarIcon: ({ color }) => <CalendarDays size={24} color={color} strokeWidth={2} />,
+          tabBarIcon: ({ color, focused }) => <CalendarDays size={24} color={color} strokeWidth={2} fill={focused ? COLORS.primary : 'transparent'} />,
         }}
       />
 
@@ -90,7 +95,7 @@ export default function TabsLayout() {
         name="settings"
         options={{
           title: 'Perfil',
-          tabBarIcon: ({ color }) => <User size={24} color={color} strokeWidth={2} />,
+          tabBarIcon: ({ color, focused }) => <User size={24} color={color} strokeWidth={2} fill={focused ? COLORS.primary : 'transparent'} />,
         }}
       />
     </Tabs>

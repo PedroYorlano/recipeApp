@@ -1,24 +1,24 @@
 {
   "expo": {
-    "name": "FOGON",
-    "slug": "fogon",
+    "name": "Pizca",
+    "slug": "pizca",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "fogon",
+    "scheme": "pizca",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.pedroyorlano.fogon",
+      "bundleIdentifier": "com.pedroyorlano.pizca",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
-      "package": "com.pedroyorlano.fogon",
+      "package": "com.pedroyorlano.pizca",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#BE9F00",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -52,9 +52,9 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#FFF9EC",
           "dark": {
-            "backgroundColor": "#000000"
+            "backgroundColor": "#3F3128"
           }
         }
       ],
@@ -68,11 +68,19 @@
             }
           ],
           "backgroundColor": {
-            "red": 250,
-            "green": 238,
-            "blue": 218,
+            "red": 255,
+            "green": 249,
+            "blue": 236,
             "alpha": 1
           }
+        }
+      ],
+      "expo-font",
+      "expo-web-browser",
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Pizca usa el micrófono para que puedas dictar tus recetas."
         }
       ]
     ],
@@ -81,28 +89,7 @@
       "reactCompiler": true
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "build": {
-          "experimental": {
-            "ios": {
-              "appExtensions": [
-                {
-                  "targetName": "FOGONShareExtension",
-                  "bundleIdentifier": "com.pedroyorlano.fogon.ShareExtension",
-                  "entitlements": {
-                    "com.apple.security.application-groups": [
-                      "group.com.pedroyorlano.fogon"
-                    ]
-                  }
-                }
-              ]
-            }
-          }
-        },
-        "projectId": "61a0e1df-09ce-49c4-9575-0a96fb5c23ca"
-      },
-      "appleApplicationGroup": "group.com.pedroyorlano.fogon"
+      "router": {}
     }
   }
 }

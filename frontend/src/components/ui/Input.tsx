@@ -1,5 +1,6 @@
 import React from 'react';
-import { TextInput, View, Text, TextInputProps } from 'react-native';
+import { View, TextInputProps } from 'react-native';
+import { TextInput, Text } from './Typography';
 
 interface InputProps extends TextInputProps {
   label?: string;
@@ -8,26 +9,26 @@ interface InputProps extends TextInputProps {
   rightIcon?: React.ReactNode;
 }
 
-export function Input({ label, error, leftIcon, rightIcon, className, ...props }: InputProps) {
+/** Campo PIZCA: fondo crema sin borde; con error, fondo rosado y borde tomate. */
+export function Input({ label, error, leftIcon, rightIcon, className, multiline, ...props }: InputProps) {
   return (
     <View className="mb-4">
-      {label && (
-        <Text className="text-fogon-gray uppercase text-xs font-bold tracking-wider mb-2">
-          {label}
-        </Text>
-      )}
-      <View className={`flex-row items-center bg-fogon-white border border-fogon-gray/30 rounded-[12px] px-4 py-1 min-h-[56px] shadow-sm ${error ? 'border-red-500' : ''} ${className || ''}`}>
+      {label && <Text className="text-[13px] font-extrabold text-pizca-marron mb-1.5">{label}</Text>}
+      <View
+        className={`flex-row items-center rounded-[14px] px-4 ${multiline ? 'py-3 min-h-[96px]' : 'min-h-[52px]'} ${
+          error ? 'bg-[#FFF1EB] border-[1.5px] border-pizca-tomate' : 'bg-pizca-crema'
+        } ${className || ''}`}
+      >
         {leftIcon && <View className="mr-3">{leftIcon}</View>}
-        
         <TextInput
-          className="flex-1 text-fogon-brown text-base h-full"
-          placeholderTextColor="#A89070"
+          className={`flex-1 text-pizca-marron text-base ${multiline ? '' : 'h-[52px]'}`}
+          placeholderTextColor="#8C7E70"
+          multiline={multiline}
           {...props}
         />
-        
         {rightIcon && <View className="ml-3">{rightIcon}</View>}
       </View>
-      {error && <Text className="text-red-500 text-sm mt-1 ml-1">{error}</Text>}
+      {error && <Text className="text-pizca-tomate-texto text-[13px] font-bold mt-1.5">{error}</Text>}
     </View>
   );
 }

@@ -1,160 +1,130 @@
-import ipaddress
-import socket
-from urllib.parse import urlparse
-
-from rest_framework import viewsets, status, filters
-from rest_framework.decorators import api_view, permission_classes, throttle_classes, action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, AllowAny
-from rest_framework.generics import RetrieveAPIView, CreateAPIView
-from rest_framework.views import APIView
-from rest_framework.throttling import UserRateThrottle
-from django.contrib.auth.models import User
-from django.contrib.auth.hashers import make_password
-from django_filters.rest_framework import DjangoFilterBackend
-from django.db.models import Q
-from django.conf import settings
-from django.core.mail import send_mail
-from django.utils import timezone
-from rest_framework_simplejwt.tokens import RefreshToken
-import random
-from .models import Recipe, Category, Favorite, UserUsage, GlobalUsage, MealPlan, ShoppingListItem, PendingRegistration, PasswordResetOTP, Ingredient
-from .serializers import RecipeSerializer, CategorySerializer, UserRegistrationSerializer, MealPlanSerializer, ShoppingListItemSerializer
-from datetime import date, timedelta
+import logging
 import os
-from .utils import download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text, build_recipes_summary, call_fogoncito
-import tempfile
-import requests
-from bs4 import BeautifulSoup
 import re
-from decimal import Decimal, InvalidOperation
+import secrets
+import shutil
+import tempfile
+from datetime import date, timedelta
+from urllib.parse import urljoin, urlparse
 
-# Create your views here.
+from bs4 import BeautifulSoup
+from django.conf import settings
+from django.contrib.auth.hashers import check_password, make_password
+from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
+from django.core.mail import send_mail
+from django.core.validators import validate_email
+from django.db import IntegrityError, transaction
+from django.db.models import Count, Exists, IntegerField, OuterRef, Q, Subquery, Value
+from django.db.models.functions import Coalesce
+from django.http import Http404
+from django.utils import timezone
+from django.utils.crypto import constant_time_compare
+from django_filters.rest_framework import DjangoFilterBackend
+from rest_framework import filters, status, viewsets
+from rest_framework.decorators import action, api_view, permission_classes, throttle_classes
+from rest_framework.exceptions import NotFound, ValidationError
+from rest_framework.generics import RetrieveAPIView
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle, UserRateThrottle
+from rest_framework.views import APIView
+from rest_framework_simplejwt.tokens import RefreshToken
 
-# --- Throttle personalizado para importaciones ---
+from .models import (
+    OTP_TTL, Category, Favorite, GlobalUsage, Ingredient, MealPlan, PasswordResetOTP,
+    PendingRegistration, Recipe, ShoppingListItem, UserUsage,
+)
+from .net import FetchError, fetch_public
+from .serializers import CategorySerializer, MealPlanSerializer, RecipeSerializer, ShoppingListItemSerializer
+from .shopping import consolidate, format_quantity, learn_from_recipe, normalize_name, remember_user_choice, resolve_aisles
+from .utils import (
+    AIInputError, build_recipes_summary, call_ideas, convert_audio_to_mp3,
+    download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text,
+)
+
+logger = logging.getLogger(__name__)
+
+MAX_AUDIO_UPLOAD_BYTES = 20 * 1024 * 1024
+MAX_WEB_PAGE_BYTES = 5 * 1024 * 1024
+MAX_IMPORT_TEXT_CHARS = 50_000
+MAX_IDEAS_MESSAGE_CHARS = 2000
+
+# Dominios de video aceptados (incluye subdominios: www., m., vm., ...).
+ALLOWED_VIDEO_DOMAINS = ('youtube.com', 'youtu.be', 'tiktok.com', 'instagram.com', 'facebook.com', 'fb.watch')
+
+
 class ImportRateThrottle(UserRateThrottle):
     """Limita las importaciones con IA a 5 por minuto por usuario."""
     scope = 'import'
 
 
-class FogoncitoRateThrottle(UserRateThrottle):
-    """Limita el chat de Fogoncito a 10 por minuto por usuario."""
-    scope = 'fogoncito'
+class IdeasRateThrottle(UserRateThrottle):
+    """Limita el chat de Ideas a 10 por minuto por usuario."""
+    scope = 'ideas'
 
 
-# --- Whitelist de hosts para video ---
-ALLOWED_VIDEO_HOSTS = [
-    'youtube.com', 'www.youtube.com', 'youtu.be', 'm.youtube.com',
-    'tiktok.com', 'www.tiktok.com', 'vm.tiktok.com', 'vt.tiktok.com',
-    'instagram.com', 'www.instagram.com',
-]
-
-INGREDIENT_CATEGORIES = {
-    'Verduras y frescos': [
-        'lechuga', 'tomate', 'cebolla', 'zanahoria', 'palta', 'pimiento',
-        'zapallo', 'berenjena', 'espinaca', 'brócoli', 'ajo', 'papa',
-        'batata', 'limón', 'naranja', 'manzana', 'verdeo', 'apio'
-    ],
-    'Carnes y proteínas': [
-        'pollo', 'carne', 'cerdo', 'pescado', 'atún', 'huevo', 'tofu',
-        'nalga', 'milanesa', 'chorizo', 'salchicha', 'jamón', 'lomo'
-    ],
-    'Lácteos': [
-        'leche', 'queso', 'crema', 'manteca', 'yogur', 'ricota',
-        'mozzarella', 'cheddar', 'mantequilla'
-    ],
-    'Despensa': [
-        'arroz', 'fideos', 'harina', 'azúcar', 'sal', 'aceite',
-        'vinagre', 'soja', 'mirin', 'salsa', 'caldo', 'lenteja',
-        'garbanzo', 'frijol', 'pasta', 'avena', 'mostaza',
-        'mayonesa', 'ketchup', 'barbacoa', 'vino', 'cerveza',
-        'aceite de oliva', 'aceite de girasol'
-    ],
-    'Panadería': [
-        'pan', 'tostada', 'galletita', 'bizcocho', 'factura'
-    ],
-    'Especias y condimentos': [
-        'pimienta', 'comino', 'orégano', 'pimentón', 'curry', 'jengibre',
-        'cúrcuma', 'canela', 'ají molido'
-    ],
-}
+def error(message, code=status.HTTP_400_BAD_REQUEST):
+    return Response({'error': message}, status=code)
 
 
-def validate_video_url(url):
-    """Valida que la URL pertenece a un host de video permitido."""
-    try:
-        parsed = urlparse(url)
-        host = parsed.hostname
-        if not host:
-            return False, "URL inválida"
-        if host not in ALLOWED_VIDEO_HOSTS:
-            return False, f"Solo se permiten links de YouTube, TikTok e Instagram. Host recibido: {host}"
-        return True, None
-    except Exception:
-        return False, "URL malformada"
-
-
-def validate_web_url_ssrf(url):
-    """
-    Protección SSRF: valida que la URL es HTTPS y apunta a una IP pública.
-    Bloquea acceso a IPs privadas, loopback, link-local y metadata de cloud.
-    """
-    try:
-        parsed = urlparse(url)
-
-        # 1. Forzar HTTPS
-        if parsed.scheme != 'https':
-            return False, "Solo se permiten URLs con HTTPS por seguridad."
-
-        hostname = parsed.hostname
-        if not hostname:
-            return False, "URL inválida"
-
-        # 2. Resolver DNS y verificar que la IP es pública
-        resolved_ip = socket.gethostbyname(hostname)
-        ip_obj = ipaddress.ip_address(resolved_ip)
-
-        if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
-            return False, "No se permite acceder a direcciones IP privadas o reservadas."
-
-        return True, None
-    except socket.gaierror:
-        return False, "No se pudo resolver el dominio."
-    except Exception as e:
-        return False, f"Error validando URL: {str(e)}"
-
+# ---------------------------------------------------------------------------
+# Límites de uso de la IA
+# ---------------------------------------------------------------------------
 
 def check_usage_limits(user):
     """
-    Verifica límites de uso antes de una importación:
-    1. Límite por usuario/día
-    2. Límite global de requests a Gemini/día
-    Retorna (can_proceed: bool, error_message: str | None)
+    Verifica los límites antes de llamar a Gemini: por usuario y por día, y global por día.
+    Devuelve el mensaje de error, o None si se puede seguir.
     """
-    max_per_user = getattr(settings, 'FOGON_MAX_IMPORTS_PER_USER_PER_DAY')
-    max_global = getattr(settings, 'FOGON_MAX_GEMINI_REQUESTS_PER_DAY')
-
-    # 1. Límite por usuario
+    max_per_user = settings.PIZCA_MAX_IMPORTS_PER_USER_PER_DAY
     usage, _ = UserUsage.objects.get_or_create(user=user)
     if not usage.can_import(max_per_user):
-        return False, f"Alcanzaste tu límite de {max_per_user} importaciones por día. ¡Mañana podés seguir!"
-
-    # 2. Límite global de Gemini
-    global_usage = GlobalUsage.get_today()
-    if not global_usage.can_request(max_global):
-        return False, "Se alcanzó el límite diario de importaciones del sistema. ¡Intentá mañana!"
-
-    return True, None
+        return f"Alcanzaste tu límite de {max_per_user} importaciones por día. ¡Mañana podés seguir!"
+    if not GlobalUsage.get_today().can_request(settings.PIZCA_MAX_GEMINI_REQUESTS_PER_DAY):
+        return "Se alcanzó el límite diario de importaciones del sistema. ¡Intentá mañana!"
+    return None
 
 
 def record_usage(user):
-    """Registra una importación exitosa en ambos contadores."""
+    """Registra una llamada exitosa en ambos contadores."""
     usage, _ = UserUsage.objects.get_or_create(user=user)
     usage.record_import()
+    GlobalUsage.get_today().record_request()
 
-    global_usage = GlobalUsage.get_today()
-    global_usage.record_request()
 
+def run_ai_import(request, extract, failure_message, failure_status=status.HTTP_500_INTERNAL_SERVER_ERROR):
+    """
+    Lo común a todas las importaciones: límites, errores y registro de uso.
+    `extract()` devuelve el dict de la receta o None; puede tirar AIInputError/FetchError
+    con un mensaje para el usuario.
+    """
+    limit_msg = check_usage_limits(request.user)
+    if limit_msg:
+        return error(limit_msg, status.HTTP_429_TOO_MANY_REQUESTS)
+    try:
+        recipe = extract()
+    except (AIInputError, FetchError) as e:
+        return error(str(e))
+    except Exception:
+        logger.exception('Falló una importación con IA')
+        return error('Algo falló al armar la receta. Probá de nuevo en un rato.', status.HTTP_500_INTERNAL_SERVER_ERROR)
+    if not recipe:
+        return error(failure_message, failure_status)
+    learn_from_recipe(recipe)
+    record_usage(request.user)
+    return Response({'message': 'Receta importada', 'recipe': recipe}, status=status.HTTP_201_CREATED)
+
+
+def is_allowed_video_url(url):
+    host = (urlparse(url).hostname or '').lower()
+    return any(host == d or host.endswith('.' + d) for d in ALLOWED_VIDEO_DOMAINS)
+
+
+# ---------------------------------------------------------------------------
+# Recetas
+# ---------------------------------------------------------------------------
 
 class RecipeViewSet(viewsets.ModelViewSet):
     serializer_class = RecipeSerializer
@@ -164,44 +134,63 @@ class RecipeViewSet(viewsets.ModelViewSet):
     search_fields = ['title', 'description', 'ingredients__name']
 
     def get_queryset(self):
-        qs = Recipe.objects.filter(user=self.request.user).order_by('-created_at')
-        
-        # Filtro de favoritos
+        user = self.request.user
+        favorite_count = (
+            Favorite.objects.filter(recipe=OuterRef('pk'))
+            .values('recipe').annotate(n=Count('pk')).values('n')
+        )
+        qs = (
+            Recipe.objects.filter(user=user)
+            .annotate(
+                is_favorite_annotated=Exists(Favorite.objects.filter(user=user, recipe=OuterRef('pk'))),
+                favorite_count_annotated=Coalesce(Subquery(favorite_count, output_field=IntegerField()), Value(0)),
+            )
+            # Sin esto, cada receta de la página hace sus propias consultas de ingredientes, pasos y categorías.
+            .prefetch_related('ingredients', 'steps', 'categories')
+            .order_by('-created_at')
+        )
         if self.request.query_params.get('favorites') == 'true':
-            qs = qs.filter(favorited_by__user=self.request.user)
-        
+            qs = qs.filter(is_favorite_annotated=True)
         return qs
-
-    def get_serializer_context(self):
-        context = super().get_serializer_context()
-        context['request'] = self.request
-        return context
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-    def perform_update(self, serializer):
-        serializer.save(user=self.request.user)
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        # Sin esto quedan slots del planner "ocupados" por una receta que ya no existe.
+        MealPlan.objects.filter(user=self.request.user, recipe=instance).delete()
+        instance.delete()
 
-    @action(detail=True, methods=['post'], permission_classes=[IsAuthenticated])
+    @action(detail=True, methods=['post'])
     def favorite(self, request, pk=None):
         """Toggle favorito: si ya existe lo elimina, si no existe lo crea."""
         recipe = self.get_object()
-        fav, created = Favorite.objects.get_or_create(user=request.user, recipe=recipe)
-        
-        if not created:
-            # Ya existía → lo eliminamos (toggle off)
-            fav.delete()
+        deleted, _ = Favorite.objects.filter(user=request.user, recipe=recipe).delete()
+        if deleted:
             return Response({'is_favorite': False, 'message': 'Eliminado de favoritos'})
-        
+        Favorite.objects.get_or_create(user=request.user, recipe=recipe)
         return Response({'is_favorite': True, 'message': '¡Agregado a favoritos!'})
 
 
 class SharedRecipeView(RetrieveAPIView):
-    queryset = Recipe.objects.filter(is_public=True)
+    """Receta por uuid: las públicas para cualquiera y, con sesión, también las propias."""
     serializer_class = RecipeSerializer
     permission_classes = [AllowAny]
     lookup_field = 'uuid'
+
+    def get_queryset(self):
+        visible = Q(is_public=True)
+        if self.request.user.is_authenticated:
+            visible |= Q(user=self.request.user)
+        return Recipe.objects.filter(visible).prefetch_related('ingredients', 'steps', 'categories')
+
+    def get_object(self):
+        try:
+            return super().get_object()
+        except Http404:
+            raise NotFound('Esta receta no existe o ya no está compartida.')
+
 
 class CategoryViewSet(viewsets.ModelViewSet):
     serializer_class = CategorySerializer
@@ -216,96 +205,134 @@ class CategoryViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
 
-class RegisterView(APIView):
-    permission_classes = [AllowAny]
+# ---------------------------------------------------------------------------
+# Registro y recuperación de contraseña (códigos por mail)
+# ---------------------------------------------------------------------------
 
+def generate_otp():
+    return f'{secrets.randbelow(1_000_000):06d}'
+
+
+def send_code(email, subject, body):
+    try:
+        send_mail(subject=subject, message=body, from_email=settings.DEFAULT_FROM_EMAIL,
+                  recipient_list=[email], fail_silently=False)
+    except Exception:
+        logger.exception('No se pudo mandar el mail "%s"', subject)
+
+
+def check_otp(record, code):
+    """Devuelve el mensaje de error, o None si el código es válido. Cada fallo cuenta como intento."""
+    if record.is_locked():
+        return 'Pasaste el límite de intentos. Pedí un código nuevo.'
+    if record.is_expired():
+        return 'El código venció. Pedí uno nuevo.'
+    if not constant_time_compare(record.otp_code, code):
+        record.register_failed_attempt()
+        return 'El código es incorrecto.'
+    return None
+
+
+def password_error(password, user):
+    """Las reglas de AUTH_PASSWORD_VALIDATORS (largo, contraseñas comunes, parecido al usuario)."""
+    try:
+        validate_password(password, user=user)
+    except DjangoValidationError as e:
+        return ' '.join(e.messages)
+    return None
+
+
+def clean_email(value):
+    return str(value or '').strip().lower()
+
+
+class AuthView(APIView):
+    """Base de los endpoints sin sesión: limitan pedidos por IP (cada uno manda mails o prueba códigos)."""
+    permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = 'auth'
+
+
+class RegisterView(AuthView):
     def post(self, request):
-        username = request.data.get('username', '').strip()
-        email = request.data.get('email', '').strip()
-        password = request.data.get('password', '')
+        username = str(request.data.get('username', '')).strip()
+        email = clean_email(request.data.get('email'))
+        password = str(request.data.get('password', ''))
 
         if not username or not email or not password:
-            return Response({'error': 'Todos los campos son obligatorios.'}, status=status.HTTP_400_BAD_REQUEST)
+            return error('Todos los campos son obligatorios.')
+        if not 3 <= len(username) <= 30:
+            return error('El nombre de usuario debe tener entre 3 y 30 caracteres.')
+        if not re.fullmatch(r'[\w.+-]+', username):
+            return error('El nombre de usuario solo puede tener letras, números y . _ + -')
+        try:
+            validate_email(email)
+        except DjangoValidationError:
+            return error('El correo electrónico no es válido.')
+        pwd_error = password_error(password, User(username=username, email=email))
+        if pwd_error:
+            return error(pwd_error)
 
-        if len(username) < 3:
-            return Response({'error': 'El nombre de usuario debe tener al menos 3 caracteres.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Validaciones de duplicados en usuarios activos
         if User.objects.filter(username__iexact=username).exists():
-            return Response({'error': 'Este nombre de usuario ya está registrado.'}, status=status.HTTP_400_BAD_REQUEST)
-
+            return error('Este nombre de usuario ya está registrado.')
         if User.objects.filter(email__iexact=email).exists():
-            return Response({'error': 'Este correo electrónico ya está registrado.'}, status=status.HTTP_400_BAD_REQUEST)
+            return error('Este correo electrónico ya está registrado.')
 
-        # Generar OTP de 6 dígitos
-        otp_code = "".join(random.choices("0123456789", k=6))
-        hashed_password = make_password(password)
+        # Otro registro a medias con el mismo usuario: si venció se libera, si no, está tomado.
+        others = PendingRegistration.objects.filter(username__iexact=username).exclude(email=email)
+        others.filter(expires_at__lt=timezone.now()).delete()
+        if others.exists():
+            return error('Este nombre de usuario ya está en uso.')
 
-        # Guardar en base de datos temporal
+        otp_code = generate_otp()
         PendingRegistration.objects.update_or_create(
             email=email,
             defaults={
                 'username': username,
-                'password': hashed_password,
+                'password': make_password(password),
                 'otp_code': otp_code,
-                'expires_at': timezone.now() + timedelta(minutes=10)
-            }
+                'attempts': 0,
+                'expires_at': timezone.now() + OTP_TTL,
+            },
         )
-
-        # Enviar email
-        try:
-            send_mail(
-                subject='Código de Verificación - Fogón',
-                message=f'Tu código de verificación para registrarte en Fogón es: {otp_code}\n\nEste código vencerá en 10 minutos.',
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=False,
-            )
-        except Exception as e:
-            # En desarrollo fallar silenciosamente o registrar
-            print(f"Error enviando email: {e}")
-
-        return Response({
-            'message': 'OTP enviado a tu correo.',
-            'email': email
-        }, status=status.HTTP_200_OK)
+        send_code(
+            email, 'Código de verificación - Pizca',
+            f'Tu código para registrarte en Pizca es: {otp_code}\n\nVence en 10 minutos.',
+        )
+        return Response({'message': 'Te mandamos un código por mail.', 'email': email})
 
 
-class RegisterVerifyView(APIView):
-    permission_classes = [AllowAny]
-
+class RegisterVerifyView(AuthView):
     def post(self, request):
-        email = request.data.get('email', '').strip()
-        otp_code = request.data.get('otp_code', '').strip()
-
+        email = clean_email(request.data.get('email'))
+        otp_code = str(request.data.get('otp_code', '')).strip()
+        password = str(request.data.get('password', ''))
         if not email or not otp_code:
-            return Response({'error': 'Email y código OTP son requeridos.'}, status=status.HTTP_400_BAD_REQUEST)
+            return error('Faltan el mail o el código.')
+
+        pending = PendingRegistration.objects.filter(email__iexact=email).first()
+        if not pending:
+            return error('No encontramos un registro pendiente para este correo.')
+        otp_error = check_otp(pending, otp_code)
+        if otp_error:
+            return error(otp_error)
+        # El código le llega al dueño del mail, pero el registro lo pudo haber pisado otra persona
+        # con su propia contraseña. Solo quien la eligió puede terminar de crear la cuenta.
+        if not check_password(password, pending.password):
+            return error('Este registro no coincide con el que empezaste. Volvé a registrarte.')
 
         try:
-            pending = PendingRegistration.objects.get(email__iexact=email)
-        except PendingRegistration.DoesNotExist:
-            return Response({'error': 'No se encontró una solicitud de registro pendiente para este correo.'}, status=status.HTTP_400_BAD_REQUEST)
+            with transaction.atomic():
+                # Alguien pudo haber tomado el usuario o el mail mientras tanto.
+                if User.objects.filter(Q(username__iexact=pending.username) | Q(email__iexact=pending.email)).exists():
+                    pending.delete()
+                    return error('Ese usuario o correo ya está registrado. Empezá el registro de nuevo.')
+                user = User.objects.create(username=pending.username, email=pending.email, password=pending.password)
+                pending.delete()
+        except IntegrityError:
+            return error('Ese usuario o correo ya está registrado. Empezá el registro de nuevo.')
 
-        if pending.is_expired():
-            return Response({'error': 'El código OTP ha expirado. Por favor, solicita uno nuevo.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        if pending.otp_code != otp_code:
-            return Response({'error': 'El código OTP es incorrecto.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Crear el usuario en la BD de Django
-        user = User(
-            username=pending.username,
-            email=pending.email,
-            password=pending.password
-        )
-        user.save()
-
-        # Eliminar el registro pendiente
-        pending.delete()
-
-        # Generar tokens SimpleJWT
         refresh = RefreshToken.for_user(user)
-
         return Response({
             'message': 'Cuenta creada con éxito.',
             'access': str(refresh.access_token),
@@ -313,540 +340,332 @@ class RegisterVerifyView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
-class RegisterResendView(APIView):
-    permission_classes = [AllowAny]
-
+class RegisterResendView(AuthView):
     def post(self, request):
-        email = request.data.get('email', '').strip()
-
+        email = clean_email(request.data.get('email'))
         if not email:
-            return Response({'error': 'El email es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+            return error('El email es requerido.')
+        pending = PendingRegistration.objects.filter(email__iexact=email).first()
+        if not pending:
+            return error('No hay un registro pendiente para este correo.')
 
-        try:
-            pending = PendingRegistration.objects.get(email__iexact=email)
-        except PendingRegistration.DoesNotExist:
-            return Response({'error': 'No hay registro pendiente para este correo.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        otp_code = "".join(random.choices("0123456789", k=6))
-        pending.otp_code = otp_code
-        pending.expires_at = timezone.now() + timedelta(minutes=10)
-        pending.save()
-
-        # Enviar email
-        try:
-            send_mail(
-                subject='Nuevo Código de Verificación - Fogón',
-                message=f'Tu nuevo código de verificación es: {otp_code}\n\nEste código vencerá en 10 minutos.',
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=False,
-            )
-        except Exception as e:
-            print(f"Error enviando email: {e}")
-
-        return Response({'message': 'OTP reenviado exitosamente.'}, status=status.HTTP_200_OK)
+        pending.otp_code = generate_otp()
+        pending.attempts = 0
+        pending.expires_at = timezone.now() + OTP_TTL
+        pending.save(update_fields=['otp_code', 'attempts', 'expires_at'])
+        send_code(
+            pending.email, 'Nuevo código de verificación - Pizca',
+            f'Tu nuevo código es: {pending.otp_code}\n\nVence en 10 minutos.',
+        )
+        return Response({'message': 'Te mandamos un código nuevo.'})
 
 
-class PasswordResetRequestView(APIView):
-    permission_classes = [AllowAny]
-
+class PasswordResetRequestView(AuthView):
     def post(self, request):
-        email = request.data.get('email', '').strip()
-
+        email = clean_email(request.data.get('email'))
         if not email:
-            return Response({'error': 'El email es requerido.'}, status=status.HTTP_400_BAD_REQUEST)
+            return error('El email es requerido.')
 
-        # Buscar usuario. Por seguridad, retornamos el mismo mensaje si el usuario no existe.
-        user_opt = User.objects.filter(email__iexact=email).first()
-
-        if user_opt:
-            # Generar OTP de 6 dígitos
-            otp_code = "".join(random.choices("0123456789", k=6))
-
-            # Eliminar OTPs anteriores para este usuario si existiesen
-            PasswordResetOTP.objects.filter(user=user_opt).delete()
-
-            # Guardar OTP
-            PasswordResetOTP.objects.create(
-                user=user_opt,
-                otp_code=otp_code,
-                expires_at=timezone.now() + timedelta(minutes=10)
+        # Misma respuesta exista o no la cuenta: no se revela qué mails están registrados.
+        user = User.objects.filter(email__iexact=email).first()
+        if user:
+            PasswordResetOTP.objects.filter(user=user).delete()
+            otp = PasswordResetOTP.objects.create(
+                user=user, otp_code=generate_otp(), expires_at=timezone.now() + OTP_TTL,
             )
-
-            # Enviar email
-            try:
-                send_mail(
-                    subject='Restablecer Contraseña - Fogón',
-                    message=f'Hola {user_opt.username},\n\nHas solicitado restablecer tu contraseña. Tu código OTP es: {otp_code}\n\nEste código vencerá en 10 minutos.',
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[email],
-                    fail_silently=False,
-                )
-            except Exception as e:
-                print(f"Error enviando email de reset: {e}")
-
+            send_code(
+                user.email, 'Restablecer contraseña - Pizca',
+                f'Hola {user.username},\n\nPediste restablecer tu contraseña. Tu código es: {otp.otp_code}\n\nVence en 10 minutos.',
+            )
         return Response({
-            'message': 'Si el correo está registrado, recibirás un código OTP para restablecer tu contraseña.',
-            'email': email
-        }, status=status.HTTP_200_OK)
+            'message': 'Si el correo está registrado, te llega un código para restablecer la contraseña.',
+            'email': email,
+        })
 
 
-class PasswordResetVerifyView(APIView):
-    permission_classes = [AllowAny]
-
+class PasswordResetVerifyView(AuthView):
     def post(self, request):
-        email = request.data.get('email', '').strip()
-        otp_code = request.data.get('otp_code', '').strip()
-        new_password = request.data.get('new_password', '')
-
+        email = clean_email(request.data.get('email'))
+        otp_code = str(request.data.get('otp_code', '')).strip()
+        new_password = str(request.data.get('new_password', ''))
         if not email or not otp_code or not new_password:
-            return Response({'error': 'Email, código OTP y nueva contraseña son requeridos.'}, status=status.HTTP_400_BAD_REQUEST)
+            return error('Faltan el mail, el código o la contraseña nueva.')
 
-        if len(new_password) < 8:
-            return Response({'error': 'La contraseña debe tener al menos 8 caracteres.'}, status=status.HTTP_400_BAD_REQUEST)
+        user = User.objects.filter(email__iexact=email).first()
+        otp = PasswordResetOTP.objects.filter(user=user).order_by('-created_at').first() if user else None
+        if not otp:
+            # Mismo mensaje que un código equivocado: no se revela si la cuenta existe.
+            return error('El código es incorrecto.')
+        otp_error = check_otp(otp, otp_code)
+        if otp_error:
+            return error(otp_error)
+        pwd_error = password_error(new_password, user)
+        if pwd_error:
+            return error(pwd_error)
 
-        user_opt = User.objects.filter(email__iexact=email).first()
-        if not user_opt:
-            return Response({'error': 'No se encontró un usuario con este correo.'}, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(new_password)
+        user.save(update_fields=['password'])
+        PasswordResetOTP.objects.filter(user=user).delete()
+        return Response({'message': 'Contraseña restablecida con éxito.'})
 
-        # Buscar el OTP
-        otp_opt = PasswordResetOTP.objects.filter(user=user_opt, otp_code=otp_code).first()
 
-        if not otp_opt:
-            return Response({'error': 'El código OTP es incorrecto.'}, status=status.HTTP_400_BAD_REQUEST)
+# ---------------------------------------------------------------------------
+# Planificador y lista de compras
+# ---------------------------------------------------------------------------
 
-        if otp_opt.is_expired():
-            return Response({'error': 'El código OTP ha expirado. Por favor, solicita uno nuevo.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # OTP válido! Actualizar contraseña
-        user_opt.set_password(new_password)
-        user_opt.save()
-
-        # Eliminar el OTP usado
-        otp_opt.delete()
-
-        return Response({'message': 'Contraseña restablecida con éxito.'}, status=status.HTTP_200_OK)
-
+def parse_week_start(value):
+    """'YYYY-MM-DD' → date. Sin valor (o inválido) es el lunes de esta semana."""
+    try:
+        return date.fromisoformat(value)
+    except (TypeError, ValueError):
+        today = timezone.localdate()
+        return today - timedelta(days=today.weekday())
 
 
 class MealPlanViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = MealPlanSerializer
     pagination_class = None
-    http_method_names = ['get', 'post', 'put', 'patch', 'delete', 'head', 'options']
 
     def get_queryset(self):
-        return MealPlan.objects.filter(user=self.request.user)
+        return MealPlan.objects.filter(user=self.request.user).select_related('recipe')
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
-    def perform_update(self, serializer):
-        serializer.save(user=self.request.user)
-
-    @staticmethod
-    def categorize_ingredient(name: str) -> str:
-        name_lower = name.lower()
-        for category, keywords in INGREDIENT_CATEGORIES.items():
-            if any(kw in name_lower for kw in keywords):
-                return category
-        return 'Otros'
-
     @action(detail=False, methods=['get'])
     def week(self, request):
-        week_start = request.query_params.get('week_start')
-        try:
-            start = date.fromisoformat(week_start)
-        except (ValueError, TypeError):
-            # Si no viene el parámetro, usamos la semana actual
-            today = date.today()
-            start = today - timedelta(days=today.weekday())
-        
-        end = start + timedelta(days=6)
-        plans = self.get_queryset().filter(
-            date__range=(start, end)
-        ).select_related('recipe')
-        
-        serializer = self.get_serializer(plans, many=True)
-        return Response(serializer.data)
+        start = parse_week_start(request.query_params.get('week_start'))
+        plans = self.get_queryset().filter(date__range=(start, start + timedelta(days=6)), recipe__isnull=False)
+        return Response(self.get_serializer(plans, many=True).data)
 
     @action(detail=False, methods=['post'])
     def generate_shopping_list(self, request):
-        week_start = request.data.get('week_start')
-        try:
-            start = date.fromisoformat(week_start)
-        except (ValueError, TypeError):
-            today = date.today()
-            start = today - timedelta(days=today.weekday())
+        start = parse_week_start(request.data.get('week_start'))
+        plans = (
+            MealPlan.objects
+            .filter(user=request.user, date__range=(start, start + timedelta(days=6)), recipe__isnull=False)
+            .select_related('recipe')
+            .prefetch_related('recipe__ingredients')
+        )
+        # Una receta planeada dos veces suma sus ingredientes dos veces.
+        items = consolidate(ing for plan in plans for ing in plan.recipe.ingredients.all())
+        # Antes de la transacción: puede llamar a Gemini con lo que no está en el caché.
+        aisles = resolve_aisles(request.user, [item['name'] for item in items])
 
-        end = start + timedelta(days=6)
-
-        # Traemos todas las recetas del plan de la semana
-        plans = MealPlan.objects.filter(
-            user=request.user,
-            date__range=(start, end)
-        ).prefetch_related('recipe__ingredients')
-
-        # Consolidamos ingredientes
-        consolidated = {}
-        for plan in plans:
-            if not plan.recipe:
-                continue
-            for ingredient in plan.recipe.ingredients.all():
-                key = ingredient.name.lower().strip()
-                
-                qty = ingredient.quantity
-                unit_str = ingredient.unit or ""
-                
-                # Si quantity es None pero hay un número en el unit (ej: "500g"), intentamos extraerlo
-                if qty is None and unit_str.strip():
-                    match = re.match(r'^([\d.,]+)\s*(.*)$', unit_str.strip())
-                    if match:
-                        try:
-                            qty = Decimal(match.group(1).replace(',', '.'))
-                            unit_str = match.group(2)
-                        except InvalidOperation:
-                            pass
-
-                if key not in consolidated:
-                    consolidated[key] = {
-                        'name': ingredient.name,
-                        'quantity': qty,
-                        'unit': unit_str,
-                        'category': self.categorize_ingredient(ingredient.name)
-                    }
-                else:
-                    # Si ya existe, sumamos cantidades si son del mismo unit
-                    current_unit = unit_str.lower().strip()
-                    existing_unit = (consolidated[key]['unit'] or "").lower().strip()
-                    
-                    if current_unit == existing_unit:
-                        if qty is not None:
-                            if consolidated[key]['quantity'] is not None:
-                                consolidated[key]['quantity'] += qty
-                            else:
-                                consolidated[key]['quantity'] = qty
-
-        # Borramos todos los ítems de esa semana (para regenerar y eliminar los ya tachados)
-        from django.db import transaction
+        # Regeneramos: se va lo armado desde el plan y lo tachado; lo agregado a mano y sin tachar queda.
         with transaction.atomic():
-            # Obtenemos los ingredientes ya tachados para no volver a crearlos
-            checked_names = set(
-                ShoppingListItem.objects.filter(
-                    user=request.user,
-                    week_start=start,
-                    is_checked=True
-                ).values_list('ingredient_name', flat=True)
-            )
-
-            # Borramos TODOS los ítems actuales de la semana
-            ShoppingListItem.objects.filter(
-                user=request.user,
-                week_start=start
-            ).delete()
-
-            # Creamos solo ítems que no estén en la lista de tachados
-            items = [
+            week_items = ShoppingListItem.objects.filter(user=request.user, week_start=start)
+            checked = {
+                normalize_name(name)
+                for name in week_items.filter(is_checked=True).values_list('ingredient_name', flat=True)
+            }
+            week_items.filter(Q(is_manual=False) | Q(is_checked=True)).delete()
+            ShoppingListItem.objects.bulk_create(
                 ShoppingListItem(
                     user=request.user,
                     week_start=start,
-                    ingredient_name=v['name'],
-                    quantity=f"{v['quantity']} {v['unit']}".strip() if v['quantity'] is not None else (v['unit'] or ''),
-                    category=v['category'],
+                    ingredient_name=item['name'],
+                    quantity=format_quantity(item['quantity'], item['unit']),
+                    category=aisles[item['name']],
                 )
-                for v in consolidated.values()
-                if v['name'].lower().strip() not in {n.lower().strip() for n in checked_names}
-            ]
-            ShoppingListItem.objects.bulk_create(items, ignore_conflicts=True)
+                for item in items
+                if normalize_name(item['name']) not in checked
+            )
 
-        # Devolvemos la lista completa actualizada
-        all_items = ShoppingListItem.objects.filter(
-            user=request.user,
-            week_start=start
-        ).order_by('category', 'ingredient_name')
-
-        serializer = ShoppingListItemSerializer(all_items, many=True)
-        return Response(serializer.data)
+        all_items = ShoppingListItem.objects.filter(user=request.user, week_start=start).order_by('category', 'ingredient_name')
+        return Response(ShoppingListItemSerializer(all_items, many=True).data)
 
 
 class ShoppingListItemViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = ShoppingListItemSerializer
     pagination_class = None
-    http_method_names = ['get', 'post', 'put', 'patch', 'delete']
 
     def get_queryset(self):
-        week_start = self.request.query_params.get('week_start')
         qs = ShoppingListItem.objects.filter(user=self.request.user)
+        week_start = self.request.query_params.get('week_start')
         if week_start:
-            qs = qs.filter(week_start=week_start)
+            try:
+                qs = qs.filter(week_start=date.fromisoformat(week_start))
+            except ValueError:
+                raise ValidationError({'week_start': 'Fecha inválida, se espera AAAA-MM-DD.'})
         return qs.order_by('category', 'ingredient_name')
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+        extra = {}
+        if 'category' not in serializer.validated_data:
+            name = serializer.validated_data['ingredient_name']
+            extra['category'] = resolve_aisles(self.request.user, [name])[name]
+        serializer.save(user=self.request.user, is_manual=True, **extra)
+
+    def perform_update(self, serializer):
+        item = serializer.save()
+        # Si el usuario lo movió de góndola, la próxima vez ese ingrediente va directo ahí.
+        if 'category' in serializer.validated_data:
+            remember_user_choice(self.request.user, item.ingredient_name, item.category)
+
+
+# ---------------------------------------------------------------------------
+# Importar recetas con IA
+# ---------------------------------------------------------------------------
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 @throttle_classes([ImportRateThrottle])
 def import_recipe_view(request):
-    target_url = request.data.get('url')
+    """Video de TikTok, Instagram, YouTube o Facebook."""
+    url = str(request.data.get('url') or '').strip()
+    if not url:
+        return error('Falta el link del video.')
+    if not is_allowed_video_url(url):
+        return error('Solo se pueden importar videos de YouTube, TikTok, Instagram y Facebook.')
 
-    if not target_url:
-        return Response({'error': 'URL no proporcionada'}, status=status.HTTP_400_BAD_REQUEST)
+    def extract():
+        workdir, audio_path, description, thumbnail = download_audio_from_url(url)
+        try:
+            if not audio_path:
+                raise AIInputError(
+                    'No pudimos bajar el video. Revisá que sea público y que no dure más de 20 minutos.'
+                )
+            return extract_recipe_from_audio(audio_path, description, thumbnail)
+        finally:
+            shutil.rmtree(workdir, ignore_errors=True)
 
-    # Validar URL contra whitelist
-    is_valid, error_msg = validate_video_url(target_url)
-    if not is_valid:
-        return Response({'error': error_msg}, status=status.HTTP_400_BAD_REQUEST)
-
-    # Verificar límites de uso
-    can_proceed, limit_msg = check_usage_limits(request.user)
-    if not can_proceed:
-        return Response({'error': limit_msg}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-
-    audio_path, description_text, thumbnail_url = download_audio_from_url(target_url)
-
-    if not audio_path or not description_text:
-        return Response({'error': 'Error al descargar el audio'}, status=status.HTTP_400_BAD_REQUEST)
-
-    try:
-        recipe_data = extract_recipe_from_audio(audio_path, description_text, thumbnail_url)
-    
-        if not recipe_data:
-            return Response({'error': 'Error al extraer la receta'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # Registrar uso exitoso
-        record_usage(request.user)
-
-        if os.path.exists(audio_path):
-            os.remove(audio_path)
-
-        return Response({'message': 'Receta importada exitosamente', 'recipe': recipe_data}, status=status.HTTP_201_CREATED)
-    
-    except Exception as e:
-        if os.path.exists(audio_path):
-            os.remove(audio_path)
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return run_ai_import(request, extract, 'No pudimos sacar una receta de este video.')
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 @throttle_classes([ImportRateThrottle])
 def import_recipe_from_file_view(request):
+    """Audio subido o grabado en la app."""
     uploaded_file = request.FILES.get('file')
-
     if not uploaded_file:
-        return Response({'error': 'No se proporcionó ningún archivo'}, status=status.HTTP_400_BAD_REQUEST)
+        return error('No llegó ningún archivo.')
+    if uploaded_file.size > MAX_AUDIO_UPLOAD_BYTES:
+        return error('El archivo es demasiado grande (máximo 20 MB).')
 
-    # Validar tamaño del archivo (20MB máximo para audio/video)
-    if uploaded_file.size > 20 * 1024 * 1024:
-        return Response({'error': 'El archivo es demasiado grande (máximo 20MB).'}, status=status.HTTP_400_BAD_REQUEST)
+    def extract():
+        with tempfile.TemporaryDirectory(prefix='pizca-') as workdir:
+            # Solo la extensión del nombre original: el nombre lo manda el cliente.
+            ext = os.path.splitext(uploaded_file.name or '')[1][:10]
+            path = os.path.join(workdir, f'upload{ext}')
+            with open(path, 'wb') as f:
+                for chunk in uploaded_file.chunks():
+                    f.write(chunk)
+            mp3_path = convert_audio_to_mp3(path)
+            return extract_recipe_from_audio(mp3_path, '', None, require_audio=True)
 
-    # Verificar límites de uso
-    can_proceed, limit_msg = check_usage_limits(request.user)
-    if not can_proceed:
-        return Response({'error': limit_msg}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-
-    try:
-        temp = tempfile.NamedTemporaryFile(delete=False, suffix=f"_{uploaded_file.name}")
-        for chunk in uploaded_file.chunks():
-            temp.write(chunk)
-        temp.close()
-        temp_path = temp.name
-
-        recipe_data = extract_recipe_from_audio(temp_path, "", None)
-
-        os.remove(temp_path)
-
-        if not recipe_data:
-            return Response({'error': 'IA falló al extraer la receta'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # Registrar uso exitoso
-        record_usage(request.user)
-
-        return Response({'message': 'Receta importada exitosamente', 'recipe': recipe_data}, status=status.HTTP_201_CREATED)
-    
-    except Exception as e:
-        if 'temp_path' in locals() and os.path.exists(temp_path):
-            os.remove(temp_path)
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return run_ai_import(request, extract, 'No pudimos entender el audio. Probá de nuevo en un rato.')
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 @throttle_classes([ImportRateThrottle])
 def import_recipe_from_text_view(request):
-    text_data = request.data.get('text')
-    
-    if not text_data or len(text_data.strip()) == 0:
-        return Response({'error': 'No se proporcionó texto de receta'}, status=status.HTTP_400_BAD_REQUEST)
+    text = request.data.get('text')
+    if not isinstance(text, str) or not text.strip():
+        return error('Falta el texto de la receta.')
+    if len(text) > MAX_IMPORT_TEXT_CHARS:
+        return error('El texto es demasiado largo (máximo 50.000 caracteres).')
 
-    # Limitar longitud del texto (50k caracteres máximo)
-    if len(text_data) > 50000:
-        return Response({'error': 'El texto es demasiado largo (máximo 50.000 caracteres).'}, status=status.HTTP_400_BAD_REQUEST)
-
-    # Verificar límites de uso
-    can_proceed, limit_msg = check_usage_limits(request.user)
-    if not can_proceed:
-        return Response({'error': limit_msg}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-        
-    try:
-        recipe_data = extract_recipe_from_text(text_data)
-        if not recipe_data:
-            return Response({'error': 'IA falló al extraer la receta'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-        # Registrar uso exitoso
-        record_usage(request.user)
-
-        return Response({'message': 'Receta generada a partir de texto', 'recipe': recipe_data}, status=status.HTTP_201_CREATED)
-    
-    except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return run_ai_import(
+        request, lambda: extract_recipe_from_text(text),
+        'No encontramos una receta en el texto. Probá sumando ingredientes y pasos.',
+    )
 
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
 @throttle_classes([ImportRateThrottle])
 def import_recipe_from_web_view(request):
-    target_url = request.data.get('url')
-    
-    if not target_url:
-        return Response({'error': 'No se proporcionó URL'}, status=status.HTTP_400_BAD_REQUEST)
+    """Blog o sitio de recetas: se baja el HTML, se limpia y la IA saca la receta."""
+    url = str(request.data.get('url') or '').strip()
+    if not url:
+        return error('Falta el link.')
+    if urlparse(url).scheme != 'https':
+        return error('Solo se permiten links con HTTPS.')
 
-    # Protección SSRF
-    is_valid, error_msg = validate_web_url_ssrf(target_url)
-    if not is_valid:
-        return Response({'error': error_msg}, status=status.HTTP_400_BAD_REQUEST)
-
-    # Verificar límites de uso
-    can_proceed, limit_msg = check_usage_limits(request.user)
-    if not can_proceed:
-        return Response({'error': limit_msg}, status=status.HTTP_429_TOO_MANY_REQUESTS)
-        
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-        }
-        res = requests.get(target_url, headers=headers, timeout=10, stream=True)
-        res.raise_for_status()
-
-        # Protección contra descargas enormes (max 5MB)
-        content_length = res.headers.get('Content-Length')
-        if content_length and int(content_length) > 5 * 1024 * 1024:
-            return Response({'error': 'La página es demasiado grande para procesar (máx 5MB).'}, 
-                          status=status.HTTP_400_BAD_REQUEST)
-
-        # Leer con límite
-        content = res.content[:5 * 1024 * 1024]  # max 5MB de contenido
-        soup = BeautifulSoup(content, 'html.parser')
-
-        # Remover scripts y estilos visuales ruidosos
-        for script in soup(["script", "style", "noscript", "header", "footer"]):
-            script.decompose()
-
-        cleaned_text = soup.get_text(separator=' ', strip=True)
-
-        # Enviar 100k limit
-        cleaned_text = cleaned_text[:100000]
-
-        recipe_data = extract_recipe_from_text(
-            f"Por favor extrae la receta estructurada del siguiente contenido de una página web. Elimina las historias/publicidades/comentarios del blog:\n\n{cleaned_text}",
-            strict_mode=True
-        )
-        
-        if not recipe_data:
-            return Response({'error': 'No pudimos extraer la receta automáticamente porque este sitio web bloquea los sistemas automáticos (protección anti-scrapers). Por favor, copiá el texto de la receta desde tu navegador y usá la opción "Pegar Texto" en la app.'}, status=status.HTTP_400_BAD_REQUEST)
-
-        # Registrar uso exitoso
-        record_usage(request.user)
-
+    def extract():
+        html = fetch_public(url, MAX_WEB_PAGE_BYTES, schemes=('https',))
+        soup = BeautifulSoup(html, 'html.parser')
         og_image = soup.find('meta', property='og:image')
-        if og_image and og_image.get('content'):
-            recipe_data['image_url'] = og_image['content']
+        for tag in soup(['script', 'style', 'noscript', 'header', 'footer', 'nav', 'aside']):
+            tag.decompose()
+        text = soup.get_text(separator=' ', strip=True)[:100_000]
+        recipe = extract_recipe_from_text(
+            'Por favor extrae la receta estructurada del siguiente contenido de una página web. '
+            f'Elimina las historias/publicidades/comentarios del blog:\n\n{text}',
+            strict_mode=True,
+        )
+        if recipe and og_image and og_image.get('content'):
+            # Muchos sitios la ponen relativa ("/img/a.jpg") o sin protocolo ("//cdn.../a.jpg").
+            image_url = urljoin(url, str(og_image['content']).strip())
+            if urlparse(image_url).scheme in ('http', 'https') and len(image_url) <= 2000:
+                recipe['image_url'] = image_url
+        return recipe
 
-        return Response({'message': 'Receta generada a partir de blog web', 'recipe': recipe_data}, status=status.HTTP_201_CREATED)
-    
-    except requests.exceptions.RequestException as e:
-        return Response({"error": f"Fallo al acceder al sitio web: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
-    except Exception as e:
-        return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    return run_ai_import(
+        request, extract,
+        'No pudimos sacar la receta de este sitio (algunos bloquean la lectura automática). '
+        'Copiá el texto de la receta y usá "Pegar texto".',
+        failure_status=status.HTTP_400_BAD_REQUEST,
+    )
+
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def current_user_view(request):
     user = request.user
-    return Response({
-        'id': user.id,
-        'username': user.username,
-        'email': user.email
-    })
+    return Response({'id': user.id, 'username': user.username, 'email': user.email})
+
+
+# ---------------------------------------------------------------------------
+# Ideas (chat con IA sobre las recetas del usuario)
+# ---------------------------------------------------------------------------
 
 @api_view(['POST'])
 @permission_classes([IsAuthenticated])
-@throttle_classes([FogoncitoRateThrottle])
-def fogoncito(request):
-    user_message = request.data.get('message', '').strip()
+@throttle_classes([IdeasRateThrottle])
+def ideas(request):
+    user_message = str(request.data.get('message', '')).strip()
     if not user_message:
-        return Response({'error': 'Mensaje vacío'}, status=400)
+        return error('Mensaje vacío')
+    if len(user_message) > MAX_IDEAS_MESSAGE_CHARS:
+        return error('Mensaje demasiado largo (máximo 2000 caracteres).')
 
-    # Limitar longitud del mensaje
-    if len(user_message) > 2000:
-        return Response({'error': 'Mensaje demasiado largo (máximo 2000 caracteres).'}, status=400)
+    limit_msg = check_usage_limits(request.user)
+    if limit_msg:
+        return error(limit_msg, status.HTTP_429_TOO_MANY_REQUESTS)
 
-    # Verificar límites de uso de Gemini
-    can_proceed, limit_msg = check_usage_limits(request.user)
-    if not can_proceed:
-        return Response({'error': limit_msg}, status=429)
+    # Ingredientes y categorías que el usuario nombra en el mensaje (sin distinguir mayúsculas).
+    message_lower = user_message.lower()
+    ingredient_names = Ingredient.objects.filter(recipe__user=request.user).values_list('name', flat=True).distinct()
+    category_names = Category.objects.filter(Q(user__isnull=True) | Q(user=request.user)).values_list('name', flat=True)
+    matching_ingredients = {n.lower().strip() for n in ingredient_names if n and n.lower().strip() in message_lower}
+    matching_categories = {n.lower().strip() for n in category_names if n and n.lower().strip() in message_lower}
 
-    # 1. Extraer todos los nombres de ingredientes únicos del usuario
-    db_ingredients = Ingredient.objects.filter(
-        recipe__user=request.user
-    ).values_list('name', flat=True).distinct()
-    user_ingredients = sorted(list(set(name.lower().strip() for name in db_ingredients if name)))
+    # Si nombró ingredientes y categorías, tienen que coincidir las dos cosas.
+    recipes = Recipe.objects.filter(user=request.user)
+    if matching_ingredients:
+        q = Q()
+        for name in matching_ingredients:
+            q |= Q(ingredients__name__icontains=name)
+        recipes = recipes.filter(q)
+    if matching_categories:
+        q = Q()
+        for name in matching_categories:
+            q |= Q(categories__name__icontains=name)
+        recipes = recipes.filter(q)
+    limit = 15 if (matching_ingredients or matching_categories) else 20  # sin filtros: las últimas
+    recipes = recipes.distinct().order_by('-created_at').prefetch_related('ingredients', 'categories')[:limit]
 
-    # 2. Extraer todas las categorías únicas del usuario y del sistema
-    db_categories = Category.objects.filter(
-        Q(user__isnull=True) | Q(user=request.user)
-    ).values_list('name', flat=True).distinct()
-    user_categories = sorted(list(set(name.lower().strip() for name in db_categories if name)))
-
-    # 3. Matching case-insensitive con el mensaje del usuario
-    user_message_lower = user_message.lower()
-    matching_ingredients = [ing for ing in user_ingredients if ing in user_message_lower]
-    matching_categories = [cat for cat in user_categories if cat in user_message_lower]
-
-    # 4. Filtrar recetas del usuario aplicando intersección si ambos matches existen (AND)
-    recipes_qs = Recipe.objects.filter(user=request.user)
-    if matching_ingredients or matching_categories:
-        if matching_ingredients:
-            q_ing = Q()
-            for ing in matching_ingredients:
-                q_ing |= Q(ingredients__name__icontains=ing)
-            recipes_qs = recipes_qs.filter(q_ing)
-
-        if matching_categories:
-            q_cat = Q()
-            for cat in matching_categories:
-                q_cat |= Q(categories__name__icontains=cat)
-            recipes_qs = recipes_qs.filter(q_cat)
-
-        recipes_qs = recipes_qs.distinct().prefetch_related('ingredients', 'categories')[:15]
-    else:
-        # Fallback: últimas 20 recetas creadas por el usuario
-        recipes_qs = recipes_qs.order_by('-created_at').prefetch_related('ingredients', 'categories')[:20]
-
-    # 5. Construir contexto compacto
-    recipes_summary = build_recipes_summary(recipes_qs)
-
-    # 4. Llamar a Gemini
     try:
-        result = call_fogoncito(user_message, recipes_summary)
-        # Registrar uso exitoso
-        record_usage(request.user)
-    except Exception as e:
-        return Response(
-            {'error': 'Fogoncito no está disponible en este momento. Intentá de nuevo.'},
-            status=503
-        )
+        result = call_ideas(user_message, build_recipes_summary(recipes))
+    except Exception:
+        logger.exception('Falló Ideas')
+        return error('Ideas no está disponible en este momento. Intentá de nuevo.', status.HTTP_503_SERVICE_UNAVAILABLE)
 
+    record_usage(request.user)
     return Response(result)

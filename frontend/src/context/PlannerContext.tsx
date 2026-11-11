@@ -1,7 +1,8 @@
-import React, { createContext, useState, useEffect, useContext, useCallback } from 'react';
+import React, { createContext, useState, useEffect, useContext, useCallback, useMemo } from 'react';
 import { MealPlan, ShoppingListItem, Recipe } from '../types';
 import { useApp } from './AppContext';
 import { getRecipeImage } from '../utils';
+import { addWeeks, getCurrentMonday } from '../utils/dates';
 import {
     getWeekPlans,
     createMealPlan,
@@ -13,25 +14,6 @@ import {
     updateShoppingItem as updateShoppingItemService,
     deleteShoppingItem as deleteShoppingItemService,
 } from '../services/api';
-
-// --- Helpers de fecha ---
-
-const getCurrentMonday = (): string => {
-    const today = new Date();
-    const day = today.getDay();
-    const diff = day === 0 ? -6 : 1 - day;
-    const monday = new Date(today);
-    monday.setDate(today.getDate() + diff);
-    return formatDate(monday);
-};
-
-const formatDate = (d: Date): string => d.toISOString().split('T')[0];
-
-const addWeeks = (isoDate: string, weeks: number): string => {
-    const d = new Date(isoDate + 'T00:00:00');
-    d.setDate(d.getDate() + weeks * 7);
-    return formatDate(d);
-};
 
 // --- Draft slot para el planning volátil ---
 
@@ -112,7 +94,23 @@ export const PlannerProvider = ({ children }: { children: React.ReactNode }) => 
 
     const hasUnsavedChanges = Object.keys(draftSlots).length > 0 || removedIds.size > 0;
 
-    // Load plans when week changes or auth changes
+    const fetchPlans = useCallback(async () => {
+        setIsLoadingPlans(true);
+        try {
+            const data = await getWeekPlans(weekStart);
+            setServerPlans(data);
+            // Clear drafts when loading fresh data
+            setDraftSlots({});
+            setRemovedIds(new Set());
+        } catch (e) {
+            console.warn('Error cargando el plan semanal', e);
+            setServerPlans([]);
+        } finally {
+            setIsLoadingPlans(false);
+        }
+    }, [weekStart]);
+
+    // Plan de la semana: al entrar y al cambiar de semana. Al salir, se limpia todo.
     useEffect(() => {
         if (isAuthenticated) {
             fetchPlans();
@@ -123,23 +121,7 @@ export const PlannerProvider = ({ children }: { children: React.ReactNode }) => 
             setShoppingList([]);
             setWeekStart(getCurrentMonday());
         }
-    }, [weekStart, isAuthenticated]);
-
-    const fetchPlans = useCallback(async () => {
-        setIsLoadingPlans(true);
-        try {
-            const data = await getWeekPlans(weekStart);
-            setServerPlans(data);
-            // Clear drafts when loading fresh data
-            setDraftSlots({});
-            setRemovedIds(new Set());
-        } catch (e) {
-            console.log('Error cargando plan semanal:', e);
-            setServerPlans([]);
-        } finally {
-            setIsLoadingPlans(false);
-        }
-    }, [weekStart]);
+    }, [isAuthenticated, fetchPlans]);
 
     // --- Week navigation ---
 
@@ -155,7 +137,7 @@ export const PlannerProvider = ({ children }: { children: React.ReactNode }) => 
 
     // --- Draft actions (volatile) ---
 
-    const assignRecipe = (date: string, mealType: string, recipe: Recipe) => {
+    const assignRecipe = useCallback((date: string, mealType: string, recipe: Recipe) => {
         const key = slotKey(date, mealType);
         // If overwriting a server plan, mark it for removal
         const existingServer = serverPlans.find(
@@ -176,9 +158,9 @@ export const PlannerProvider = ({ children }: { children: React.ReactNode }) => 
                 recipePrepTime: recipe.prep_time || null,
             },
         }));
-    };
+    }, [serverPlans, removedIds]);
 
-    const removeFromPlan = (date: string, mealType: string) => {
+    const removeFromPlan = useCallback((date: string, mealType: string) => {
         const key = slotKey(date, mealType);
         // Check if it's a draft
         if (draftSlots[key]) {
@@ -196,14 +178,14 @@ export const PlannerProvider = ({ children }: { children: React.ReactNode }) => 
         if (serverPlan) {
             setRemovedIds(prev => new Set(prev).add(serverPlan.id));
         }
-    };
+    }, [draftSlots, serverPlans]);
 
-    const discardChanges = () => {
+    const discardChanges = useCallback(() => {
         setDraftSlots({});
         setRemovedIds(new Set());
-    };
+    }, []);
 
-    const savePlan = async (): Promise<boolean> => {
+    const savePlan = useCallback(async (): Promise<boolean> => {
         setIsSaving(true);
         try {
             // 1. Delete removed plans
@@ -228,7 +210,7 @@ export const PlannerProvider = ({ children }: { children: React.ReactNode }) => 
         } finally {
             setIsSaving(false);
         }
-    };
+    }, [removedIds, draftSlots, fetchPlans]);
 
     // --- Helpers: merged view ---
 
@@ -273,7 +255,7 @@ export const PlannerProvider = ({ children }: { children: React.ReactNode }) => 
         }
     }, [weekStart]);
 
-    const generateList = async () => {
+    const generateList = useCallback(async () => {
         setIsGeneratingList(true);
         try {
             const data = await generateShoppingListService(weekStart);
@@ -281,9 +263,9 @@ export const PlannerProvider = ({ children }: { children: React.ReactNode }) => 
         } finally {
             setIsGeneratingList(false);
         }
-    };
+    }, [weekStart]);
 
-    const toggleItem = async (id: number, isChecked: boolean) => {
+    const toggleItem = useCallback(async (id: number, isChecked: boolean) => {
         setShoppingList(prev =>
             prev.map(item => item.id === id ? { ...item, is_checked: isChecked } : item)
         );
@@ -294,42 +276,47 @@ export const PlannerProvider = ({ children }: { children: React.ReactNode }) => 
                 prev.map(item => item.id === id ? { ...item, is_checked: !isChecked } : item)
             );
         }
-    };
+    }, []);
 
-    const addShoppingItem = async (name: string, quantity?: string, category?: string) => {
+    const addShoppingItem = useCallback(async (name: string, quantity?: string, category?: string) => {
+        // Sin categoría, el backend la deduce (lo que el usuario eligió antes, el caché o la IA).
         const item = await createShoppingItemService({
             week_start: weekStart,
             ingredient_name: name,
             quantity: quantity || '',
-            category: category || 'Otros',
+            ...(category ? { category } : {}),
         });
         setShoppingList(prev => [...prev, item]);
-    };
+    }, [weekStart]);
 
-    const editShoppingItem = async (id: number, data: Partial<ShoppingListItem>) => {
+    const editShoppingItem = useCallback(async (id: number, data: Partial<ShoppingListItem>) => {
         const updated = await updateShoppingItemService(id, data);
         setShoppingList(prev => prev.map(item => item.id === id ? updated : item));
-    };
+    }, []);
 
-    const removeShoppingItem = async (id: number) => {
+    const removeShoppingItem = useCallback(async (id: number) => {
         await deleteShoppingItemService(id);
         setShoppingList(prev => prev.filter(item => item.id !== id));
-    };
+    }, []);
 
-    return (
-        <PlannerContext.Provider value={{
-            weekStart, serverPlans, draftSlots, removedIds,
-            hasUnsavedChanges, isLoadingPlans, isSaving,
-            shoppingList, isLoadingShoppingList, isGeneratingList,
-            canGoBack, canGoForward, goToPreviousWeek, goToNextWeek,
-            assignRecipe, removeFromPlan, savePlan, discardChanges,
-            generateList, fetchShoppingList: fetchShoppingListFn,
-            toggleItem, addShoppingItem, editShoppingItem, removeShoppingItem,
-            getMergedPlanForSlot, getPlansForDate, refreshPlans: fetchPlans,
-        }}>
-            {children}
-        </PlannerContext.Provider>
-    );
+    const value = useMemo<PlannerContextType>(() => ({
+        weekStart, serverPlans, draftSlots, removedIds,
+        hasUnsavedChanges, isLoadingPlans, isSaving,
+        shoppingList, isLoadingShoppingList, isGeneratingList,
+        canGoBack, canGoForward, goToPreviousWeek, goToNextWeek,
+        assignRecipe, removeFromPlan, savePlan, discardChanges,
+        generateList, fetchShoppingList: fetchShoppingListFn,
+        toggleItem, addShoppingItem, editShoppingItem, removeShoppingItem,
+        getMergedPlanForSlot, getPlansForDate, refreshPlans: fetchPlans,
+    }), [
+        weekStart, serverPlans, draftSlots, removedIds, hasUnsavedChanges, isLoadingPlans, isSaving,
+        shoppingList, isLoadingShoppingList, isGeneratingList, canGoBack, canGoForward,
+        goToPreviousWeek, goToNextWeek, assignRecipe, removeFromPlan, savePlan, discardChanges,
+        generateList, fetchShoppingListFn, toggleItem, addShoppingItem, editShoppingItem,
+        removeShoppingItem, getMergedPlanForSlot, getPlansForDate, fetchPlans,
+    ]);
+
+    return <PlannerContext.Provider value={value}>{children}</PlannerContext.Provider>;
 };
 
 export const usePlanner = () => {

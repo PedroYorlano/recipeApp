@@ -2,15 +2,15 @@ services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: fogon
-      POSTGRES_USER: fogon
-      POSTGRES_PASSWORD: fogon
+      POSTGRES_DB: pizca
+      POSTGRES_USER: pizca
+      POSTGRES_PASSWORD: pizca
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - pizca_data:/var/lib/postgresql/data
     ports:
       - "5432:5432"
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U fogon" ]
+      test: [ "CMD-SHELL", "pg_isready -U pizca" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -32,7 +32,7 @@ services:
       - ./backend/.env
     environment:
       # Override DATABASE_URL para apuntar al servicio 'db' de Docker
-      - DATABASE_URL=postgres://fogon:fogon@db:5432/fogon
+      - DATABASE_URL=postgres://pizca:pizca@db:5432/pizca
       - PYTHONDONTWRITEBYTECODE=1
       - PYTHONUNBUFFERED=1
     depends_on:
@@ -40,4 +40,6 @@ services:
         condition: service_healthy
 
 volumes:
-  postgres_data:
+  # Volumen nuevo a propósito: el anterior (postgres_data) se creó con el usuario y la base
+  # "fogon", y Postgres no los renombra al cambiar las variables de entorno.
+  pizca_data:

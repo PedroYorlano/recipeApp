@@ -1,11 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Alert, View, TouchableOpacity, KeyboardAvoidingView, Platform, Text } from 'react-native';
+import { View, TouchableOpacity, KeyboardAvoidingView, Platform, Image, ScrollView } from 'react-native';
+import { Text } from '../components/ui/Typography';
 import { useApp } from '../context/AppContext';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
-import { Flame, EyeOff, Eye, Mail, ArrowLeft } from 'lucide-react-native';
+import { EyeOff, Eye, ChevronLeft } from 'lucide-react-native';
+import { ILLUSTRATIONS } from '../constants/brand';
+import { CodeInput } from '../components/ui/CodeInput';
 import { useRouter } from 'expo-router';
 import { resendRegisterOTPService } from '../services/api';
+import { notify, getErrorMessage } from '../utils/dialogs';
+import { FEATURES } from '../constants/features';
 
 export const RegisterScreen = () => {
     const [step, setStep] = useState<'form' | 'otp'>('form');
@@ -22,7 +27,7 @@ export const RegisterScreen = () => {
 
     // Contador para el reenvío del OTP
     useEffect(() => {
-        let timer: NodeJS.Timeout;
+        let timer: ReturnType<typeof setInterval> | undefined;
         if (resendCooldown > 0) {
             timer = setInterval(() => {
                 setResendCooldown(prev => prev - 1);
@@ -34,19 +39,22 @@ export const RegisterScreen = () => {
     }, [resendCooldown]);
 
     const handleRegister = async () => {
-        if (!username || !email || !password) {
-            Alert.alert("⚠️ Ups", "Asegurate de completar todos los campos para registrarte.");
+        if (!username.trim() || !email.trim() || !password) {
+            notify("Faltan datos", "Completá usuario, email y contraseña.");
+            return;
+        }
+        if (password.length < 8) {
+            notify("Contraseña muy corta", "La contraseña tiene que tener al menos 8 caracteres.");
             return;
         }
 
         setLoading(true);
         try {
-            await register(username, email, password);
+            await register(username.trim(), email.trim(), password);
             setStep('otp');
             setResendCooldown(60);
-            Alert.alert("¡Código enviado! ✉️", `Enviamos un código de verificación de 6 dígitos a ${email}.`);
-        } catch (error: any) {
-            Alert.alert("Error en el registro", error.message || "Ocurrió un error. Verificá los datos.");
+                    } catch (error) {
+            notify("Error en el registro", getErrorMessage(error, "Algo salió mal. Revisá los datos."));
         } finally {
             setLoading(false);
         }
@@ -54,16 +62,16 @@ export const RegisterScreen = () => {
 
     const handleVerifyOTP = async () => {
         if (!otpCode || otpCode.length !== 6) {
-            Alert.alert("⚠️ Código incompleto", "Por favor ingresá el código de 6 dígitos.");
+            notify("Código incompleto", "Ingresá el código de 6 dígitos.");
             return;
         }
 
         setLoading(true);
         try {
-            await verifyRegisterOTP(email, otpCode);
-            Alert.alert("¡Cuenta verificada! 🎉", "Te damos la bienvenida a Fogón.");
-        } catch (error: any) {
-            Alert.alert("Error de verificación", error.message || "El código ingresado es incorrecto o expiró.");
+            await verifyRegisterOTP(email.trim(), otpCode, password);
+            notify("¡Listo!", "Te damos la bienvenida a Pizca.");
+        } catch (error) {
+            notify("Error de verificación", getErrorMessage(error, "El código ingresado es incorrecto o expiró."));
         } finally {
             setLoading(false);
         }
@@ -72,153 +80,98 @@ export const RegisterScreen = () => {
     const handleResendOTP = async () => {
         setLoading(true);
         try {
-            await resendRegisterOTPService(email);
+            await resendRegisterOTPService(email.trim());
             setResendCooldown(60);
-            Alert.alert("Reenviado ✉️", "Te enviamos un nuevo código OTP a tu correo.");
-        } catch (error: any) {
-            Alert.alert("Error", error.message || "No se pudo reenviar el código. Intentá más tarde.");
+            notify("Código enviado", "Te mandamos uno nuevo a tu email.");
+        } catch (error) {
+            notify("Error", getErrorMessage(error, "No pudimos mandar otro código. Probá más tarde."));
         } finally {
             setLoading(false);
         }
     };
 
     return (
-        <View className="flex-1 bg-fogon-cream justify-center pt-10">
-            <KeyboardAvoidingView
-                behavior={Platform.OS === "ios" ? "padding" : "height"}
-                className="flex-1 justify-center px-4 md:px-8 max-w-lg mx-auto w-full"
-            >
-                {step === 'form' ? (
-                    <>
-                        {/* Llama o Icono superior */}
-                        <View className="items-center mb-8">
-                            <View className="bg-fogon-white rounded-full p-5 shadow-sm border border-fogon-amber/20 mb-4">
-                                <Flame size={48} color="#EF9F27" strokeWidth={1.5} />
-                            </View>
-                            <Text className="text-[40px] font-bold text-fogon-brown tracking-tight">Registro</Text>
-                            <Text className="text-fogon-gray text-base mt-2 font-medium">Unite a Fogón.</Text>
-                        </View>
+        <View className="flex-1 bg-pizca-fondo">
+            <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1">
+                <ScrollView
+                    contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 56, paddingBottom: 20, maxWidth: 480, width: '100%', alignSelf: 'center' }}
+                    keyboardShouldPersistTaps="handled"
+                >
+                    <TouchableOpacity
+                        onPress={() => (step === 'otp' ? setStep('form') : router.replace('/login'))}
+                        className="w-11 h-11 rounded-full bg-white border border-pizca-linea items-center justify-center mb-5"
+                        accessibilityLabel="Volver"
+                    >
+                        <ChevronLeft size={22} color="#3F3128" strokeWidth={2.4} />
+                    </TouchableOpacity>
 
-                        {/* Card Blanca */}
-                        <View className="bg-fogon-white rounded-[24px] p-6 shadow-sm border border-fogon-gray/10">
-                            <Input
-                                label="Usuario"
-                                placeholder="Ej: chef_fogon"
-                                value={username}
-                                onChangeText={setUsername}
-                                autoCapitalize="none"
-                            />
+                    <View className="flex-row items-end justify-between gap-3 mb-2">
+                        <Text className="font-display text-[40px] leading-[42px] text-pizca-marron flex-1" accessibilityRole="header">
+                            {step === 'form' ? 'Creá tu cuenta' : 'Revisá tu email'}
+                        </Text>
+                        <Image source={ILLUSTRATIONS.nabo} style={{ width: 52, height: 60 }} resizeMode="contain" accessible={false} />
+                    </View>
+                    <Text className="text-base text-pizca-texto2 mb-6">
+                        {step === 'form' ? 'Tus recetas, en orden y en un solo lugar.' : <>Te mandamos un código de 6 dígitos a <Text className="font-extrabold text-pizca-marron">{email}</Text>.</>}
+                    </Text>
 
-                            <Input
-                                label="Email"
-                                placeholder="Ej: hola@fogon.com"
-                                value={email}
-                                onChangeText={setEmail}
-                                autoCapitalize="none"
-                                keyboardType="email-address"
-                            />
-
+                    {step === 'form' ? (
+                        <>
+                            <Input label="Usuario" placeholder="Ej: ana_cocina" value={username} onChangeText={setUsername} autoCapitalize="none" autoCorrect={false} autoComplete="username-new" />
+                            <Input label="Email" placeholder="Ej: hola@pizca.app" value={email} onChangeText={setEmail} autoCapitalize="none" keyboardType="email-address" autoComplete="email" />
                             <Input
                                 label="Contraseña"
-                                placeholder="••••••"
+                                placeholder="Mínimo 8 caracteres"
                                 value={password}
                                 onChangeText={setPassword}
                                 secureTextEntry={!showPassword}
+                                autoComplete="new-password"
                                 rightIcon={
-                                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)} className="p-2">
-                                        {showPassword ? <EyeOff size={20} color="#A89070" /> : <Eye size={20} color="#A89070" />}
+                                    <TouchableOpacity onPress={() => setShowPassword(!showPassword)} className="p-1" accessibilityLabel={showPassword ? 'Ocultar contraseña' : 'Mostrar contraseña'}>
+                                        {showPassword ? <EyeOff size={20} color="#6B5A4E" /> : <Eye size={20} color="#6B5A4E" />}
                                     </TouchableOpacity>
                                 }
                             />
+                            <Button title="Crear cuenta" onPress={handleRegister} loading={loading} className="mt-1.5" />
 
-                            <View className="mt-4">
-                                <Button
-                                    title="Crear Cuenta"
-                                    onPress={handleRegister}
-                                    loading={loading}
-                                />
-                            </View>
-
-                            {/* Separador */}
-                            <View className="flex-row items-center my-6">
-                                <View className="flex-1 h-[1px] bg-fogon-gray/20" />
-                                <Text className="mx-4 text-fogon-gray text-sm font-semibold uppercase tracking-wider">o</Text>
-                                <View className="flex-1 h-[1px] bg-fogon-gray/20" />
-                            </View>
-
-                            {/* Botón Google outline */}
-                            <Button
-                                title="Continuar con Google"
-                                variant="outline"
-                                onPress={() => Alert.alert("Próximamente", "Esta función estará disponible muy pronto.")}
-                            />
-
-                            {/* Fake link for demo purposes */}
-                            <TouchableOpacity className="mt-8 mb-2 items-center" onPress={() => router.back()}>
-                                <Text className="text-fogon-amber text-[15px] font-bold">¿Ya tenés cuenta? Ingresá</Text>
-                            </TouchableOpacity>
-                        </View>
-                    </>
-                ) : (
-                    <>
-                        {/* Llama o Icono superior de Verificación */}
-                        <View className="items-center mb-8">
-                            <View className="bg-fogon-white rounded-full p-5 shadow-sm border border-fogon-amber/20 mb-4">
-                                <Mail size={48} color="#EF9F27" strokeWidth={1.5} />
-                            </View>
-                            <Text className="text-[32px] font-bold text-fogon-brown tracking-tight text-center">Verificación</Text>
-                            <Text className="text-fogon-gray text-center text-base mt-2 font-medium px-4">
-                                Te enviamos un código a:{"\n"}
-                                <Text className="font-bold text-fogon-brown">{email}</Text>
-                            </Text>
-                        </View>
-
-                        {/* Card Blanca */}
-                        <View className="bg-fogon-white rounded-[24px] p-6 shadow-sm border border-fogon-gray/10">
-                            <Input
-                                label="Código de 6 dígitos"
-                                placeholder="123456"
-                                value={otpCode}
-                                onChangeText={setOtpCode}
-                                keyboardType="number-pad"
-                                maxLength={6}
-                                autoFocus={true}
-                                className="text-center text-2xl font-bold tracking-[10px] pl-3"
-                            />
-
-                            <View className="mt-2">
-                                <Button
-                                    title="Confirmar Código"
-                                    onPress={handleVerifyOTP}
-                                    loading={loading}
-                                />
-                            </View>
-
-                            {/* Reenvío de código */}
-                            <View className="items-center mt-6">
+                            {FEATURES.GOOGLE_AUTH && (
+                                <>
+                                    <View className="flex-row items-center gap-3 my-[22px]">
+                                        <View className="flex-1 h-px bg-pizca-linea" />
+                                        <Text className="text-pizca-texto2 text-[13px] font-extrabold">o</Text>
+                                        <View className="flex-1 h-px bg-pizca-linea" />
+                                    </View>
+                                    <Button title="Continuar con Google" variant="outline" onPress={() => notify('Próximamente', 'Esta función va a estar disponible muy pronto.')} />
+                                </>
+                            )}
+                        </>
+                    ) : (
+                        <View className="p-[18px] rounded-[20px] bg-white border border-pizca-linea gap-3">
+                            <Text className="text-xs font-extrabold tracking-wider uppercase text-pizca-albahaca">Paso 2 · Verificación</Text>
+                            <Text className="text-sm leading-5 text-pizca-texto2">Escribí el código que te llegó. Si no lo ves, fijate en spam.</Text>
+                            <CodeInput value={otpCode} onChange={setOtpCode} autoFocus />
+                            <Button title="Confirmar código" onPress={handleVerifyOTP} loading={loading} className="mt-1" />
+                            <View className="items-center pt-1">
                                 {resendCooldown > 0 ? (
-                                    <Text className="text-fogon-gray text-sm font-medium">
-                                        Reenviar código en <Text className="text-fogon-brown font-bold">{resendCooldown}s</Text>
+                                    <Text className="text-pizca-texto2 text-sm">
+                                        Podés pedir otro en <Text className="text-pizca-marron font-extrabold">{resendCooldown} s</Text>
                                     </Text>
                                 ) : (
-                                    <TouchableOpacity onPress={handleResendOTP} disabled={loading}>
-                                        <Text className="text-fogon-amber text-sm font-bold">
-                                            Reenviar código por correo
-                                        </Text>
+                                    <TouchableOpacity onPress={handleResendOTP} disabled={loading} className="py-1" accessibilityRole="button">
+                                        <Text className="text-pizca-mostaza-texto text-sm font-extrabold">Mandarme otro código</Text>
                                     </TouchableOpacity>
                                 )}
                             </View>
-
-                            <TouchableOpacity 
-                                className="mt-8 flex-row items-center justify-center" 
-                                onPress={() => setStep('form')}
-                            >
-                                <ArrowLeft size={16} color="#EF9F27" className="mr-1" />
-                                <Text className="text-fogon-amber text-[15px] font-bold">Volver a registrarme</Text>
-                            </TouchableOpacity>
                         </View>
-                    </>
-                )}
+                    )}
+
+                    <View className="flex-1 min-h-[24px]" />
+                    <TouchableOpacity className="self-center p-3" onPress={() => router.replace('/login')} accessibilityRole="link">
+                        <Text className="text-pizca-mostaza-texto text-[15px] font-extrabold">
+                            ¿Ya tenés cuenta? <Text className="underline">Ingresá</Text>
+                        </Text>
+                    </TouchableOpacity>
+                </ScrollView>
             </KeyboardAvoidingView>
         </View>
     );

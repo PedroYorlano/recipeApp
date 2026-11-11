@@ -1,89 +1,92 @@
-from rest_framework import serializers
-from .models import Category, Recipe, Ingredient, Step, Favorite, MealPlan, ShoppingListItem
+import re
+from datetime import timedelta
+from decimal import Decimal, InvalidOperation
+
+from django.conf import settings
 from django.db import transaction
-import base64
-import uuid
-from django.core.files.base import ContentFile
-import requests
-from django.contrib.auth.models import User
+from django.db.models import Q
+from django.utils import timezone
+from rest_framework import serializers
 
-class UserRegistrationSerializer(serializers.ModelSerializer):
-    password = serializers.CharField(write_only=True, required=True, min_length=8, style={'input_type': 'password'})
+from .images import InvalidImage, image_from_base64, image_from_url
+from .models import Category, Favorite, Ingredient, MealPlan, Recipe, ShoppingListItem, Step, UserUsage
 
-    class Meta:
-        model = User
-        fields = ['username', 'email', 'password']
-        extra_kwargs = {
-            'email': {'required': True}
-        }
 
-    def validate_username(self, value):
-        if len(value) < 3:
-            raise serializers.ValidationError("El nombre de usuario debe tener al menos 3 caracteres.")
-        if len(value) > 30:
-            raise serializers.ValidationError("El nombre de usuario no puede tener más de 30 caracteres.")
-        return value
-
-    def create(self, validated_data):
-        user = User.objects.create_user(
-            username=validated_data['username'],
-            email=validated_data['email'],
-            password=validated_data['password']
+def new_cover_image(request, img_b64, img_url):
+    """
+    Procesa la foto nueva (si vino) y la cuenta para el tope diario.
+    Una foto que llega mal tira ValidationError; una URL que no baja devuelve None.
+    """
+    if not img_b64 and not img_url:
+        return None
+    usage, _ = UserUsage.objects.get_or_create(user=request.user)
+    max_daily = settings.PIZCA_MAX_IMAGES_PER_USER_PER_DAY
+    if not usage.can_upload_image(max_daily):
+        raise serializers.ValidationError(
+            {'image': f'Llegaste al máximo de {max_daily} fotos por día. Podés guardar la receta sin foto y agregarla mañana.'}
         )
-        return user
+    if img_b64:
+        try:
+            image = image_from_base64(img_b64)
+        except InvalidImage as e:
+            raise serializers.ValidationError({'image': str(e)})
+    else:
+        image = image_from_url(img_url)
+    if image:
+        usage.record_image()
+    return image
 
-def decode_base64_file(data):
-    if not data:
-        return None
-    # Limitar tamaño de base64 (~5MB de imagen = ~6.7MB en base64)
-    if len(data) > 7 * 1024 * 1024:
-        raise serializers.ValidationError("La imagen es demasiado grande (máximo 5MB).")
-    format, imgstr = data.split(';base64,')
-    ext = format.split('/')[-1]
-    # Solo permitir formatos de imagen
-    allowed_formats = ['jpeg', 'jpg', 'png', 'webp', 'gif']
-    if ext.lower() not in allowed_formats:
-        raise serializers.ValidationError(f"Formato de imagen no permitido: {ext}")
-    return ContentFile(base64.b64decode(imgstr), name=f"{uuid.uuid4()}.{ext}")
-
-def download_image_from_url(url):
-    try:
-        import socket
-        import ipaddress
-        from urllib.parse import urlparse
-        # SSRF protection: solo permitir URLs HTTPS con IPs públicas
-        parsed = urlparse(url)
-        if parsed.scheme not in ('http', 'https'):
-            return None
-        hostname = parsed.hostname
-        if not hostname:
-            return None
-        resolved_ip = socket.gethostbyname(hostname)
-        ip_obj = ipaddress.ip_address(resolved_ip)
-        if ip_obj.is_private or ip_obj.is_loopback or ip_obj.is_link_local or ip_obj.is_reserved:
-            return None
-
-        response = requests.get(url, timeout=10, stream=True)
-        if response.status_code == 200:
-            # Limitar descarga a 5MB
-            content_length = response.headers.get('Content-Length')
-            if content_length and int(content_length) > 5 * 1024 * 1024:
-                return None
-            content = response.content[:5 * 1024 * 1024]
-            return ContentFile(content, name=f"{uuid.uuid4()}.jpg")
-    except Exception:
-        return None
-        
 
 class CategorySerializer(serializers.ModelSerializer):
     class Meta:
         model = Category
         fields = ['id', 'name', 'parent']
 
+# "400ml", "1/2 taza", "1,5 kg": número al principio de la unidad.
+_LEADING_QTY = re.compile(r'^\s*(\d+\s*/\s*\d+|\d+(?:[.,]\d+)?)\s*(.*)$')
+
+
+def split_quantity_unit(quantity, unit):
+    """Si la cantidad vino pegada a la unidad (recetas viejas o la IA), la separa."""
+    if quantity is not None or not unit:
+        return quantity, unit
+    match = _LEADING_QTY.match(unit)
+    if not match:
+        return quantity, unit
+    raw, rest = match.groups()
+    try:
+        if '/' in raw:
+            num, den = (Decimal(x.strip()) for x in raw.split('/'))
+            if den == 0:
+                return quantity, unit
+            value = (num / den).quantize(Decimal('0.01'))
+        else:
+            value = Decimal(raw.replace(',', '.'))
+    except InvalidOperation:
+        return quantity, unit
+    return value, rest.strip()
+
+
 class IngredientSerializer(serializers.ModelSerializer):
+    # Número en el JSON (no "200.00"), que es lo que espera el front.
+    quantity = serializers.DecimalField(
+        max_digits=8, decimal_places=2, coerce_to_string=False, required=False, allow_null=True
+    )
+
     class Meta:
         model = Ingredient
         fields = ['id', 'name', 'quantity', 'unit', 'order']
+
+    def validate(self, data):
+        data['quantity'], data['unit'] = split_quantity_unit(data.get('quantity'), data.get('unit', ''))
+        return data
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        quantity, unit = split_quantity_unit(data.get('quantity'), data.get('unit'))
+        data['quantity'] = float(quantity) if isinstance(quantity, Decimal) else quantity
+        data['unit'] = unit
+        return data
 
 class StepSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
@@ -132,19 +135,39 @@ class RecipeSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Máximo 100 pasos por receta.")
         return value
 
+    def validate_categories(self, value):
+        user = self.context['request'].user
+        allowed = set(
+            Category.objects.filter(Q(user__isnull=True) | Q(user=user)).values_list('id', flat=True)
+        )
+        if any(cat.id not in allowed for cat in value):
+            raise serializers.ValidationError("Categoría inválida.")
+        return value
+
     def validate_title(self, value):
         if len(value.strip()) < 2:
             raise serializers.ValidationError("El título debe tener al menos 2 caracteres.")
         return value.strip()
 
+    # Las listas los traen anotados (ver RecipeViewSet.get_queryset); si no, una consulta por receta.
     def get_is_favorite(self, obj):
+        if hasattr(obj, 'is_favorite_annotated'):
+            return obj.is_favorite_annotated
         request = self.context.get('request')
-        if request and request.user and request.user.is_authenticated:
+        if request and request.user.is_authenticated:
             return Favorite.objects.filter(user=request.user, recipe=obj).exists()
         return False
 
     def get_favorite_count(self, obj):
+        if hasattr(obj, 'favorite_count_annotated'):
+            return obj.favorite_count_annotated
         return obj.favorited_by.count()
+
+    @staticmethod
+    def _create_ingredients(recipe, ingredients_data):
+        Ingredient.objects.bulk_create(
+            Ingredient(recipe=recipe, **{'order': i, **item}) for i, item in enumerate(ingredients_data)
+        )
 
     def create(self, validated_data):
         ingredients_data = validated_data.pop('ingredients')
@@ -154,27 +177,21 @@ class RecipeSerializer(serializers.ModelSerializer):
         img_b64 = validated_data.pop('image_base64', None)
         img_url = validated_data.pop('image_url', None)
 
-        if img_b64:
-            validated_data['image'] = decode_base64_file(img_b64)
-        elif img_url:
-            validated_data['image'] = download_image_from_url(img_url)
+        image = new_cover_image(self.context['request'], img_b64, img_url)
+        if image:
+            validated_data['image'] = image
 
         with transaction.atomic():
             recipe = Recipe.objects.create(**validated_data)
-
             recipe.categories.set(categories_data)
-            
-            for i, ingredient in enumerate(ingredients_data):
-                ingredient.setdefault('order', i)
-                Ingredient.objects.create(recipe=recipe, **ingredient)
-
-            for step in steps_data:
-                Step.objects.create(recipe=recipe, **step)
-        
+            self._create_ingredients(recipe, ingredients_data)
+            # El id de un paso nunca lo elige el cliente (al editar sirve para reconocer los que ya existen).
+            Step.objects.bulk_create(
+                Step(recipe=recipe, **{k: v for k, v in step.items() if k != 'id'}) for step in steps_data
+            )
         return recipe
 
     def update(self, instance, validated_data):
-        # 1. Extraer datos anidados
         ingredients_data = validated_data.pop('ingredients', None)
         steps_data = validated_data.pop('steps', None)
         categories_data = validated_data.pop('categories', None)
@@ -182,58 +199,44 @@ class RecipeSerializer(serializers.ModelSerializer):
         img_url = validated_data.pop('image_url', None)
         remove_image = validated_data.pop('remove_image', False)
 
-        # 2. Actualizar campos simples de la receta
-        instance.title = validated_data.get('title', instance.title)
-        instance.description = validated_data.get('description', instance.description)
-        instance.servings = validated_data.get('servings', instance.servings)
-        instance.prep_time = validated_data.get('prep_time', instance.prep_time)
+        for field, value in validated_data.items():
+            setattr(instance, field, value)
 
-        # 3. Actualizar Imagen de Portada (Si hay nueva)
-        if img_b64:
-            instance.image = decode_base64_file(img_b64)
-        elif img_url:
-            instance.image = download_image_from_url(img_url)
-        if remove_image:
+        # Imagen de portada: una nueva gana sobre "quitar".
+        image = new_cover_image(self.context['request'], img_b64, img_url)
+        if image:
+            instance.image = image
+        elif remove_image and not (img_b64 or img_url):
             instance.image = None
-        
-        instance.save()
 
-        # 4. Actualizar Categorías
-        if categories_data is not None:
-            instance.categories.set(categories_data)
+        with transaction.atomic():
+            instance.save()
 
-        # 5. Actualizar Ingredientes (borrar y recrear — son texto simple con cantidad)
-        if ingredients_data is not None:
-            instance.ingredients.all().delete()
-            for i, item in enumerate(ingredients_data):
-                item.setdefault('order', i)
-                Ingredient.objects.create(recipe=instance, **item)
+            if categories_data is not None:
+                instance.categories.set(categories_data)
 
-        # 6. ACTUALIZACIÓN DE PASOS
-        if steps_data is not None:
-            # Lista para guardar los IDs de pasos que procesamos para no borrarlos
-            keep_step_ids = []
+            # Ingredientes: se reemplazan (son texto simple con cantidad, nadie los referencia).
+            if ingredients_data is not None:
+                instance.ingredients.all().delete()
+                self._create_ingredients(instance, ingredients_data)
 
-            for item in steps_data:
-                step_id = item.get('id')
-                if step_id:
-                    # CASO A: El paso ya existe -> Lo actualizamos
-                    try:
-                        step_obj = Step.objects.get(id=step_id, recipe=instance)
-                        step_obj.order = item.get('order', step_obj.order)
-                        step_obj.instruction = item.get('instruction', step_obj.instruction)
-                        step_obj.save()
-                        keep_step_ids.append(step_obj.id)
-                    except Step.DoesNotExist:
-                        continue # Si mandaron un ID raro, lo ignoramos
-                else:
-                    # CASO B: El paso es nuevo -> Lo creamos
-                    new_step = Step.objects.create(recipe=instance, **item)
-                    keep_step_ids.append(new_step.id)
-
-            # CASO C: Borrar pasos que el usuario eliminó en el frontend
-            # (Borramos todos los pasos de esta receta que NO estén en la lista de keep_ids)
-            instance.steps.exclude(id__in=keep_step_ids).delete()
+            # Pasos: se conservan los ids que vuelven (los usa el modo cocina), se crean los nuevos
+            # y se borran los que el usuario quitó.
+            if steps_data is not None:
+                existing = {step.id: step for step in instance.steps.all()}
+                to_update, to_create = [], []
+                for item in steps_data:
+                    step = existing.get(item.get('id'))
+                    if step:
+                        step.order = item.get('order', step.order)
+                        step.instruction = item.get('instruction', step.instruction)
+                        to_update.append(step)
+                    else:
+                        item.pop('id', None)  # un id ajeno o inventado se trata como paso nuevo
+                        to_create.append(Step(recipe=instance, **item))
+                instance.steps.exclude(id__in=[step.id for step in to_update]).delete()
+                Step.objects.bulk_update(to_update, ['order', 'instruction'])
+                Step.objects.bulk_create(to_create)
 
         return instance
 
@@ -262,8 +265,7 @@ class MealPlanSerializer(serializers.ModelSerializer):
         return value
 
     def validate_date(self, value):
-        from datetime import date, timedelta
-        today = date.today()
+        today = timezone.localdate()
         max_date = today + timedelta(weeks=4)
         if value < today:
             raise serializers.ValidationError("No podés planificar en el pasado.")
@@ -276,13 +278,35 @@ class MealPlanSerializer(serializers.ModelSerializer):
         date_val = data.get('date', getattr(self.instance, 'date', None))
         meal_type_val = data.get('meal_type', getattr(self.instance, 'meal_type', None))
         if date_val and meal_type_val:
+            # Un plan cuya receta se borró no ocupa el lugar (ver _clear_orphans).
             if MealPlan.objects.filter(
-                user=user, date=date_val, meal_type=meal_type_val
+                user=user, date=date_val, meal_type=meal_type_val, recipe__isnull=False
             ).exclude(pk=self.instance.pk if self.instance else None).exists():
                 raise serializers.ValidationError("Ya tenés una receta en ese slot.")
         return data
 
+    @staticmethod
+    def _clear_orphans(user, date, meal_type, keep=None):
+        """Borra el plan sin receta que quedó en ese lugar: la semana no lo muestra y choca con el único por slot."""
+        MealPlan.objects.filter(
+            user=user, date=date, meal_type=meal_type, recipe__isnull=True,
+        ).exclude(pk=keep).delete()
+
+    def create(self, validated_data):
+        with transaction.atomic():
+            self._clear_orphans(validated_data['user'], validated_data['date'], validated_data['meal_type'])
+            return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        with transaction.atomic():
+            self._clear_orphans(
+                instance.user, validated_data.get('date', instance.date),
+                validated_data.get('meal_type', instance.meal_type), keep=instance.pk,
+            )
+            return super().update(instance, validated_data)
+
 class ShoppingListItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = ShoppingListItem
-        fields = ['id', 'week_start', 'ingredient_name', 'quantity', 'category', 'is_checked']
+        fields = ['id', 'week_start', 'ingredient_name', 'quantity', 'category', 'is_checked', 'is_manual']
+        read_only_fields = ['is_manual']

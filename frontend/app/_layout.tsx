@@ -2,11 +2,24 @@ import '../global.css';
 import React, { useEffect } from 'react';
 import { View, ActivityIndicator, Platform } from 'react-native';
 import { Slot, useRouter, useSegments, useRootNavigationState } from 'expo-router';
-import { AppProvider, useApp } from '../src/context/AppContext';
+import { AppProvider, useApp, CreateMode } from '../src/context/AppContext';
+import { DialogHost } from '../src/components/ui/DialogHost';
 import { PlannerProvider } from '../src/context/PlannerContext';
 import { CreateMenuModal } from '../src/components/CreateMenuModal';
 import { RecipeFormModal } from '../src/components/recipes/RecipeFormModal';
 import * as Linking from 'expo-linking';
+import Head from 'expo-router/head';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { PENDING_IMPORT_KEY, importModeForUrl } from '../src/utils/shareImport';
+import { useFonts } from 'expo-font';
+import { Ranchers_400Regular } from '@expo-google-fonts/ranchers';
+import {
+  NunitoSans_400Regular,
+  NunitoSans_600SemiBold,
+  NunitoSans_700Bold,
+  NunitoSans_800ExtraBold,
+  NunitoSans_900Black,
+} from '@expo-google-fonts/nunito-sans';
 
 const MainLayout = () => {
   // 1. Extraemos TODO lo necesario del Contexto (Auth + Modales)
@@ -15,15 +28,25 @@ const MainLayout = () => {
     isCreateMenuVisible, setCreateMenuVisible,               // Para Modales
     formModalVisible, setFormModalVisible,
     editingRecipe, setEditingRecipe, saveRecipe, importRecipeAI, categories,
-    createMode, setCreateMode, setInitialImportUrl
+    setCreateMode, setInitialImportUrl
   } = useApp();
+
+  const [fontsLoaded, fontError] = useFonts({
+    Ranchers_400Regular,
+    NunitoSans_400Regular,
+    NunitoSans_600SemiBold,
+    NunitoSans_700Bold,
+    NunitoSans_800ExtraBold,
+    NunitoSans_900Black,
+  });
 
   useEffect(() => {
     const handleIncomingUrl = (url: string) => {
       const parsed = Linking.parse(url);
       if (parsed.hostname === 'import' && parsed.queryParams?.url) {
-        const importUrl = decodeURIComponent(parsed.queryParams.url as string);
-        setCreateMode('video');
+        // Linking.parse ya decodifica los params: decodificar de nuevo rompe links con "%".
+        const importUrl = String(parsed.queryParams.url);
+        setCreateMode(importModeForUrl(importUrl));
         setInitialImportUrl(importUrl);
         setFormModalVisible(true);
       }
@@ -40,6 +63,20 @@ const MainLayout = () => {
     return () => subscription.remove();
   }, [setCreateMode, setInitialImportUrl, setFormModalVisible]);
 
+  // Link compartido sin sesión (ver app/import.tsx): se abre apenas el usuario entra.
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    AsyncStorage.getItem(PENDING_IMPORT_KEY)
+      .then(async (pendingUrl) => {
+        if (!pendingUrl) return;
+        await AsyncStorage.removeItem(PENDING_IMPORT_KEY);
+        setCreateMode(importModeForUrl(pendingUrl));
+        setInitialImportUrl(pendingUrl);
+        setFormModalVisible(true);
+      })
+      .catch(() => {});
+  }, [isAuthenticated, setCreateMode, setInitialImportUrl, setFormModalVisible]);
+
   const segments = useSegments();
   const router = useRouter();
   const rootNavigationState = useRootNavigationState();
@@ -52,10 +89,14 @@ const MainLayout = () => {
     const inLogin = segments[0] === 'login';
     const inRegister = segments[0] === 'register';
     const inForgotPassword = segments[0] === 'forgot-password';
-    const isLanding = !segments[0] || segments[0] === 'index';
+    const isLanding = !segments[0];
     const inShareExtension = segments[0] === 'share-extension';
+    // /import decide solo a dónde ir (guarda el link y manda al login si hace falta).
+    const inImport = segments[0] === 'import';
+    // Receta compartida: se ve con o sin sesión.
+    const inSharedRecipe = segments[0] === 'receta';
 
-    const isPublicRoute = (isWeb && isLanding) || inLogin || inRegister || inForgotPassword || inShareExtension;
+    const isPublicRoute = (isWeb && isLanding) || inLogin || inRegister || inForgotPassword || inShareExtension || inImport || inSharedRecipe;
 
     if (isAuthenticated) {
       if (isLanding || inLogin || inRegister || inForgotPassword) {
@@ -74,23 +115,19 @@ const MainLayout = () => {
   }, [isAuthenticated, isAuthLoading, segments, rootNavigationState, router]);
 
   // 3. Lógica del Menú Flotante
-  const handleMenuSelect = (option: string) => {
+  const handleMenuSelect = (option: CreateMode) => {
     setCreateMenuVisible(false);
-
-    if (option === 'manual') setCreateMode('manual');
-    else if (option === 'video') setCreateMode('video');
-    else if (option === 'audio') setCreateMode('audio');
-    else if (option === 'text') setCreateMode('text');
-    else if (option === 'link-web') setCreateMode('link-web');
+    setCreateMode(option);
     setEditingRecipe(null);
     setFormModalVisible(true);
   };
 
   // 4. Renderizado: Loading o App + Modales
-  if (isAuthLoading) {
+  // Si las fuentes fallan se sigue igual, con las del sistema.
+  if (isAuthLoading || (!fontsLoaded && !fontError)) {
     return (
-      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
-        <ActivityIndicator size="large" color="#FF6B6B" />
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#FFF9EC' }}>
+        <ActivityIndicator size="large" color="#BE9F00" />
       </View>
     );
   }
@@ -108,12 +145,19 @@ const MainLayout = () => {
 
       <RecipeFormModal
         visible={formModalVisible}
-        onClose={() => setFormModalVisible(false)}
+        onClose={() => {
+          setFormModalVisible(false);
+          // Si no, la próxima importación (share, /import) abre el form en modo "editar" esa receta.
+          setEditingRecipe(null);
+        }}
         onSubmit={saveRecipe}
         onImportAI={importRecipeAI}
         initialData={editingRecipe}
         categories={categories}
       />
+
+      {/* Avisos y confirmaciones (notify / confirmAction) sobre las pantallas */}
+      <DialogHost />
     </>
   );
 };
@@ -121,6 +165,10 @@ const MainLayout = () => {
 export default function RootLayout() {
   return (
     <AppProvider>
+      {/* Título de la pestaña en web (en nativo no hace nada) */}
+      <Head>
+        <title>Pizca</title>
+      </Head>
       <PlannerProvider>
         <MainLayout />
       </PlannerProvider>

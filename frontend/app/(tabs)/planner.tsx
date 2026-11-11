@@ -1,130 +1,156 @@
 import React, { useState, useMemo } from 'react';
 import {
-    View, Text, TouchableOpacity, ScrollView, ActivityIndicator,
-    Alert, StyleSheet, StatusBar as RNStatusBar, TextInput,
-    LayoutAnimation, Platform, UIManager, Keyboard,
+    View, TouchableOpacity, ScrollView, ActivityIndicator, StatusBar as RNStatusBar,
+    LayoutAnimation, Platform, UIManager, Keyboard, Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from 'expo-router';
+import Svg, { Circle } from 'react-native-svg';
+import { ChevronLeft, ChevronRight, Plus, Trash2, X, Check, RefreshCw } from 'lucide-react-native';
+import { Text, TextInput } from '../../src/components/ui/Typography';
+import { Button } from '../../src/components/ui/Button';
+import { usePlanner, DraftSlot } from '../../src/context/PlannerContext';
+import { MealPlan, Recipe, ShoppingListItem } from '../../src/types';
+import { RecipePickerModal } from '../../src/components/planner/RecipePickerModal';
+import { IdeasChat } from '../../src/components/planner/IdeasChat';
+import { MEALS } from '../../src/components/planner/AddToWeekSheet';
+import { notify, confirmAction } from '../../src/utils/dialogs';
+import { addDays, getTodayISO, parseISODate } from '../../src/utils/dates';
+import { ICONS, ILLUSTRATIONS } from '../../src/constants/brand';
+import { AISLES, OTHER_AISLE } from '../../src/constants/aisles';
 
 if (Platform.OS === 'android') {
     UIManager.setLayoutAnimationEnabledExperimental?.(true);
 }
-import { Image } from 'expo-image';
-import { usePlanner, DraftSlot } from '../../src/context/PlannerContext';
-import { COLORS, SPACING, RADIUS } from '../../src/theme';
-import { SERVER_URL } from '../../src/constants';
-import {
-    ChevronLeft, ChevronRight, Sun, Coffee, Moon,
-    Plus, ShoppingCart, Trash2, Calendar, Save, Edit2, X,
-} from 'lucide-react-native';
-import { MealPlan, Recipe, ShoppingListItem } from '../../src/types';
-import { RecipePickerModal } from '../../src/components/planner/RecipePickerModal';
-import { FogoncitoChat } from '../../src/components/planner/FogoncitoChat';
 
 // --- Constantes ---
 
-const MEAL_TYPES = [
-    { key: 'breakfast' as const, label: 'Desayuno', icon: Sun, emoji: '☕' },
-    { key: 'lunch' as const, label: 'Almuerzo', icon: Coffee, emoji: '☀️' },
-    { key: 'dinner' as const, label: 'Cena', icon: Moon, emoji: '🌙' },
-];
-
 const DAY_NAMES = ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM'];
+const DAY_LONG = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
 const MONTH_NAMES = [
     'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
+    'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre',
 ];
+const MONTH_SHORT = ['ene.', 'feb.', 'mar.', 'abr.', 'may.', 'jun.', 'jul.', 'ago.', 'sep.', 'oct.', 'nov.', 'dic.'];
 
-type TabView = 'week' | 'shopping' | 'fogoncito';
+type TabView = 'week' | 'shopping' | 'ideas';
+const TABS: { key: TabView; label: string }[] = [
+    { key: 'week', label: 'Semana' },
+    { key: 'shopping', label: 'Compras' },
+    { key: 'ideas', label: 'Ideas' },
+];
 
 // --- Helpers ---
 
-const getWeekDays = (weekStart: string): { date: string; dayName: string; dayNum: number }[] => {
-    const start = new Date(weekStart + 'T00:00:00');
-    return DAY_NAMES.map((name, i) => {
-        const d = new Date(start);
-        d.setDate(start.getDate() + i);
-        const iso = d.toISOString().split('T')[0];
-        return { date: iso, dayName: name, dayNum: d.getDate() };
+const getWeekDays = (weekStart: string) =>
+    DAY_NAMES.map((name, i) => {
+        const iso = addDays(weekStart, i);
+        return { date: iso, dayName: name, dayNum: parseISODate(iso).getDate() };
     });
-};
 
+/** "9 – 15 de noviembre" o "29 de dic. – 4 de enero". */
 const formatWeekRange = (weekStart: string): string => {
-    const start = new Date(weekStart + 'T00:00:00');
-    const end = new Date(start);
-    end.setDate(start.getDate() + 6);
-    const startDay = start.getDate();
-    const endDay = end.getDate();
-    const startMonth = MONTH_NAMES[start.getMonth()];
-    const endMonth = MONTH_NAMES[end.getMonth()];
-
-    if (startMonth === endMonth) {
-        return `Semana del ${startDay} al ${endDay} de ${startMonth}`;
+    const start = parseISODate(weekStart);
+    const end = parseISODate(addDays(weekStart, 6));
+    if (start.getMonth() === end.getMonth()) {
+        return `${start.getDate()} – ${end.getDate()} de ${MONTH_NAMES[end.getMonth()]}`;
     }
-    return `Semana del ${startDay} de ${startMonth} al ${endDay} de ${endMonth}`;
+    return `${start.getDate()} de ${MONTH_SHORT[start.getMonth()]} – ${end.getDate()} de ${MONTH_NAMES[end.getMonth()]}`;
 };
 
-const getImageUri = (image: string | null): string | null => {
-    if (!image) return null;
-    if (image.startsWith('http')) return image;
-    return `${SERVER_URL}${image}`;
+/** "Semana del 9 al 15 de nov." */
+const formatWeekShort = (weekStart: string): string => {
+    const start = parseISODate(weekStart);
+    const end = parseISODate(addDays(weekStart, 6));
+    if (start.getMonth() === end.getMonth()) {
+        return `Semana del ${start.getDate()} al ${end.getDate()} de ${MONTH_SHORT[end.getMonth()]}`;
+    }
+    return `Semana del ${start.getDate()} de ${MONTH_SHORT[start.getMonth()]} al ${end.getDate()} de ${MONTH_SHORT[end.getMonth()]}`;
 };
 
-/** Retorna la fecha de hoy en ISO 'YYYY-MM-DD' */
-const getTodayISO = (): string => new Date().toISOString().split('T')[0];
+/** "Hoy, martes 10" / "Mañana, miércoles 11" / "Jueves 12". */
+const formatDayTitle = (iso: string): string => {
+    const d = parseISODate(iso);
+    const name = `${DAY_LONG[d.getDay()]} ${d.getDate()}`;
+    const today = getTodayISO();
+    if (iso === today) return `Hoy, ${name}`;
+    if (iso === addDays(today, 1)) return `Mañana, ${name}`;
+    return name.charAt(0).toUpperCase() + name.slice(1);
+};
 
-// --- Main Screen ---
+function isDraft(plan: any): plan is DraftSlot {
+    return plan && 'recipeUuid' in plan;
+}
+
+const slotTitle = (plan?: MealPlan | DraftSlot) =>
+    !plan ? '' : isDraft(plan) ? plan.recipeTitle : plan.recipe_detail?.title || '';
+
+const slotPrepTime = (plan?: MealPlan | DraftSlot) =>
+    !plan ? null : isDraft(plan) ? plan.recipePrepTime : plan.recipe_detail?.prep_time || null;
+
+// --- Pantalla ---
 
 export default function PlannerScreen() {
     const [activeTab, setActiveTab] = useState<TabView>('week');
 
     return (
-        <SafeAreaView style={styles.container}>
-            <RNStatusBar barStyle="dark-content" backgroundColor={COLORS.background} />
+        <SafeAreaView className="flex-1 bg-pizca-fondo" edges={['top']}>
+            <RNStatusBar barStyle="dark-content" backgroundColor="#FFF9EC" />
 
-            {/* Header */}
-            <View style={styles.header}>
-                <Text style={styles.headerTitle}>Planificar</Text>
+            <View className="px-5 pt-4 gap-4 w-full max-w-3xl self-center">
+                <Text className="font-display text-[32px] leading-[34px] text-pizca-marron" accessibilityRole="header">Planificar</Text>
+
+                <View className="flex-row p-1 rounded-[16px] bg-pizca-crema" accessibilityRole="tablist">
+                    {TABS.map(tab => {
+                        const active = activeTab === tab.key;
+                        return (
+                            <TouchableOpacity
+                                key={tab.key}
+                                onPress={() => setActiveTab(tab.key)}
+                                className={`flex-1 h-10 items-center justify-center rounded-[12px] ${active ? 'bg-white' : ''}`}
+                                style={active ? { boxShadow: '0 1px 4px rgba(63,49,40,0.12)' } : undefined}
+                                accessibilityRole="tab"
+                                accessibilityState={{ selected: active }}
+                            >
+                                <Text className={`text-sm ${active ? 'font-extrabold text-pizca-marron' : 'font-bold text-pizca-texto2'}`}>{tab.label}</Text>
+                            </TouchableOpacity>
+                        );
+                    })}
+                </View>
             </View>
 
-            {/* Segmented Control */}
-            <View style={styles.segmentedContainer}>
-                {(['week', 'shopping', 'fogoncito'] as TabView[]).map(tab => (
-                    <TouchableOpacity
-                        key={tab}
-                        style={[styles.segmentBtn, activeTab === tab && styles.segmentBtnActive]}
-                        onPress={() => setActiveTab(tab)}
-                        activeOpacity={0.7}
-                    >
-                        <Text style={[
-                            styles.segmentText,
-                            activeTab === tab && styles.segmentTextActive,
-                        ]}>
-                            {tab === 'week' ? 'Semana' : tab === 'shopping' ? 'Compras' : 'Fogoncito'}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
+            <View className="flex-1 w-full max-w-3xl self-center">
+                {activeTab === 'week' && <WeekView onSwitchTab={setActiveTab} />}
+                {activeTab === 'shopping' && <ShoppingView />}
+                {activeTab === 'ideas' && <IdeasChat />}
             </View>
-
-            {/* Content */}
-            {activeTab === 'week' && <WeekView onSwitchTab={setActiveTab} />}
-            {activeTab === 'shopping' && <ShoppingView />}
-            {activeTab === 'fogoncito' && <FogoncitoChat />}
         </SafeAreaView>
     );
 }
 
 // ============================================================
-// WEEK VIEW
+// SEMANA
 // ============================================================
 
 function WeekView({ onSwitchTab }: { onSwitchTab: (tab: TabView) => void }) {
     const {
-        weekStart, isLoadingPlans, isSaving, hasUnsavedChanges,
+        weekStart, isLoadingPlans, isSaving, hasUnsavedChanges, serverPlans, draftSlots, removedIds,
         canGoBack, canGoForward, goToPreviousWeek, goToNextWeek,
         getPlansForDate, getMergedPlanForSlot, removeFromPlan,
-        assignRecipe, savePlan, discardChanges,
+        assignRecipe, savePlan, discardChanges, refreshPlans,
     } = usePlanner();
+
+    // Al volver a la pestaña, traer el plan actualizado (recetas editadas o borradas desde el Inicio).
+    // Si hay cambios sin guardar no se pisa nada.
+    const unsavedRef = React.useRef(hasUnsavedChanges);
+    unsavedRef.current = hasUnsavedChanges;
+    const refreshRef = React.useRef(refreshPlans);
+    refreshRef.current = refreshPlans;
+    useFocusEffect(
+        React.useCallback(() => {
+            if (!unsavedRef.current) refreshRef.current();
+        }, [])
+    );
 
     const weekDays = useMemo(() => getWeekDays(weekStart), [weekStart]);
     const todayISO = getTodayISO();
@@ -134,19 +160,23 @@ function WeekView({ onSwitchTab }: { onSwitchTab: (tab: TabView) => void }) {
     React.useEffect(() => {
         const days = getWeekDays(weekStart);
         const today = getTodayISO();
-        const todayInWeek = days.find(d => d.date === today);
-        setSelectedDate(todayInWeek ? today : days[0].date);
+        setSelectedDate(days.find(d => d.date === today) ? today : days[0].date);
     }, [weekStart]);
 
-    const handleRemove = (date: string, mealType: string, title: string) => {
-        Alert.alert(
-            'Quitar del plan',
-            `\u00bfSacamos \"${title}\" de este d\u00eda?`,
-            [
-                { text: 'Cancelar', style: 'cancel' },
-                { text: 'Quitar', style: 'destructive', onPress: () => removeFromPlan(date, mealType) },
-            ]
-        );
+    // Un reemplazo (borrar + agregar en el mismo lugar) cuenta como un solo cambio.
+    const draftKeys = new Set(Object.keys(draftSlots));
+    const changeCount = draftKeys.size + serverPlans.filter(
+        p => removedIds.has(p.id) && !draftKeys.has(`${p.date}|${p.meal_type}`),
+    ).length;
+
+    const handleRemove = async (date: string, mealType: string, title: string) => {
+        const ok = await confirmAction({
+            title: 'Quitar del plan',
+            message: `¿Sacamos "${title}" de este día?`,
+            confirmText: 'Quitar',
+            destructive: true,
+        });
+        if (ok) removeFromPlan(date, mealType);
     };
 
     const handleAssign = (recipe: Recipe) => {
@@ -158,152 +188,127 @@ function WeekView({ onSwitchTab }: { onSwitchTab: (tab: TabView) => void }) {
     const handleSave = async () => {
         const ok = await savePlan();
         if (ok) {
-            Alert.alert(
-                '\u00a1Plan guardado!',
-                '\u00bfQuer\u00e9s ir a Compras para generar tu lista?',
-                [
-                    { text: 'Ahora no', style: 'cancel' },
-                    { text: 'Ir a Compras', onPress: () => onSwitchTab('shopping') },
-                ]
-            );
+            const goShopping = await confirmAction({
+                title: '¡Plan guardado!',
+                message: '¿Querés ir a Compras para armar la lista?',
+                confirmText: 'Ir a Compras',
+                cancelText: 'Ahora no',
+            });
+            if (goShopping) onSwitchTab('shopping');
         } else {
-            Alert.alert('Error', 'No pudimos guardar el plan. Intentalo de nuevo.');
+            notify('Error', 'No pudimos guardar el plan. Probá de nuevo.');
         }
     };
 
+    const isPastDay = selectedDate < todayISO;
+
     return (
-        <ScrollView style={{ flex: 1 }} showsVerticalScrollIndicator={false}>
-            {/* Week Navigation */}
-            <View style={styles.weekNav}>
-                <TouchableOpacity
-                    onPress={goToPreviousWeek}
-                    disabled={!canGoBack}
-                    style={[styles.navArrow, !canGoBack && styles.navArrowDisabled]}
-                    activeOpacity={0.6}
-                >
-                    <ChevronLeft size={22} color={canGoBack ? COLORS.secondary : COLORS.text.secondary} />
-                </TouchableOpacity>
-                <Text style={styles.weekRange}>{formatWeekRange(weekStart)}</Text>
-                <TouchableOpacity
-                    onPress={goToNextWeek}
-                    disabled={!canGoForward}
-                    style={[styles.navArrow, !canGoForward && styles.navArrowDisabled]}
-                    activeOpacity={0.6}
-                >
-                    <ChevronRight size={22} color={canGoForward ? COLORS.secondary : COLORS.text.secondary} />
-                </TouchableOpacity>
-            </View>
-
-            {/* Day Selector */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dayRow}>
-                {weekDays.map(day => {
-                    const isActive = day.date === selectedDate;
-                    const hasPlans = getPlansForDate(day.date).length > 0;
-                    const isPast = day.date < todayISO;
-                    return (
-                        <TouchableOpacity
-                            key={day.date}
-                            style={[styles.dayItem, isActive && styles.dayItemActive, isPast && styles.dayItemPast]}
-                            onPress={() => setSelectedDate(day.date)}
-                            activeOpacity={0.7}
-                        >
-                            <Text style={[styles.dayName, isActive && styles.dayNameActive, isPast && styles.dayTextPast]}>{day.dayName}</Text>
-                            <Text style={[styles.dayNum, isActive && styles.dayNumActive, isPast && styles.dayTextPast]}>{day.dayNum}</Text>
-                            <View style={[styles.dayDot, hasPlans ? styles.dayDotActive : styles.dayDotEmpty]} />
-                        </TouchableOpacity>
-                    );
-                })}
-            </ScrollView>
-
-            {/* Meal Slots */}
-            {isLoadingPlans ? (
-                <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color={COLORS.primary} />
+        <View className="flex-1">
+            <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 16, gap: 16, paddingBottom: hasUnsavedChanges ? 110 : 32 }} showsVerticalScrollIndicator={false}>
+                {/* Semana */}
+                <View className="flex-row items-center justify-between">
+                    <WeekArrow dir="left" disabled={!canGoBack} onPress={goToPreviousWeek} />
+                    <Text className="text-base font-extrabold text-pizca-marron">{formatWeekRange(weekStart)}</Text>
+                    <WeekArrow dir="right" disabled={!canGoForward} onPress={goToNextWeek} />
                 </View>
-            ) : (
-                <View style={styles.slotsContainer}>
-                    {MEAL_TYPES.map(meal => {
-                        const plan = getMergedPlanForSlot(selectedDate, meal.key);
-                        const isPast = selectedDate < todayISO;
+
+                {/* Días */}
+                <View className="flex-row gap-1.5">
+                    {weekDays.map(day => {
+                        const isActive = day.date === selectedDate;
+                        const hasPlans = getPlansForDate(day.date).length > 0;
+                        const isPast = day.date < todayISO;
                         return (
-                            <MealSlotCard
-                                key={meal.key}
-                                meal={meal}
-                                plan={plan}
-                                isPast={isPast}
-                                onAdd={() => setPickerSlot({ date: selectedDate, mealType: meal.key })}
-                                onRemove={() => {
-                                    const title = isDraft(plan) ? plan.recipeTitle : plan?.recipe_detail?.title || '';
-                                    handleRemove(selectedDate, meal.key, title);
-                                }}
-                            />
+                            <TouchableOpacity
+                                key={day.date}
+                                onPress={() => setSelectedDate(day.date)}
+                                className={`flex-1 h-16 rounded-[14px] items-center justify-center gap-0.5 ${isActive ? 'bg-pizca-marron' : isPast ? '' : 'bg-white'}`}
+                                accessibilityRole="button"
+                                accessibilityState={{ selected: isActive }}
+                                accessibilityLabel={`${formatDayTitle(day.date)}${hasPlans ? ', con comidas' : ''}`}
+                            >
+                                <Text className={`text-xs font-extrabold ${isActive ? 'text-pizca-fondo' : isPast ? 'text-pizca-apagado' : 'text-pizca-marron'}`}>{day.dayName}</Text>
+                                <Text className={`text-[17px] font-extrabold ${isActive ? 'text-pizca-fondo' : isPast ? 'text-pizca-apagado' : 'text-pizca-marron'}`}>{day.dayNum}</Text>
+                                <View className={`w-[5px] h-[5px] rounded-full ${hasPlans ? (isActive ? 'bg-pizca-ambar' : 'bg-pizca-mostaza') : ''}`} />
+                            </TouchableOpacity>
                         );
                     })}
                 </View>
-            )}
 
-            {/* Save / Discard Bar */}
+                <Text className="text-lg font-extrabold text-pizca-marron mt-1">{formatDayTitle(selectedDate)}</Text>
+
+                {/* Comidas */}
+                {isLoadingPlans ? (
+                    <View className="py-10 items-center"><ActivityIndicator size="large" color="#BE9F00" /></View>
+                ) : (
+                    <View className="gap-2.5">
+                        {MEALS.map(meal => {
+                            const plan = getMergedPlanForSlot(selectedDate, meal.key);
+                            return (
+                                <MealSlotCard
+                                    key={meal.key}
+                                    meal={meal}
+                                    plan={plan}
+                                    isPast={isPastDay}
+                                    onAdd={() => setPickerSlot({ date: selectedDate, mealType: meal.key })}
+                                    onRemove={() => handleRemove(selectedDate, meal.key, slotTitle(plan))}
+                                />
+                            );
+                        })}
+                    </View>
+                )}
+            </ScrollView>
+
+            {/* Cambios sin guardar */}
             {hasUnsavedChanges && (
-                <View style={styles.saveBar}>
-                    <TouchableOpacity style={styles.discardBtn} onPress={discardChanges} activeOpacity={0.7}>
-                        <X size={18} color={COLORS.text.secondary} />
-                        <Text style={styles.discardBtnText}>Descartar</Text>
+                <View
+                    className="absolute left-3 right-3 bottom-3 pl-4 pr-2.5 py-2.5 rounded-[18px] bg-pizca-marron flex-row items-center gap-2"
+                    style={{ boxShadow: '0 10px 24px rgba(63,49,40,0.25)' }}
+                >
+                    <Text className="flex-1 text-sm font-bold text-pizca-fondo">
+                        {changeCount} {changeCount === 1 ? 'cambio sin guardar' : 'cambios sin guardar'}
+                    </Text>
+                    <TouchableOpacity onPress={discardChanges} className="h-10 px-3 justify-center" accessibilityRole="button">
+                        <Text className="text-sm font-extrabold text-pizca-fondo">Descartar</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                        style={[styles.saveBtn, isSaving && styles.saveBtnDisabled]}
                         onPress={handleSave}
                         disabled={isSaving}
-                        activeOpacity={0.8}
+                        className="h-10 px-3.5 rounded-[12px] bg-pizca-ambar justify-center min-w-[110px] items-center"
+                        accessibilityRole="button"
                     >
-                        {isSaving ? (
-                            <ActivityIndicator size="small" color={COLORS.secondary} />
-                        ) : (
-                            <>
-                                <Save size={18} color={COLORS.secondary} />
-                                <Text style={styles.saveBtnText}>Guardar plan</Text>
-                            </>
-                        )}
+                        {isSaving
+                            ? <ActivityIndicator size="small" color="#3F3128" />
+                            : <Text className="text-sm font-extrabold text-pizca-marron">Guardar plan</Text>}
                     </TouchableOpacity>
                 </View>
             )}
 
-            <View style={{ height: 20 }} />
-
-            <RecipePickerModal
-                visible={!!pickerSlot}
-                onClose={() => setPickerSlot(null)}
-                onSelect={handleAssign}
-            />
-        </ScrollView>
+            <RecipePickerModal visible={!!pickerSlot} onClose={() => setPickerSlot(null)} onSelect={handleAssign} />
+        </View>
     );
 }
 
-// --- Helpers ---
+const WeekArrow = ({ dir, disabled, onPress }: { dir: 'left' | 'right'; disabled: boolean; onPress: () => void }) => {
+    const Icon = dir === 'left' ? ChevronLeft : ChevronRight;
+    return (
+        <TouchableOpacity
+            onPress={onPress}
+            disabled={disabled}
+            className={`w-11 h-11 rounded-full bg-white border border-pizca-linea items-center justify-center ${disabled ? 'opacity-40' : ''}`}
+            accessibilityRole="button"
+            accessibilityLabel={dir === 'left' ? 'Semana anterior' : 'Semana siguiente'}
+            accessibilityState={{ disabled }}
+        >
+            <Icon size={20} color="#3F3128" strokeWidth={2.4} />
+        </TouchableOpacity>
+    );
+};
 
-function isDraft(plan: any): plan is DraftSlot {
-    return plan && 'recipeUuid' in plan;
-}
-
-function getSlotTitle(plan: MealPlan | DraftSlot | undefined): string {
-    if (!plan) return '';
-    return isDraft(plan) ? plan.recipeTitle : plan.recipe_detail?.title || '';
-}
-
-function getSlotImage(plan: MealPlan | DraftSlot | undefined): string | null {
-    if (!plan) return null;
-    const img = isDraft(plan) ? plan.recipeImage : plan.recipe_detail?.image || null;
-    return getImageUri(img);
-}
-
-function getSlotPrepTime(plan: MealPlan | DraftSlot | undefined): number | null {
-    if (!plan) return null;
-    return isDraft(plan) ? plan.recipePrepTime : plan.recipe_detail?.prep_time || null;
-}
-
-// --- Meal Slot Card ---
+// --- Tarjeta de comida ---
 
 interface MealSlotProps {
-    meal: typeof MEAL_TYPES[number];
+    meal: typeof MEALS[number];
     plan: MealPlan | DraftSlot | undefined;
     isPast?: boolean;
     onAdd: () => void;
@@ -311,812 +316,369 @@ interface MealSlotProps {
 }
 
 function MealSlotCard({ meal, plan, isPast, onAdd, onRemove }: MealSlotProps) {
-    const IconComponent = meal.icon;
-    const title = getSlotTitle(plan);
-    const imageUri = getSlotImage(plan);
-    const prepTime = getSlotPrepTime(plan);
-    const draft = plan && isDraft(plan);
-
-    if (plan && title) {
-        return (
-            <TouchableOpacity
-                style={[styles.slotCardFilled, draft && styles.slotCardDraft]}
-                onLongPress={isPast ? undefined : onRemove}
-                activeOpacity={0.85}
-            >
-                {imageUri ? (
-                    <Image source={{ uri: imageUri }} style={styles.slotImage} contentFit="cover" />
-                ) : (
-                    <View style={[styles.slotImage, styles.slotImagePlaceholder]}>
-                        <IconComponent size={24} color={COLORS.text.secondary} />
-                    </View>
-                )}
-                <View style={styles.slotInfo}>
-                    <Text style={styles.slotMealLabel}>
-                        {meal.emoji} {meal.label}{draft ? ' (sin guardar)' : ''}
-                    </Text>
-                    <Text style={styles.slotRecipeTitle} numberOfLines={2}>{title}</Text>
-                    {prepTime ? <Text style={styles.slotPrepTime}>\u23f1 {prepTime} min</Text> : null}
-                </View>
-                {!isPast && (
-                    <TouchableOpacity onPress={onRemove} style={styles.slotRemoveBtn} activeOpacity={0.6}>
-                        <Trash2 size={16} color={COLORS.text.secondary} />
-                    </TouchableOpacity>
-                )}
-            </TouchableOpacity>
-        );
-    }
-
-    if (isPast) {
-        return (
-            <View style={[styles.slotCardEmpty, { opacity: 0.5 }]}>
-                <IconComponent size={24} color={COLORS.text.secondary} />
-                <View style={styles.slotEmptyInfo}>
-                    <Text style={styles.slotMealLabelEmpty}>{meal.label}</Text>
-                    <Text style={styles.slotEmptyText}>D\u00eda pasado</Text>
-                </View>
-            </View>
-        );
-    }
+    const title = slotTitle(plan);
+    const prepTime = slotPrepTime(plan);
+    const draft = !!plan && isDraft(plan);
+    const filled = !!plan && !!title;
 
     return (
-        <TouchableOpacity style={styles.slotCardEmpty} onPress={onAdd} activeOpacity={0.7}>
-            <IconComponent size={24} color={COLORS.text.secondary} />
-            <View style={styles.slotEmptyInfo}>
-                <Text style={styles.slotMealLabelEmpty}>{meal.label}</Text>
-                <Text style={styles.slotEmptyText}>Sin planificar</Text>
+        <View
+            className={`flex-row items-center gap-3 p-3 rounded-[20px] bg-white ${draft ? 'border-2 border-pizca-mostaza' : 'border border-pizca-linea'} ${isPast && !filled ? 'opacity-60' : ''}`}
+        >
+            <View className="w-12 h-12 rounded-[14px] bg-pizca-crema items-center justify-center">
+                <Image source={meal.icon} style={{ width: 30, height: 30 }} />
             </View>
-            <View style={styles.slotAddBtn}>
-                <Plus size={20} color={COLORS.primary} />
+            <View className="flex-1 gap-0.5">
+                <Text className="text-xs font-extrabold text-pizca-texto2 uppercase tracking-wider">
+                    {meal.label}{draft ? ' · nuevo' : ''}
+                </Text>
+                {filled ? (
+                    <>
+                        <Text className="text-[15px] font-extrabold text-pizca-marron" numberOfLines={2}>{title}</Text>
+                        {prepTime ? <Text className="text-xs font-bold text-pizca-texto2">{prepTime} min</Text> : null}
+                    </>
+                ) : (
+                    <Text className="text-[15px] text-pizca-texto2">{isPast ? 'Día pasado' : 'Sin planificar'}</Text>
+                )}
             </View>
-        </TouchableOpacity>
+            {filled && !isPast ? (
+                <TouchableOpacity onPress={onRemove} className="w-10 h-10 rounded-[12px] items-center justify-center" accessibilityLabel={`Quitar de ${meal.label.toLowerCase()}`}>
+                    <X size={20} color="#3F3128" strokeWidth={2.2} />
+                </TouchableOpacity>
+            ) : null}
+            {!filled && !isPast ? (
+                <TouchableOpacity onPress={onAdd} className="h-10 px-3.5 rounded-[12px] bg-pizca-crema justify-center" accessibilityRole="button" accessibilityLabel={`Elegir ${meal.label.toLowerCase()}`}>
+                    <Text className="text-sm font-extrabold text-pizca-marron">+ Elegir</Text>
+                </TouchableOpacity>
+            ) : null}
+        </View>
     );
 }
 
 // ============================================================
-// SHOPPING VIEW
+// COMPRAS
 // ============================================================
+
+/** Anillo de progreso (ítems tachados / total). */
+const ProgressRing = ({ done, total }: { done: number; total: number }) => {
+    const size = 52, stroke = 7, r = (size - stroke) / 2, c = 2 * Math.PI * r;
+    const pct = total ? done / total : 0;
+    return (
+        <View className="w-[52px] h-[52px] items-center justify-center">
+            <Svg width={size} height={size} style={{ position: 'absolute', transform: [{ rotate: '-90deg' }] }}>
+                <Circle cx={size / 2} cy={size / 2} r={r} stroke="#FAECD2" strokeWidth={stroke} fill="none" />
+                <Circle
+                    cx={size / 2} cy={size / 2} r={r} stroke="#0C4B20" strokeWidth={stroke} fill="none"
+                    strokeDasharray={`${c * pct} ${c}`} strokeLinecap={pct > 0 && pct < 1 ? 'round' : 'butt'}
+                />
+            </Svg>
+            <Text className="text-xs font-extrabold text-pizca-marron">{done}/{total}</Text>
+        </View>
+    );
+};
+
+const sectionIcon = (category: string) =>
+    /verdu|fruta/i.test(category) ? ICONS.ingredientes : ICONS.categorias;
 
 function ShoppingView() {
     const {
-        weekStart, shoppingList, isLoadingShoppingList, isGeneratingList,
+        weekStart, shoppingList, isLoadingShoppingList, isGeneratingList, serverPlans,
         generateList, fetchShoppingList, toggleItem,
         addShoppingItem, editShoppingItem, removeShoppingItem,
     } = usePlanner();
 
     const [newItemName, setNewItemName] = useState('');
-    const [newItemQty, setNewItemQty] = useState('');
-
     const [expandedId, setExpandedId] = useState<number | null>(null);
-    const [editValues, setEditValues] = useState<{
-        ingredient_name: string;
-        quantity: string;
-    }>({ ingredient_name: '', quantity: '' });
-    const [originalValues, setOriginalValues] = useState<{
-        ingredient_name: string;
-        quantity: string;
-    }>({ ingredient_name: '', quantity: '' });
+    const [editValues, setEditValues] = useState({ ingredient_name: '', quantity: '' });
+    const [originalValues, setOriginalValues] = useState({ ingredient_name: '', quantity: '' });
     const [deleteConfirming, setDeleteConfirming] = useState(false);
 
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     React.useEffect(() => { fetchShoppingList(); }, [weekStart]);
 
     const grouped = useMemo(() => {
-        const map: Record<string, typeof shoppingList> = {};
+        const map: Record<string, ShoppingListItem[]> = {};
         for (const item of shoppingList) {
-            const cat = item.category || 'Otros';
-            if (!map[cat]) map[cat] = [];
-            map[cat].push(item);
+            (map[item.category || OTHER_AISLE] ??= []).push(item);
         }
-        return Object.entries(map);
+        // En el orden en que se recorre el súper; una góndola desconocida (datos viejos) va al final.
+        const rank = (aisle: string) => {
+            const i = (AISLES as readonly string[]).indexOf(aisle);
+            return i === -1 ? AISLES.length : i;
+        };
+        return Object.entries(map).sort(([a], [b]) => rank(a) - rank(b));
     }, [shoppingList]);
 
+    const checkedCount = shoppingList.filter(i => i.is_checked).length;
+    const mealCount = serverPlans.filter(p => p.recipe_detail).length;
+
     const handleGenerate = async () => {
+        if (shoppingList.length > 0) {
+            const ok = await confirmAction({
+                title: 'Regenerar lista',
+                message: 'Se arma de nuevo a partir del plan de esta semana. Los ítems tachados se borran; lo que agregaste vos queda.',
+                confirmText: 'Regenerar',
+            });
+            if (!ok) return;
+        }
         try { await generateList(); }
-        catch { Alert.alert('Error', 'No pudimos generar la lista.'); }
+        catch { notify('Error', 'No pudimos armar la lista.'); }
     };
 
+    // El alta puede tardar (el backend le pregunta la góndola a la IA): un segundo toque no lo duplica.
+    const addingRef = React.useRef(false);
     const handleAdd = async () => {
         const name = newItemName.trim();
-        if (!name) return;
+        if (!name || addingRef.current) return;
+        addingRef.current = true;
         try {
-            await addShoppingItem(name, newItemQty.trim());
+            await addShoppingItem(name, '');
             setNewItemName('');
-            setNewItemQty('');
-        } catch { Alert.alert('Error', 'No pudimos agregar el ítem.'); }
+        } catch { notify('Error', 'No pudimos agregar el ítem.'); }
+        finally { addingRef.current = false; }
     };
 
     const collapseAndSave = async () => {
         if (expandedId === null) return;
-
-        const currentExpandedId = expandedId;
-        const currentEditValues = { ...editValues };
-
+        const id = expandedId;
+        const values = { ...editValues };
         const hasChanges =
-            currentEditValues.ingredient_name.trim() !== originalValues.ingredient_name ||
-            currentEditValues.quantity.trim() !== originalValues.quantity;
+            values.ingredient_name.trim() !== originalValues.ingredient_name ||
+            values.quantity.trim() !== originalValues.quantity;
 
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setExpandedId(null);
         setDeleteConfirming(false);
         Keyboard.dismiss();
-
-        if (!hasChanges) return;
-
+        if (!hasChanges || !values.ingredient_name.trim()) return;
         try {
-            await editShoppingItem(currentExpandedId, {
-                ingredient_name: currentEditValues.ingredient_name.trim(),
-                quantity: currentEditValues.quantity.trim()
-            });
-        } catch (error) {
-            // Silencioso por requerimiento (el contexto hace optimistic update si falla o la UI solo lo ignora)
+            await editShoppingItem(id, { ingredient_name: values.ingredient_name.trim(), quantity: values.quantity.trim() });
+        } catch {
+            notify('Error', 'No pudimos guardar el cambio.');
+        }
+    };
+
+    const moveToAisle = async (item: ShoppingListItem, category: string) => {
+        if (category === item.category) return;
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        try {
+            // El backend se acuerda: la próxima vez este ingrediente ya cae en esta góndola.
+            await editShoppingItem(item.id, { category });
+        } catch {
+            notify('Error', 'No pudimos moverlo de góndola.');
         }
     };
 
     const expandItem = (item: ShoppingListItem) => {
         if (expandedId === item.id) return;
-
-        if (expandedId !== null) {
-            collapseAndSave();
-        }
-
-        const values = {
-            ingredient_name: item.ingredient_name,
-            quantity: item.quantity || '',
-        };
+        if (expandedId !== null) collapseAndSave();
+        const values = { ingredient_name: item.ingredient_name, quantity: item.quantity || '' };
         setEditValues(values);
         setOriginalValues(values);
         setDeleteConfirming(false);
-
         LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
         setExpandedId(item.id);
     };
 
     return (
-        <ScrollView
-            style={{ flex: 1 }}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            onScrollBeginDrag={collapseAndSave}
-        >
-            {/* Generate Button */}
-            <View style={styles.shoppingHeader}>
-                <TouchableOpacity
-                    style={[styles.generateBtn, isGeneratingList && styles.generateBtnDisabled]}
-                    onPress={handleGenerate}
-                    disabled={isGeneratingList}
-                    activeOpacity={0.8}
-                >
-                    {isGeneratingList ? (
-                        <View style={styles.generateBtnContent}>
-                            <ActivityIndicator size="small" color={COLORS.secondary} />
-                            <Text style={styles.generateBtnText}>Generando...</Text>
-                        </View>
-                    ) : (
-                        <View style={styles.generateBtnContent}>
-                            <ShoppingCart size={20} color={COLORS.secondary} />
-                            <Text style={styles.generateBtnText}>
-                                {shoppingList.length > 0 ? 'Regenerar lista' : 'Generar lista'}
-                            </Text>
+        <View className="flex-1">
+            <ScrollView
+                contentContainerStyle={{ padding: 20, paddingTop: 16, gap: 16, paddingBottom: 96 }}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                onScrollBeginDrag={collapseAndSave}
+            >
+                {/* Resumen */}
+                <View className="flex-row items-center gap-3.5 p-3.5 rounded-[20px] bg-white border border-pizca-linea">
+                    {shoppingList.length ? <ProgressRing done={checkedCount} total={shoppingList.length} /> : (
+                        <View className="w-[52px] h-[52px] rounded-full bg-pizca-crema items-center justify-center">
+                            <Image source={ICONS.compras} style={{ width: 30, height: 30 }} />
                         </View>
                     )}
-                </TouchableOpacity>
-            </View>
+                    <View className="flex-1 gap-0.5">
+                        <Text className="text-[15px] font-extrabold text-pizca-marron">{formatWeekShort(weekStart)}</Text>
+                        <Text className="text-[13px] text-pizca-texto2">
+                            {mealCount
+                                ? `Sale de ${mealCount === 1 ? 'la comida' : `las ${mealCount} comidas`} de tu plan`
+                                : 'Todavía no hay comidas en el plan'}
+                        </Text>
+                    </View>
+                    {shoppingList.length ? (
+                        <TouchableOpacity
+                            onPress={handleGenerate}
+                            disabled={isGeneratingList}
+                            className="w-11 h-11 rounded-[12px] bg-pizca-crema items-center justify-center"
+                            accessibilityRole="button"
+                            accessibilityLabel="Regenerar lista"
+                        >
+                            {isGeneratingList ? <ActivityIndicator size="small" color="#3F3128" /> : <RefreshCw size={20} color="#3F3128" strokeWidth={2.2} />}
+                        </TouchableOpacity>
+                    ) : null}
+                </View>
 
-            {/* Add Item Bar */}
-            <View style={styles.addItemBar}>
-                <TextInput
-                    style={styles.addItemInput}
-                    placeholder="Agregar ítem..."
-                    placeholderTextColor={COLORS.text.secondary}
-                    value={newItemName}
-                    onChangeText={setNewItemName}
-                />
-                <TextInput
-                    style={styles.addItemQtyInput}
-                    placeholder="Cant."
-                    placeholderTextColor={COLORS.text.secondary}
-                    value={newItemQty}
-                    onChangeText={setNewItemQty}
-                />
+                {isLoadingShoppingList ? (
+                    <View className="py-10 items-center"><ActivityIndicator size="large" color="#BE9F00" /></View>
+                ) : shoppingList.length === 0 ? (
+                    <View className="items-center px-6 py-8 gap-2">
+                        <Image source={ILLUSTRATIONS.morron} style={{ width: 64, height: 68, marginBottom: 8 }} resizeMode="contain" />
+                        <Text className="text-xl font-extrabold text-pizca-marron text-center">Tu lista está vacía</Text>
+                        <Text className="text-[15px] text-pizca-texto2 text-center mb-3">
+                            Armala con los ingredientes de las comidas de la semana, o agregá cosas abajo.
+                        </Text>
+                        <Button title="Armar la lista" onPress={handleGenerate} loading={isGeneratingList} disabled={!mealCount} />
+                    </View>
+                ) : (
+                    <View className="gap-3.5">
+                        {grouped.map(([category, items]) => (
+                            <View key={category} className="gap-1.5">
+                                <View className="flex-row items-center gap-2">
+                                    <Image source={sectionIcon(category)} style={{ width: 18, height: 18 }} />
+                                    <Text className="text-[13px] font-extrabold tracking-wider uppercase text-pizca-texto2">{category}</Text>
+                                </View>
+                                <View className="bg-white rounded-[18px] px-3.5 py-1">
+                                    {items.map((item, idx) => {
+                                        const isExpanded = expandedId === item.id;
+                                        const last = idx === items.length - 1;
+                                        return (
+                                            <View key={item.id} className={last ? '' : 'border-b border-[#F3EAD8]'}>
+                                                <TouchableOpacity
+                                                    className="min-h-[46px] flex-row items-center gap-3"
+                                                    onPress={() => expandItem(item)}
+                                                    activeOpacity={0.7}
+                                                    accessibilityHint="Tocá para editar"
+                                                >
+                                                    <TouchableOpacity
+                                                        onPress={() => toggleItem(item.id, !item.is_checked)}
+                                                        hitSlop={10}
+                                                        accessibilityRole="checkbox"
+                                                        accessibilityState={{ checked: item.is_checked }}
+                                                        accessibilityLabel={item.ingredient_name}
+                                                    >
+                                                        {item.is_checked ? (
+                                                            <View className="w-[22px] h-[22px] rounded-[7px] bg-pizca-albahaca items-center justify-center">
+                                                                <Check size={14} color="#FFFFFF" strokeWidth={3.2} />
+                                                            </View>
+                                                        ) : (
+                                                            <View className="w-[22px] h-[22px] rounded-[7px] border-[1.5px] border-pizca-marron" />
+                                                        )}
+                                                    </TouchableOpacity>
+                                                    <Text className={`flex-1 text-[15px] ${item.is_checked ? 'text-pizca-apagado line-through' : 'text-pizca-marron'}`}>
+                                                        {item.ingredient_name}
+                                                    </Text>
+                                                    {item.quantity ? (
+                                                        <Text className={`text-sm ${item.is_checked ? 'text-pizca-apagado' : 'font-extrabold text-pizca-marron'}`}>{item.quantity}</Text>
+                                                    ) : null}
+                                                </TouchableOpacity>
+
+                                                {isExpanded && (
+                                                    <View className="pb-3 gap-2">
+                                                        <View className="flex-row gap-2">
+                                                            <TextInput
+                                                                className="flex-[2] h-11 px-3 rounded-[12px] bg-pizca-crema text-pizca-marron text-[15px]"
+                                                                value={editValues.ingredient_name}
+                                                                onChangeText={text => setEditValues(v => ({ ...v, ingredient_name: text }))}
+                                                                placeholder="Nombre"
+                                                                placeholderTextColor="#8C7E70"
+                                                                accessibilityLabel="Nombre"
+                                                            />
+                                                            <TextInput
+                                                                className="flex-1 h-11 px-3 rounded-[12px] bg-pizca-crema text-pizca-marron text-[15px]"
+                                                                value={editValues.quantity}
+                                                                onChangeText={text => setEditValues(v => ({ ...v, quantity: text }))}
+                                                                placeholder="Cant."
+                                                                placeholderTextColor="#8C7E70"
+                                                                accessibilityLabel="Cantidad"
+                                                            />
+                                                        </View>
+                                                        <View className="gap-1.5">
+                                                            <Text className="text-xs font-extrabold text-pizca-texto2">Góndola</Text>
+                                                            <ScrollView
+                                                                horizontal
+                                                                showsHorizontalScrollIndicator={false}
+                                                                keyboardShouldPersistTaps="handled"
+                                                                contentContainerStyle={{ gap: 6 }}
+                                                                accessibilityRole="radiogroup"
+                                                                accessibilityLabel="Góndola"
+                                                            >
+                                                                {AISLES.map(aisle => {
+                                                                    const selected = (item.category || OTHER_AISLE) === aisle;
+                                                                    return (
+                                                                        <TouchableOpacity
+                                                                            key={aisle}
+                                                                            onPress={() => moveToAisle(item, aisle)}
+                                                                            className={`h-8 px-3 rounded-full justify-center ${selected ? 'bg-pizca-marron' : 'bg-pizca-crema'}`}
+                                                                            accessibilityRole="radio"
+                                                                            accessibilityState={{ checked: selected }}
+                                                                        >
+                                                                            <Text className={`text-[13px] font-bold ${selected ? 'text-pizca-fondo' : 'text-pizca-marron'}`}>{aisle}</Text>
+                                                                        </TouchableOpacity>
+                                                                    );
+                                                                })}
+                                                            </ScrollView>
+                                                        </View>
+                                                        <View className="flex-row justify-between items-center">
+                                                            <TouchableOpacity
+                                                                className={`flex-row items-center gap-1.5 h-9 px-3 rounded-[10px] ${deleteConfirming ? 'bg-pizca-tomate-texto' : 'bg-[#FFF1EB]'}`}
+                                                                onPress={() => {
+                                                                    if (deleteConfirming) {
+                                                                        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+                                                                        setExpandedId(null);
+                                                                        setDeleteConfirming(false);
+                                                                        removeShoppingItem(item.id).catch(() => notify('Error', 'No pudimos borrar el ítem.'));
+                                                                    } else {
+                                                                        setDeleteConfirming(true);
+                                                                        setTimeout(() => setDeleteConfirming(false), 2500);
+                                                                    }
+                                                                }}
+                                                            >
+                                                                <Trash2 size={15} color={deleteConfirming ? '#FFFFFF' : '#B23A12'} />
+                                                                <Text className={`text-[13px] font-extrabold ${deleteConfirming ? 'text-white' : 'text-pizca-tomate-texto'}`}>
+                                                                    {deleteConfirming ? '¿Seguro?' : 'Borrar'}
+                                                                </Text>
+                                                            </TouchableOpacity>
+                                                            <TouchableOpacity onPress={collapseAndSave} className="h-9 px-3.5 rounded-[10px] bg-pizca-mostaza justify-center">
+                                                                <Text className="text-[13px] font-extrabold text-pizca-marron">Listo</Text>
+                                                            </TouchableOpacity>
+                                                        </View>
+                                                    </View>
+                                                )}
+                                            </View>
+                                        );
+                                    })}
+                                </View>
+                            </View>
+                        ))}
+                    </View>
+                )}
+            </ScrollView>
+
+            {/* Agregar ítem */}
+            <View className="absolute left-4 right-4 bottom-3 flex-row gap-2">
+                <View
+                    className="flex-1 h-[52px] flex-row items-center px-3.5 rounded-[16px] bg-white border-[1.5px] border-pizca-linea"
+                    style={{ boxShadow: '0 6px 16px rgba(63,49,40,0.08)' }}
+                >
+                    <TextInput
+                        className="flex-1 h-full text-[15px] text-pizca-marron"
+                        placeholder="Agregar algo más a la lista"
+                        placeholderTextColor="#8C7E70"
+                        value={newItemName}
+                        onChangeText={setNewItemName}
+                        onSubmitEditing={handleAdd}
+                        returnKeyType="done"
+                        accessibilityLabel="Agregar algo más a la lista"
+                    />
+                </View>
                 <TouchableOpacity
-                    style={[styles.addItemBtn, !newItemName.trim() && { opacity: 0.4 }]}
                     onPress={handleAdd}
                     disabled={!newItemName.trim()}
-                    activeOpacity={0.7}
+                    className={`w-[52px] h-[52px] rounded-[16px] items-center justify-center ${newItemName.trim() ? 'bg-pizca-mostaza' : 'bg-pizca-linea'}`}
+                    accessibilityRole="button"
+                    accessibilityLabel="Agregar a la lista"
                 >
-                    <Plus size={20} color={COLORS.secondary} />
+                    <Plus size={24} color={newItemName.trim() ? '#3F3128' : '#8C7E70'} strokeWidth={2.6} />
                 </TouchableOpacity>
             </View>
-
-            {/* Shopping List */}
-            {isLoadingShoppingList ? (
-                <View style={styles.loadingContainer}>
-                    <ActivityIndicator size="large" color={COLORS.primary} />
-                </View>
-            ) : shoppingList.length === 0 ? (
-                <View style={styles.emptyState}>
-                    <View style={styles.emptyIconContainer}>
-                        <ShoppingCart size={48} color={COLORS.primary} strokeWidth={1} />
-                    </View>
-                    <Text style={styles.emptyTitle}>Tu lista de compras está vacía</Text>
-                    <Text style={styles.emptySubtitle}>
-                        Generá la lista a partir de tu plan semanal
-                    </Text>
-                </View>
-            ) : (
-                <View style={styles.shoppingListContainer}>
-                    {grouped.map(([category, items]) => (
-                        <View key={category} style={styles.categoryGroup}>
-                            <View style={styles.categoryPill}>
-                                <Text style={styles.categoryPillText}>{category}</Text>
-                            </View>
-                            {items.map(item => {
-                                const isExpanded = expandedId === item.id;
-                                return (
-                                    <View key={item.id}>
-                                        <TouchableOpacity
-                                            style={[styles.shoppingItem, isExpanded && styles.shoppingItemExpandedTop]}
-                                            onPress={() => expandItem(item)}
-                                            activeOpacity={0.7}
-                                        >
-                                            <TouchableOpacity
-                                                style={[styles.checkbox, item.is_checked && styles.checkboxChecked]}
-                                                onPress={() => toggleItem(item.id, !item.is_checked)}
-                                                activeOpacity={0.8}
-                                            >
-                                                {item.is_checked && <Text style={styles.checkmark}>✓</Text>}
-                                            </TouchableOpacity>
-                                            <Text style={[styles.itemName, item.is_checked && styles.itemNameChecked]}>
-                                                {item.ingredient_name}
-                                            </Text>
-                                            {item.quantity ? (
-                                                <Text style={[styles.itemQty, item.is_checked && styles.itemQtyChecked]}>
-                                                    {item.quantity}
-                                                </Text>
-                                            ) : null}
-                                        </TouchableOpacity>
-
-                                        {isExpanded && (
-                                            <View style={styles.expandedPanel}>
-                                                <View style={styles.expandedInputsRow}>
-                                                    <TextInput
-                                                        style={[styles.expandedInput, { flex: 2 }]}
-                                                        value={editValues.ingredient_name}
-                                                        onChangeText={text => setEditValues(v => ({ ...v, ingredient_name: text }))}
-                                                        placeholder="Nombre"
-                                                        placeholderTextColor={COLORS.text.secondary}
-                                                    />
-                                                    <TextInput
-                                                        style={[styles.expandedInput, { flex: 1, marginLeft: 8 }]}
-                                                        value={editValues.quantity}
-                                                        onChangeText={text => setEditValues(v => ({ ...v, quantity: text }))}
-                                                        placeholder="Cant."
-                                                        placeholderTextColor={COLORS.text.secondary}
-                                                    />
-                                                </View>
-                                                <View style={styles.expandedActionsRow}>
-                                                    <TouchableOpacity
-                                                        style={[styles.deleteBtn, deleteConfirming && styles.deleteBtnConfirm]}
-                                                        onPress={() => {
-                                                            if (deleteConfirming) {
-                                                                const idToDelete = item.id;
-                                                                LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
-                                                                setExpandedId(null);
-                                                                setDeleteConfirming(false);
-                                                                removeShoppingItem(idToDelete).catch(() => { });
-                                                            } else {
-                                                                setDeleteConfirming(true);
-                                                                setTimeout(() => setDeleteConfirming(false), 2000);
-                                                            }
-                                                        }}
-                                                    >
-                                                        <Trash2 size={16} color={deleteConfirming ? '#FFF' : '#C0392B'} />
-                                                        <Text style={[styles.deleteBtnText, deleteConfirming && styles.deleteBtnTextConfirm, { marginLeft: 6 }]}>
-                                                            {deleteConfirming ? '¿Confirmar?' : 'Eliminar'}
-                                                        </Text>
-                                                    </TouchableOpacity>
-                                                </View>
-                                            </View>
-                                        )}
-                                    </View>
-                                );
-                            })}
-                        </View>
-                    ))}
-                </View>
-            )}
-            <View style={{ height: 40 }} />
-        </ScrollView>
+        </View>
     );
 }
-
-// ============================================================
-// STYLES
-// ============================================================
-
-const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: COLORS.background,
-    },
-    header: {
-        paddingHorizontal: SPACING.l,
-        paddingTop: SPACING.s,
-        paddingBottom: SPACING.m,
-    },
-    headerTitle: {
-        fontSize: 32,
-        fontWeight: '700',
-        color: COLORS.text.primary,
-        fontFamily: 'Georgia',
-        letterSpacing: -0.5,
-    },
-
-    // Segmented Control
-    segmentedContainer: {
-        flexDirection: 'row',
-        marginHorizontal: SPACING.l,
-        backgroundColor: '#F5E6D0',
-        borderRadius: RADIUS.s,
-        padding: 4,
-        marginBottom: SPACING.m,
-    },
-    segmentBtn: {
-        flex: 1,
-        paddingVertical: 10,
-        alignItems: 'center',
-        borderRadius: RADIUS.s - 2,
-    },
-    segmentBtnActive: {
-        backgroundColor: COLORS.card,
-    },
-    segmentText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: COLORS.text.secondary,
-    },
-    segmentTextActive: {
-        color: COLORS.text.primary,
-    },
-
-    // Week Navigation
-    weekNav: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        paddingHorizontal: SPACING.l,
-        marginBottom: SPACING.m,
-    },
-    navArrow: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: COLORS.card,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    navArrowDisabled: {
-        opacity: 0.4,
-    },
-    weekRange: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: COLORS.text.primary,
-        textAlign: 'center',
-        flex: 1,
-    },
-
-    // Day Selector
-    dayRow: {
-        paddingHorizontal: SPACING.m,
-        gap: 8,
-        marginBottom: SPACING.m,
-    },
-    dayItem: {
-        width: 52,
-        paddingVertical: 10,
-        alignItems: 'center',
-        borderRadius: RADIUS.m,
-        backgroundColor: '#F5E6D0',
-    },
-    dayItemActive: {
-        backgroundColor: COLORS.primary,
-    },
-    dayItemPast: {
-        opacity: 0.5,
-    },
-    dayTextPast: {
-        color: COLORS.text.secondary,
-    },
-    dayName: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: COLORS.text.secondary,
-        marginBottom: 4,
-        letterSpacing: 0.5,
-    },
-    dayNameActive: {
-        color: COLORS.secondary,
-    },
-    dayNum: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: COLORS.text.primary,
-        marginBottom: 6,
-    },
-    dayNumActive: {
-        color: COLORS.secondary,
-    },
-    dayDot: {
-        width: 6,
-        height: 6,
-        borderRadius: 3,
-    },
-    dayDotActive: {
-        backgroundColor: COLORS.primary,
-    },
-    dayDotEmpty: {
-        backgroundColor: 'transparent',
-    },
-
-    // Slots
-    slotsContainer: {
-        paddingHorizontal: SPACING.l,
-        paddingBottom: SPACING.xl,
-    },
-    loadingContainer: {
-        flex: 1,
-        justifyContent: 'center',
-        alignItems: 'center',
-        paddingVertical: 60,
-    },
-
-    // Filled Slot
-    slotCardFilled: {
-        flexDirection: 'row',
-        backgroundColor: COLORS.card,
-        borderRadius: RADIUS.m,
-        padding: SPACING.s,
-        marginBottom: SPACING.s,
-        alignItems: 'center',
-    },
-    slotImage: {
-        width: 64,
-        height: 64,
-        borderRadius: RADIUS.s,
-    },
-    slotImagePlaceholder: {
-        backgroundColor: '#F5E6D0',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-    slotInfo: {
-        flex: 1,
-        marginLeft: SPACING.s,
-    },
-    slotMealLabel: {
-        fontSize: 11,
-        fontWeight: '700',
-        color: COLORS.text.secondary,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-        marginBottom: 2,
-    },
-    slotRecipeTitle: {
-        fontSize: 15,
-        fontWeight: '600',
-        color: COLORS.text.primary,
-        lineHeight: 20,
-    },
-    slotPrepTime: {
-        fontSize: 12,
-        color: COLORS.text.secondary,
-        marginTop: 2,
-    },
-    slotRemoveBtn: {
-        padding: SPACING.s,
-    },
-
-    // Empty Slot
-    slotCardEmpty: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        backgroundColor: COLORS.card,
-        borderRadius: RADIUS.m,
-        borderWidth: 1.5,
-        borderStyle: 'dashed',
-        borderColor: '#D4C4A8',
-        padding: SPACING.m,
-        marginBottom: SPACING.s,
-    },
-    slotEmptyInfo: {
-        flex: 1,
-        marginLeft: SPACING.s,
-    },
-    slotMealLabelEmpty: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: COLORS.text.primary,
-    },
-    slotEmptyText: {
-        fontSize: 12,
-        color: COLORS.text.secondary,
-    },
-    slotAddBtn: {
-        width: 36,
-        height: 36,
-        borderRadius: 18,
-        backgroundColor: '#FFF0D6',
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-
-    // Shopping View
-    shoppingHeader: {
-        paddingHorizontal: SPACING.l,
-        marginBottom: SPACING.m,
-    },
-    generateBtn: {
-        backgroundColor: COLORS.primary,
-        borderRadius: RADIUS.m,
-        paddingVertical: 14,
-        alignItems: 'center',
-    },
-    generateBtnDisabled: {
-        opacity: 0.7,
-    },
-    generateBtnContent: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        gap: 8,
-    },
-    generateBtnText: {
-        fontSize: 16,
-        fontWeight: '600',
-        color: COLORS.secondary,
-    },
-    shoppingListContainer: {
-        paddingHorizontal: SPACING.l,
-    },
-    categoryGroup: {
-        marginBottom: SPACING.m,
-    },
-    categoryPill: {
-        backgroundColor: '#F5E6D0',
-        borderRadius: 20,
-        paddingHorizontal: 14,
-        paddingVertical: 5,
-        alignSelf: 'flex-start',
-        marginBottom: SPACING.s,
-    },
-    categoryPillText: {
-        fontSize: 12,
-        fontWeight: '700',
-        color: COLORS.text.secondary,
-        textTransform: 'uppercase',
-        letterSpacing: 0.5,
-    },
-    shoppingItem: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 10,
-        paddingHorizontal: 4,
-        borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: '#E8D9C5',
-    },
-    checkbox: {
-        width: 24,
-        height: 24,
-        borderRadius: 12,
-        borderWidth: 2,
-        borderColor: '#D4C4A8',
-        alignItems: 'center',
-        justifyContent: 'center',
-        marginRight: SPACING.s,
-    },
-    checkboxChecked: {
-        backgroundColor: COLORS.success,
-        borderColor: COLORS.success,
-    },
-    checkmark: {
-        color: '#fff',
-        fontSize: 14,
-        fontWeight: '700',
-    },
-    itemName: {
-        flex: 1,
-        fontSize: 15,
-        color: COLORS.text.primary,
-    },
-    itemNameChecked: {
-        textDecorationLine: 'line-through',
-        color: COLORS.text.secondary,
-    },
-    itemQty: {
-        fontSize: 13,
-        color: COLORS.text.secondary,
-        fontWeight: '500',
-        marginLeft: SPACING.s,
-    },
-    itemQtyChecked: {
-        textDecorationLine: 'line-through',
-    },
-
-    // Empty State
-    emptyState: {
-        alignItems: 'center',
-        paddingTop: 60,
-        paddingHorizontal: SPACING.xl,
-    },
-    emptyIconContainer: {
-        backgroundColor: 'rgba(239, 159, 39, 0.1)',
-        padding: SPACING.l,
-        borderRadius: 50,
-        marginBottom: SPACING.l,
-        borderWidth: 1,
-        borderColor: 'rgba(239, 159, 39, 0.2)',
-    },
-    emptyTitle: {
-        fontSize: 18,
-        fontWeight: '700',
-        color: COLORS.text.primary,
-        textAlign: 'center',
-        marginBottom: SPACING.s,
-    },
-    emptySubtitle: {
-        fontSize: 14,
-        color: COLORS.text.secondary,
-        textAlign: 'center',
-        lineHeight: 20,
-    },
-
-    // Draft slot indicator
-    slotCardDraft: {
-        borderWidth: 2,
-        borderColor: COLORS.primary,
-        borderStyle: 'dashed',
-    },
-
-    // Save / Discard bar
-    saveBar: {
-        flexDirection: 'row',
-        paddingHorizontal: SPACING.l,
-        gap: 10,
-        marginTop: SPACING.m,
-    },
-    discardBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 6,
-        paddingVertical: 12,
-        paddingHorizontal: SPACING.m,
-        borderRadius: RADIUS.m,
-        backgroundColor: '#F5E6D0',
-    },
-    discardBtnText: {
-        fontSize: 14,
-        fontWeight: '600',
-        color: COLORS.text.secondary,
-    },
-    saveBtn: {
-        flex: 1,
-        flexDirection: 'row',
-        alignItems: 'center',
-        justifyContent: 'center',
-        gap: 8,
-        paddingVertical: 12,
-        borderRadius: RADIUS.m,
-        backgroundColor: COLORS.primary,
-    },
-    saveBtnDisabled: {
-        opacity: 0.7,
-    },
-    saveBtnText: {
-        fontSize: 15,
-        fontWeight: '700',
-        color: COLORS.secondary,
-    },
-
-    // Add item bar
-    addItemBar: {
-        flexDirection: 'row',
-        paddingHorizontal: SPACING.l,
-        gap: 8,
-        marginBottom: SPACING.m,
-    },
-    addItemInput: {
-        flex: 1,
-        backgroundColor: COLORS.card,
-        borderRadius: RADIUS.s,
-        paddingHorizontal: SPACING.m,
-        paddingVertical: 10,
-        fontSize: 14,
-        color: COLORS.text.primary,
-        borderWidth: 1,
-        borderColor: 'rgba(168, 144, 112, 0.2)',
-    },
-    addItemQtyInput: {
-        width: 70,
-        backgroundColor: COLORS.card,
-        borderRadius: RADIUS.s,
-        paddingHorizontal: SPACING.s,
-        paddingVertical: 10,
-        fontSize: 14,
-        color: COLORS.text.primary,
-        textAlign: 'center',
-        borderWidth: 1,
-        borderColor: 'rgba(168, 144, 112, 0.2)',
-    },
-    addItemBtn: {
-        width: 40,
-        height: 40,
-        borderRadius: RADIUS.s,
-        backgroundColor: COLORS.primary,
-        alignItems: 'center',
-        justifyContent: 'center',
-    },
-
-    // Expanded Panel
-    expandedPanel: {
-        backgroundColor: '#FFF8F0',
-        padding: SPACING.m,
-        borderBottomLeftRadius: RADIUS.m,
-        borderBottomRightRadius: RADIUS.m,
-        borderTopWidth: 1,
-        borderTopColor: '#F0E4D0',
-        marginBottom: SPACING.s,
-        marginTop: -1,
-        borderLeftWidth: 1,
-        borderRightWidth: 1,
-        borderBottomWidth: 1,
-        borderColor: '#E8D5B8',
-    },
-    shoppingItemExpandedTop: {
-        backgroundColor: '#FFF8F0',
-        borderTopLeftRadius: RADIUS.m,
-        borderTopRightRadius: RADIUS.m,
-        borderTopWidth: 1,
-        borderLeftWidth: 1,
-        borderRightWidth: 1,
-        borderColor: '#E8D5B8',
-        borderBottomWidth: 0,
-        paddingHorizontal: SPACING.s,
-    },
-    expandedInputsRow: {
-        flexDirection: 'row',
-        marginBottom: SPACING.s,
-    },
-    expandedInput: {
-        backgroundColor: '#FFF',
-        borderWidth: 1,
-        borderColor: '#E8D5B8',
-        borderRadius: 8,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        color: '#633806',
-        fontSize: 14,
-    },
-    expandedActionsRow: {
-        flexDirection: 'row',
-        justifyContent: 'flex-end',
-    },
-    deleteBtn: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 4,
-    },
-    deleteBtnConfirm: {
-        backgroundColor: '#C0392B',
-    },
-    deleteBtnText: {
-        color: '#C0392B',
-        fontSize: 13,
-        fontWeight: '600',
-    },
-    deleteBtnTextConfirm: {
-        color: '#FFF',
-    },
-});

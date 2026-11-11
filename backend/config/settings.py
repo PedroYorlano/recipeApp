@@ -10,10 +10,12 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
-from pathlib import Path
-from decouple import config
 import os
+from datetime import timedelta
+from pathlib import Path
+
 import dj_database_url
+from decouple import config
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -85,6 +87,7 @@ DATABASES = {
     'default': dj_database_url.config(
         default=f'sqlite:///{BASE_DIR / "db.sqlite3"}',
         conn_max_age=600,
+        conn_health_checks=True,  # una conexión que el server cortó no rompe el próximo request
     )
 }
 
@@ -97,6 +100,9 @@ if config('R2_BUCKET_NAME', default=''):
                 'secret_key': config('R2_SECRET_ACCESS_KEY'),
                 'bucket_name': config('R2_BUCKET_NAME'),
                 'endpoint_url': config('R2_ENDPOINT_URL'),
+                # R2 solo acepta 'auto' (o sus regiones propias); sin esto boto3 toma la región
+                # de AWS de la máquina (~/.aws/config) y R2 rechaza el pedido.
+                'region_name': 'auto',
                 'custom_domain': config('R2_PUBLIC_DOMAIN').replace('https://', ''),
                 'default_acl': 'public-read',
                 'file_overwrite': False,
@@ -135,9 +141,9 @@ AUTH_PASSWORD_VALIDATORS = [
 # Internationalization
 # https://docs.djangoproject.com/en/5.2/topics/i18n/
 
-LANGUAGE_CODE = 'en-us'
+LANGUAGE_CODE = 'es-ar'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'America/Argentina/Buenos_Aires'
 
 USE_I18N = True
 
@@ -168,22 +174,30 @@ REST_FRAMEWORK = {
     'DEFAULT_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
     ),
+    'EXCEPTION_HANDLER': 'recetas.exceptions.exception_handler',
     'DEFAULT_PAGINATION_CLASS': 'recetas.pagination.RecipeCursorPagination',
     'PAGE_SIZE': 12,
     'DEFAULT_THROTTLE_CLASSES': [
         'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.UserRateThrottle',
     ],
+    # Proxies de confianza delante de la app. Los throttles por IP (anónimos y 'auth') leen
+    # X-Forwarded-For solo si hay proxies; con 0 usan la IP de la conexión, que no se puede falsear.
+    # En producción detrás de un proxy va 1: con 0 todos los usuarios compartirían la IP del proxy.
+    'NUM_PROXIES': config('NUM_PROXIES', default=0, cast=int),
     'DEFAULT_THROTTLE_RATES': {
         'anon': '20/minute',      # Anónimos: 20 requests/min (login, register)
         'user': '60/minute',      # CRUD general: 60 requests/min por usuario
         'import': '5/minute',     # Importaciones IA: 5/min por usuario
-        'fogoncito': '10/minute', # Chat IA: 10/min por usuario
+        'ideas': '10/minute',     # Ideas (chat IA): 10/min por usuario
+        'auth': '10/minute',      # Registro, códigos y reseteo de contraseña: 10/min por IP
     }
 }
 
 # --- JWT ---
-from datetime import timedelta
+# Login con usuario o email (el front pide "Email o Usuario")
+AUTHENTICATION_BACKENDS = ['recetas.backends.EmailOrUsernameModelBackend']
+
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
@@ -191,9 +205,13 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': False,
 }
 
-# --- Fogón: Límites de uso ---
-FOGON_MAX_IMPORTS_PER_USER_PER_DAY = 10   # Importaciones por usuario por día
-FOGON_MAX_GEMINI_REQUESTS_PER_DAY = 490    # Requests a Gemini globales por día (de 500 RPD disponibles)
+# --- Pizca: límites de uso ---
+PIZCA_MAX_IMPORTS_PER_USER_PER_DAY = 10   # Importaciones por usuario por día
+PIZCA_MAX_GEMINI_REQUESTS_PER_DAY = 490    # Requests a Gemini globales por día (de 500 RPD disponibles)
+PIZCA_MAX_IMAGES_PER_USER_PER_DAY = 50    # Fotos de portada por usuario por día (solo frena abusos)
+# Góndolas de la lista de compras: cada ingrediente que no está en el caché es una llamada a Gemini.
+PIZCA_MAX_AISLE_CALLS_PER_USER_PER_DAY = 30  # Por usuario por día; pasado el tope va a "Otros"
+PIZCA_GEMINI_REQUESTS_RESERVED = 100         # Del cupo global, lo que las góndolas no pueden gastar
 
 CORS_ALLOW_ALL_ORIGINS = config('CORS_ALLOW_ALL_ORIGINS', default=DEBUG, cast=bool)
 if not CORS_ALLOW_ALL_ORIGINS:
@@ -201,7 +219,8 @@ if not CORS_ALLOW_ALL_ORIGINS:
         'CORS_ALLOWED_ORIGINS',
         default='http://localhost:3000,http://localhost:8081'
     ).split(',')
-CORS_ALLOW_CREDENTIALS = True
+# La API usa JWT en el header Authorization, no cookies: no hace falta mandar credenciales.
+CORS_ALLOW_CREDENTIALS = False
 
 # --- Seguridad en producción ---
 if not DEBUG:
@@ -220,5 +239,16 @@ EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
 EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Fogón <hola@fogon.com>')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Pizca <hola@pizca.app>')
 
+
+# --- Logs ---
+# A la consola (en producción la junta el host). Los errores de las vistas usan logger.exception.
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {'simple': {'format': '{levelname} {name}: {message}', 'style': '{'}},
+    'handlers': {'console': {'class': 'logging.StreamHandler', 'formatter': 'simple'}},
+    'root': {'handlers': ['console'], 'level': 'INFO'},
+    'loggers': {'django': {'handlers': ['console'], 'level': config('DJANGO_LOG_LEVEL', default='INFO'), 'propagate': False}},
+}

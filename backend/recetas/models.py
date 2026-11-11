@@ -1,12 +1,34 @@
-from django.db import models
-from django.contrib.auth.models import User
-from datetime import date, timedelta
-from django.utils import timezone
+import logging
 import uuid
-from django.db.models.signals import pre_save, post_delete
-from django.dispatch import receiver
+from datetime import timedelta
 
-# Create your models here.
+from django.contrib.auth.models import User
+from django.db import models, transaction
+from django.db.models import F
+from django.db.models.signals import post_delete, pre_save
+from django.dispatch import receiver
+from django.utils import timezone
+
+logger = logging.getLogger(__name__)
+
+OTP_TTL = timedelta(minutes=10)
+MAX_OTP_ATTEMPTS = 5
+
+# Góndolas de la lista de compras, en el orden en que se recorre el súper.
+# Son las secciones que muestra la app (frontend/src/constants/aisles.ts tiene la misma lista).
+AISLES = [
+    'Verduras y frutas',
+    'Carnes y pescados',
+    'Lácteos y huevos',
+    'Panadería',
+    'Almacén',
+    'Especias y condimentos',
+    'Bebidas',
+    'Congelados',
+    'Otros',
+]
+OTHER_AISLE = 'Otros'
+AISLE_CHOICES = [(a, a) for a in AISLES]
 
 class Category(models.Model):
     name = models.CharField(max_length=100)
@@ -31,6 +53,10 @@ class Recipe(models.Model):
     prep_time = models.PositiveIntegerField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        # La lista principal: recetas de un usuario, las más nuevas primero (paginación por cursor).
+        indexes = [models.Index(fields=['user', '-created_at'], name='recipe_user_created_idx')]
 
     def __str__(self):
         return self.title
@@ -78,12 +104,16 @@ class UserUsage(models.Model):
     """Uso diario por usuario — limita importaciones de IA por día."""
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='usage')
     import_count = models.PositiveIntegerField(default=0)
+    image_count = models.PositiveIntegerField(default=0)  # fotos de portada subidas hoy
+    aisle_count = models.PositiveIntegerField(default=0)  # llamadas a la IA para ubicar ingredientes en góndolas hoy
     last_reset = models.DateField(auto_now_add=True)
 
     def reset_if_new_day(self):
-        if self.last_reset < date.today():
+        if self.last_reset < timezone.localdate():
             self.import_count = 0
-            self.last_reset = date.today()
+            self.image_count = 0
+            self.aisle_count = 0
+            self.last_reset = timezone.localdate()
             self.save()
 
     def can_import(self, max_daily):
@@ -92,9 +122,22 @@ class UserUsage(models.Model):
 
     def record_import(self):
         self.reset_if_new_day()
-        from django.db.models import F
         UserUsage.objects.filter(pk=self.pk).update(import_count=F('import_count') + 1)
         self.refresh_from_db()
+
+    def can_upload_image(self, max_daily):
+        self.reset_if_new_day()
+        return self.image_count < max_daily
+
+    def record_image(self):
+        UserUsage.objects.filter(pk=self.pk).update(image_count=F('image_count') + 1)
+
+    def can_classify(self, max_daily):
+        self.reset_if_new_day()
+        return self.aisle_count < max_daily
+
+    def record_classification(self):
+        UserUsage.objects.filter(pk=self.pk).update(aisle_count=F('aisle_count') + 1)
 
     def __str__(self):
         return f"{self.user.username}: {self.import_count} imports ({self.last_reset})"
@@ -107,14 +150,13 @@ class GlobalUsage(models.Model):
 
     @classmethod
     def get_today(cls):
-        obj, _ = cls.objects.get_or_create(date=date.today())
+        obj, _ = cls.objects.get_or_create(date=timezone.localdate())
         return obj
 
     def can_request(self, max_daily):
         return self.gemini_requests < max_daily
 
     def record_request(self):
-        from django.db.models import F
         GlobalUsage.objects.filter(pk=self.pk).update(gemini_requests=F('gemini_requests') + 1)
         self.refresh_from_db()
 
@@ -146,62 +188,112 @@ class ShoppingListItem(models.Model):
     week_start = models.DateField()
     ingredient_name = models.CharField(max_length=100)
     quantity = models.CharField(max_length=50, blank=True, null=True)
-    category = models.CharField(max_length=50, blank=True, default='')
+    category = models.CharField(max_length=50, choices=AISLE_CHOICES, default=OTHER_AISLE)
     is_checked = models.BooleanField(default=False)
+    # Lo agregó el usuario a mano: sobrevive a regenerar la lista desde el plan.
+    is_manual = models.BooleanField(default=False)
 
     class Meta:
         ordering = ['user', 'week_start', 'ingredient_name']
+        indexes = [models.Index(fields=['user', 'week_start'], name='shopping_user_week_idx')]
 
     def __str__(self):
         qty = self.quantity if self.quantity is not None else ''
         return f"{qty} {self.category} {self.ingredient_name}".strip()
 
+class IngredientAisle(models.Model):
+    """
+    Caché global de en qué góndola va cada ingrediente (lo decide Gemini una sola vez).
+    `name` está normalizado con shopping.normalize_name.
+    """
+    name = models.CharField(max_length=100, unique=True)
+    aisle = models.CharField(max_length=50, choices=AISLE_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} → {self.aisle}"
+
+
+class UserIngredientAisle(models.Model):
+    """Góndola que eligió el usuario para un ingrediente: le gana al caché global, solo para él."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ingredient_aisles')
+    name = models.CharField(max_length=100)
+    aisle = models.CharField(max_length=50, choices=AISLE_CHOICES)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'name'], name='user_ingredient_aisle_unique')]
+
+    def __str__(self):
+        return f"{self.user.username}: {self.name} → {self.aisle}"
+
+
+def _delete_image_after_commit(name):
+    """Borra la foto del bucket recién cuando la base confirmó el cambio: si el save falla, la foto sigue."""
+    if not name:
+        return
+    storage = Recipe._meta.get_field('image').storage
+
+    def delete():
+        # El cambio ya está guardado: si el bucket falla queda una foto huérfana, no un 500.
+        try:
+            storage.delete(name)
+        except Exception:
+            logger.exception('No se pudo borrar la imagen %s', name)
+
+    transaction.on_commit(delete)
+
+
 @receiver(pre_save, sender=Recipe)
 def delete_old_image(sender, instance, **kwargs):
     if not instance.pk:
         return
-    try:
-        old_image = Recipe.objects.get(pk=instance.pk).image
-    except Recipe.DoesNotExist:
-        return
-    if old_image and old_image != instance.image:
-        old_image.delete(save=False)
+    old = Recipe.objects.filter(pk=instance.pk).values_list('image', flat=True).first()
+    if old != instance.image.name:
+        _delete_image_after_commit(old)
 
 
 @receiver(post_delete, sender=Recipe)
 def delete_image_on_recipe_delete(sender, instance, **kwargs):
     """Limpia la imagen de R2/disco cuando se elimina una receta."""
-    if instance.image:
-        instance.image.delete(save=False)
+    _delete_image_after_commit(instance.image.name)
 
 
 def default_otp_expiry():
-    return timezone.now() + timedelta(minutes=2)
+    return timezone.now() + OTP_TTL
 
 
-class PendingRegistration(models.Model):
-    username = models.CharField(max_length=150, unique=True)
-    email = models.EmailField(unique=True)
-    password = models.CharField(max_length=128)  # Hashed password
+class OTPMixin(models.Model):
     otp_code = models.CharField(max_length=6)
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField(default=default_otp_expiry)
+    # Intentos fallidos: al llegar a MAX_OTP_ATTEMPTS el código deja de servir (frena la fuerza bruta).
+    attempts = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        abstract = True
 
     def is_expired(self):
         return timezone.now() > self.expires_at
+
+    def is_locked(self):
+        return self.attempts >= MAX_OTP_ATTEMPTS
+
+    def register_failed_attempt(self):
+        type(self).objects.filter(pk=self.pk).update(attempts=F('attempts') + 1)
+
+
+class PendingRegistration(OTPMixin):
+    username = models.CharField(max_length=150, unique=True)
+    email = models.EmailField(unique=True)
+    password = models.CharField(max_length=128)  # Hashed password
 
     def __str__(self):
         return f"Pending: {self.username} ({self.email})"
 
 
-class PasswordResetOTP(models.Model):
+class PasswordResetOTP(OTPMixin):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='password_reset_otps')
-    otp_code = models.CharField(max_length=6)
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField(default=default_otp_expiry)
-
-    def is_expired(self):
-        return timezone.now() > self.expires_at
 
     def __str__(self):
         return f"Reset OTP for {self.user.username}"

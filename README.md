@@ -1,6 +1,6 @@
-# 🔥 Fogón — Recetario Inteligente
+# 🧂 Pizca — Recetario Inteligente
 
-**Fogón** es una aplicación full-stack de gestión de recetas potenciada por Inteligencia Artificial. Permite a los usuarios guardar, organizar y planificar sus recetas semanales, con la capacidad única de importar recetas automáticamente desde videos de YouTube, TikTok e Instagram, archivos de audio, o texto libre mediante la API de Google Gemini.
+**Pizca** es una aplicación full-stack de gestión de recetas potenciada por Inteligencia Artificial. Permite a los usuarios guardar, organizar y planificar sus recetas semanales, con la capacidad única de importar recetas automáticamente desde videos de YouTube, TikTok e Instagram, archivos de audio, o texto libre mediante la API de Google Gemini.
 
 Disponible como aplicación móvil nativa (iOS y Android) y web, todo desde el mismo codebase.
 
@@ -30,7 +30,7 @@ Disponible como aplicación móvil nativa (iOS y Android) y web, todo desde el m
 | **Autenticación** | Registro, login con JWT (Access + Refresh token), auto-refresh transparente |
 | **Recetas** | CRUD completo, búsqueda full-text, filtros por categoría y favoritos, imágenes en cloud |
 | **Importación con IA** | Desde video (YouTube/TikTok/IG), archivo de audio, texto libre y URL de blog |
-| **Fogoncito** | Asistente de cocina conversacional que recomienda recetas propias del usuario |
+| **Ideas** | Asistente de cocina conversacional que recomienda recetas propias del usuario |
 | **Planificador** | Armar menú semanal por desayuno/almuerzo/cena |
 | **Lista de compras** | Generación automática consolidando los ingredientes del plan semanal |
 | **Compartir** | Recetas públicas con URL única accesible sin login |
@@ -46,7 +46,7 @@ Disponible como aplicación móvil nativa (iOS y Android) y web, todo desde el m
 | Framework | Django 5.2 + Django REST Framework |
 | Autenticación | JWT via `djangorestframework-simplejwt` |
 | Base de datos | PostgreSQL (prod) / SQLite (dev) |
-| IA | Google Gemini 2.5 Flash (`google-genai`) |
+| IA | Google Gemini 3.5 Flash-Lite (`google-genai`, configurable con `GEMINI_MODEL`) |
 | Descarga de video | `yt-dlp` + `ffmpeg` |
 | Storage de imágenes | Cloudflare R2 (S3-compatible) via `django-storages` |
 | Scraping web | `beautifulsoup4` |
@@ -238,8 +238,10 @@ Ver [`backend/.env.example`](./backend/.env.example) para la lista completa. Las
 | `SECRET_KEY` | Clave secreta de Django. Generar con `python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"` |
 | `GENAI_API_KEY` | API key de Google AI Studio para Gemini |
 | `DEBUG` | `True` en desarrollo, `False` en producción |
-| `ALLOWED_HOSTS` | Hosts permitidos, separados por coma (ej: `api.fogon.app`) |
+| `ALLOWED_HOSTS` | Hosts permitidos, separados por coma (ej: `api.pizca.app`) |
 | `DATABASE_URL` | URL de conexión a la base de datos |
+
+Opcional: `GEMINI_MODEL` (por defecto `gemini-3.5-flash-lite`). Antes de cambiarlo, correr `python manage.py check_ai`, que prueba texto, audio e Ideas con una llamada real.
 
 Variables opcionales (para storage en la nube):
 
@@ -251,7 +253,9 @@ Variables opcionales (para storage en la nube):
 | `R2_ENDPOINT_URL` | Endpoint del bucket R2 |
 | `R2_PUBLIC_DOMAIN` | Dominio público para servir imágenes |
 
-Si las variables de R2 no están configuradas, las imágenes se almacenan en disco local en `/media/`.
+Si las variables de R2 no están configuradas, las imágenes se almacenan en disco local en `/media/`. Con R2 la región se fuerza a `auto`: si no, boto3 toma la región de AWS de la máquina (`~/.aws/config`) y R2 rechaza el pedido.
+
+Las fotos de portada se validan con Pillow, se achican a 1600 px y se guardan en WebP sin EXIF (`recetas/images.py`).
 
 ---
 
@@ -323,11 +327,11 @@ Authorization: Bearer <access_token>
 | `PATCH` | `/api/shopping/<id>/` | Actualizar ítem (ej: marcar como comprado) |
 | `DELETE` | `/api/shopping/<id>/` | Eliminar ítem |
 
-### Fogoncito (Asistente IA)
+### Ideas (asistente IA)
 
 | Método | Endpoint | Descripción | Límite |
 |---|---|---|---|
-| `POST` | `/api/fogoncito/` | Enviar mensaje. Body: `{ message }` | 10/min |
+| `POST` | `/api/ideas/` | Enviar mensaje. Body: `{ message }` | 10/min |
 
 ---
 
@@ -350,6 +354,7 @@ Authorization: Bearer <access_token>
 - Usuarios autenticados: 60 req/min (CRUD general)
 - Importaciones IA: 5 req/min + 10/día por usuario
 - Límite global de Gemini: 490 req/día (configurable en settings)
+- Fotos de portada: 50 por usuario por día (`PIZCA_MAX_IMAGES_PER_USER_PER_DAY`)
 
 **Protección SSRF**
 - Las URLs de video se validan contra una whitelist de hosts permitidos (YouTube, TikTok, Instagram)
@@ -400,7 +405,7 @@ El `Dockerfile` del backend genera una imagen lista para producción usando Guni
 
 ```bash
 # Build
-docker build -t fogon-backend ./backend
+docker build -t pizca-backend ./backend
 
 # Run (ejemplo con variables de entorno)
 docker run -p 8000:8000 \
@@ -408,7 +413,7 @@ docker run -p 8000:8000 \
   -e DEBUG=False \
   -e DATABASE_URL=postgres://... \
   -e GENAI_API_KEY=... \
-  fogon-backend
+  pizca-backend
 ```
 
 Se recomienda colocar un proxy reverso (Nginx o Caddy) delante de Gunicorn para manejar HTTPS y servir archivos estáticos.
