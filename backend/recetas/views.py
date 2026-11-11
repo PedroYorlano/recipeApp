@@ -38,7 +38,7 @@ from .models import (
 )
 from .net import FetchError, fetch_public
 from .serializers import CategorySerializer, MealPlanSerializer, RecipeSerializer, ShoppingListItemSerializer
-from .shopping import consolidate, format_quantity
+from .shopping import consolidate, format_quantity, learn_from_recipe, normalize_name, remember_user_choice, resolve_aisles
 from .utils import (
     AIInputError, build_recipes_summary, call_ideas, convert_audio_to_mp3,
     download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text,
@@ -112,6 +112,7 @@ def run_ai_import(request, extract, failure_message, failure_status=status.HTTP_
         return error('Algo falló al armar la receta. Probá de nuevo en un rato.', status.HTTP_500_INTERNAL_SERVER_ERROR)
     if not recipe:
         return error(failure_message, failure_status)
+    learn_from_recipe(recipe)
     record_usage(request.user)
     return Response({'message': 'Receta importada', 'recipe': recipe}, status=status.HTTP_201_CREATED)
 
@@ -444,12 +445,14 @@ class MealPlanViewSet(viewsets.ModelViewSet):
         )
         # Una receta planeada dos veces suma sus ingredientes dos veces.
         items = consolidate(ing for plan in plans for ing in plan.recipe.ingredients.all())
+        # Antes de la transacción: puede llamar a Gemini con lo que no está en el caché.
+        aisles = resolve_aisles(request.user, [item['name'] for item in items])
 
         # Regeneramos: se va lo armado desde el plan y lo tachado; lo agregado a mano y sin tachar queda.
         with transaction.atomic():
             week_items = ShoppingListItem.objects.filter(user=request.user, week_start=start)
             checked = {
-                name.lower().strip()
+                normalize_name(name)
                 for name in week_items.filter(is_checked=True).values_list('ingredient_name', flat=True)
             }
             week_items.filter(Q(is_manual=False) | Q(is_checked=True)).delete()
@@ -459,10 +462,10 @@ class MealPlanViewSet(viewsets.ModelViewSet):
                     week_start=start,
                     ingredient_name=item['name'],
                     quantity=format_quantity(item['quantity'], item['unit']),
-                    category=item['category'],
+                    category=aisles[item['name']],
                 )
                 for item in items
-                if item['name'].lower() not in checked
+                if normalize_name(item['name']) not in checked
             )
 
         all_items = ShoppingListItem.objects.filter(user=request.user, week_start=start).order_by('category', 'ingredient_name')
@@ -485,7 +488,17 @@ class ShoppingListItemViewSet(viewsets.ModelViewSet):
         return qs.order_by('category', 'ingredient_name')
 
     def perform_create(self, serializer):
-        serializer.save(user=self.request.user, is_manual=True)
+        extra = {}
+        if 'category' not in serializer.validated_data:
+            name = serializer.validated_data['ingredient_name']
+            extra['category'] = resolve_aisles(self.request.user, [name])[name]
+        serializer.save(user=self.request.user, is_manual=True, **extra)
+
+    def perform_update(self, serializer):
+        item = serializer.save()
+        # Si el usuario lo movió de góndola, la próxima vez ese ingrediente va directo ahí.
+        if 'category' in serializer.validated_data:
+            remember_user_choice(self.request.user, item.ingredient_name, item.category)
 
 
 # ---------------------------------------------------------------------------

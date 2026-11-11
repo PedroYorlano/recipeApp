@@ -1,8 +1,8 @@
 from django.contrib import admin
 
 from .models import (
-    Category, Favorite, GlobalUsage, Ingredient, MealPlan, PasswordResetOTP, PendingRegistration,
-    Recipe, ShoppingListItem, Step, UserUsage,
+    Category, Favorite, GlobalUsage, Ingredient, IngredientAisle, MealPlan, PasswordResetOTP,
+    PendingRegistration, Recipe, ShoppingListItem, Step, UserIngredientAisle, UserUsage,
 )
 
 
@@ -48,6 +48,23 @@ class MealPlanAdmin(admin.ModelAdmin):
 @admin.register(ShoppingListItem)
 class ShoppingListItemAdmin(admin.ModelAdmin):
     list_display = ('user', 'week_start', 'ingredient_name', 'quantity', 'category', 'is_checked', 'is_manual')
+    list_select_related = ('user',)
+
+
+@admin.register(IngredientAisle)
+class IngredientAisleAdmin(admin.ModelAdmin):
+    """Caché global: si la IA ubicó mal algo, se corrige acá y vale para todos."""
+    list_display = ('name', 'aisle', 'created_at')
+    list_editable = ('aisle',)
+    list_filter = ('aisle',)
+    search_fields = ('name',)
+
+
+@admin.register(UserIngredientAisle)
+class UserIngredientAisleAdmin(admin.ModelAdmin):
+    list_display = ('user', 'name', 'aisle', 'updated_at')
+    list_filter = ('aisle',)
+    search_fields = ('name', 'user__username')
     list_select_related = ('user',)
 
 

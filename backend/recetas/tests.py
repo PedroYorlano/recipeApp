@@ -16,9 +16,12 @@ from PIL import Image
 from rest_framework.test import APIClient
 
 from .images import InvalidImage, image_from_base64, image_from_url, process_image
-from .models import Favorite, Ingredient, MealPlan, PasswordResetOTP, PendingRegistration, Recipe, Step
+from .models import (
+    Favorite, GlobalUsage, Ingredient, IngredientAisle, MealPlan, PasswordResetOTP, PendingRegistration, Recipe,
+    ShoppingListItem, Step, UserIngredientAisle,
+)
 from .net import FetchError, fetch_public
-from .shopping import categorize_ingredient, format_quantity
+from .shopping import format_quantity, learn_from_recipe, normalize_name
 
 # Los tests nunca tocan el bucket real.
 IN_MEMORY = {
@@ -177,6 +180,9 @@ class RecipeImageApiTests(TestCase):
 
 class ShoppingListTests(TestCase):
     def setUp(self):
+        patcher = mock.patch('recetas.shopping.classify_ingredients', return_value={})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         self.user = User.objects.create_user('beto', 'beto@example.com', 'contraseña-segura')
         self.client = APIClient()
         self.client.force_authenticate(self.user)
@@ -279,12 +285,6 @@ class RecipeListTests(TestCase):
 
 
 class ShoppingConsolidationTests(TestCase):
-    def test_categorias_por_palabra(self):
-        self.assertEqual(categorize_ingredient('Huevos'), 'Carnes y proteínas')
-        self.assertEqual(categorize_ingredient('mostaza de Dijon'), 'Despensa')
-        self.assertEqual(categorize_ingredient('Espinaca'), 'Verduras y frescos')  # antes caía en "pan"
-        self.assertEqual(categorize_ingredient('Albahaca'), 'Otros')
-
     def test_formato_de_cantidad(self):
         self.assertEqual(format_quantity(Decimal('200.00'), 'g'), '200 g')
         self.assertEqual(format_quantity(Decimal('0.50'), 'taza'), '0.5 taza')
@@ -299,7 +299,8 @@ class ShoppingConsolidationTests(TestCase):
             recipe = Recipe.objects.create(user=user, title=f'R{day}')
             Ingredient.objects.create(recipe=recipe, name='Harina', quantity=qty, unit=unit)
             MealPlan.objects.create(user=user, date=monday + timedelta(days=day), meal_type='lunch', recipe=recipe)
-        r = client.post('/api/planner/generate_shopping_list/', {'week_start': monday.isoformat()}, format='json')
+        with mock.patch('recetas.shopping.classify_ingredients', return_value={}):
+            r = client.post('/api/planner/generate_shopping_list/', {'week_start': monday.isoformat()}, format='json')
         self.assertEqual([(i['ingredient_name'], i['quantity']) for i in r.data], [('Harina', '500 g')])
 
     def test_semana_invalida_es_400(self):
@@ -353,3 +354,101 @@ class OtpTests(TestCase):
         r = self.client.post('/api/password-reset/verify/', {'email': 'ines@example.com', 'otp_code': otp.otp_code, 'new_password': 'otra-clave-larga-7'}, format='json')
         self.assertEqual(r.status_code, 200, r.content)
         self.assertTrue(User.objects.get(username='ines').check_password('otra-clave-larga-7'))
+
+
+@mock.patch('recetas.shopping.classify_ingredients')
+class AisleTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user('gina', 'gina@example.com', 'contraseña-segura')
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        self.monday = timezone.localdate() - timedelta(days=timezone.localdate().weekday())
+
+    def plan(self, *names):
+        recipe = Recipe.objects.create(user=self.user, title='R')
+        for name in names:
+            Ingredient.objects.create(recipe=recipe, name=name)
+        MealPlan.objects.create(user=self.user, date=self.monday, meal_type='lunch', recipe=recipe)
+
+    def generate(self):
+        r = self.client.post('/api/planner/generate_shopping_list/', {'week_start': self.monday.isoformat()}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        return {i['ingredient_name']: i['category'] for i in r.data}
+
+    def test_normalizar_nombre(self, classify):
+        self.assertEqual(normalize_name('  Limón   Tahití '), 'limon tahiti')
+
+    def test_lo_que_falta_va_a_la_ia_en_una_sola_llamada_y_queda_en_cache(self, classify):
+        IngredientAisle.objects.create(name='harina', aisle='Almacén')
+        classify.return_value = {'Rúcula': 'Verduras y frutas', 'Provoleta': 'Lácteos y huevos'}
+        self.plan('Harina', 'Rúcula', 'Provoleta')
+
+        self.assertEqual(self.generate(), {
+            'Harina': 'Almacén', 'Rúcula': 'Verduras y frutas', 'Provoleta': 'Lácteos y huevos',
+        })
+        classify.assert_called_once()
+        self.assertEqual(sorted(classify.call_args.args[0]), ['Provoleta', 'Rúcula'])
+        self.assertEqual(IngredientAisle.objects.get(name='rucula').aisle, 'Verduras y frutas')
+        self.assertEqual(GlobalUsage.get_today().gemini_requests, 1)
+
+        # La segunda vez sale todo del caché.
+        classify.reset_mock()
+        self.generate()
+        classify.assert_not_called()
+
+    def test_si_la_ia_falla_va_a_otros_y_no_se_cachea(self, classify):
+        classify.side_effect = RuntimeError('Gemini caído')
+        self.plan('Rúcula')
+        self.assertEqual(self.generate(), {'Rúcula': 'Otros'})
+        self.assertFalse(IngredientAisle.objects.exists())
+
+    def test_gondola_inventada_por_la_ia_se_descarta(self, classify):
+        classify.return_value = {'Rúcula': 'Verdulería del barrio'}
+        self.plan('Rúcula')
+        self.assertEqual(self.generate(), {'Rúcula': 'Otros'})
+        self.assertFalse(IngredientAisle.objects.exists())
+
+    @override_settings(PIZCA_MAX_GEMINI_REQUESTS_PER_DAY=0)
+    def test_sin_cupo_no_llama_a_la_ia(self, classify):
+        self.plan('Rúcula')
+        self.assertEqual(self.generate(), {'Rúcula': 'Otros'})
+        classify.assert_not_called()
+
+    def test_mover_de_gondola_se_recuerda_solo_para_ese_usuario(self, classify):
+        IngredientAisle.objects.create(name='palta', aisle='Verduras y frutas')
+        self.plan('Palta')
+        self.generate()
+        item = ShoppingListItem.objects.get(user=self.user, ingredient_name='Palta')
+
+        r = self.client.patch(f'/api/shopping/{item.pk}/', {'category': 'Almacén'}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertEqual(UserIngredientAisle.objects.get(user=self.user, name='palta').aisle, 'Almacén')
+        self.assertEqual(self.generate(), {'Palta': 'Almacén'})
+        # El caché global no cambia: es una preferencia de esta persona.
+        self.assertEqual(IngredientAisle.objects.get(name='palta').aisle, 'Verduras y frutas')
+
+    def test_editar_otra_cosa_no_guarda_preferencia(self, classify):
+        item = ShoppingListItem.objects.create(user=self.user, week_start=self.monday, ingredient_name='Pan')
+        self.client.patch(f'/api/shopping/{item.pk}/', {'is_checked': True}, format='json')
+        self.assertFalse(UserIngredientAisle.objects.exists())
+
+    def test_gondola_invalida_es_400(self, classify):
+        item = ShoppingListItem.objects.create(user=self.user, week_start=self.monday, ingredient_name='Pan')
+        r = self.client.patch(f'/api/shopping/{item.pk}/', {'category': 'Cualquiera'}, format='json')
+        self.assertEqual(r.status_code, 400)
+
+    def test_item_agregado_a_mano_toma_su_gondola(self, classify):
+        IngredientAisle.objects.create(name='servilletas', aisle='Otros')
+        IngredientAisle.objects.create(name='yerba', aisle='Almacén')
+        r = self.client.post('/api/shopping/', {'week_start': self.monday.isoformat(), 'ingredient_name': 'Yerba'}, format='json')
+        self.assertEqual(r.data['category'], 'Almacén')
+        classify.assert_not_called()
+
+    def test_importar_guarda_las_gondolas_y_las_saca_de_la_receta(self, classify):
+        recipe = {'ingredients': [
+            {'name': 'Morrón', 'quantity': 1, 'unit': 'unidad', 'aisle': 'Verduras y frutas'},
+            {'name': 'Cosa rara', 'aisle': 'Inventada'},
+        ]}
+        learn_from_recipe(recipe)
+        self.assertEqual(dict(IngredientAisle.objects.values_list('name', 'aisle')), {'morron': 'Verduras y frutas'})
+        self.assertTrue(all('aisle' not in i for i in recipe['ingredients']))

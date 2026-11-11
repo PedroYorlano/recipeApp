@@ -279,11 +279,12 @@ export const PlannerProvider = ({ children }: { children: React.ReactNode }) => 
     }, []);
 
     const addShoppingItem = useCallback(async (name: string, quantity?: string, category?: string) => {
+        // Sin categoría, el backend la deduce (lo que el usuario eligió antes, el caché o la IA).
         const item = await createShoppingItemService({
             week_start: weekStart,
             ingredient_name: name,
             quantity: quantity || '',
-            category: category || 'Otros',
+            ...(category ? { category } : {}),
         });
         setShoppingList(prev => [...prev, item]);
     }, [weekStart]);

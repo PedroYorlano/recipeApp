@@ -16,6 +16,7 @@ import { IdeasChat } from '../../src/components/planner/IdeasChat';
 import { notify, confirmAction } from '../../src/utils/dialogs';
 import { addDays, getTodayISO, parseISODate } from '../../src/utils/dates';
 import { ICONS, ILLUSTRATIONS } from '../../src/constants/brand';
+import { AISLES, OTHER_AISLE } from '../../src/constants/aisles';
 
 if (Platform.OS === 'android') {
     UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -381,8 +382,6 @@ const ProgressRing = ({ done, total }: { done: number; total: number }) => {
     );
 };
 
-const MANUAL_SECTION = 'Agregado por vos';
-
 const sectionIcon = (category: string) =>
     /verdu|fruta/i.test(category) ? ICONS.ingredientes : ICONS.categorias;
 
@@ -404,16 +403,15 @@ function ShoppingView() {
 
     const grouped = useMemo(() => {
         const map: Record<string, ShoppingListItem[]> = {};
-        const manual: ShoppingListItem[] = [];
         for (const item of shoppingList) {
-            if (item.is_manual) { manual.push(item); continue; }
-            const cat = item.category || 'Otros';
-            (map[cat] ??= []).push(item);
+            (map[item.category || OTHER_AISLE] ??= []).push(item);
         }
-        // Lo que agregaste vos va al final, separado de lo que sale de las recetas.
-        const sections = Object.entries(map);
-        if (manual.length) sections.push([MANUAL_SECTION, manual]);
-        return sections;
+        // En el orden en que se recorre el súper; una góndola desconocida (datos viejos) va al final.
+        const rank = (aisle: string) => {
+            const i = (AISLES as readonly string[]).indexOf(aisle);
+            return i === -1 ? AISLES.length : i;
+        };
+        return Object.entries(map).sort(([a], [b]) => rank(a) - rank(b));
     }, [shoppingList]);
 
     const checkedCount = shoppingList.filter(i => i.is_checked).length;
@@ -458,6 +456,17 @@ function ShoppingView() {
             await editShoppingItem(id, { ingredient_name: values.ingredient_name.trim(), quantity: values.quantity.trim() });
         } catch {
             notify('Error', 'No pudimos guardar el cambio.');
+        }
+    };
+
+    const moveToAisle = async (item: ShoppingListItem, category: string) => {
+        if (category === item.category) return;
+        LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+        try {
+            // El backend se acuerda: la próxima vez este ingrediente ya cae en esta góndola.
+            await editShoppingItem(item.id, { category });
+        } catch {
+            notify('Error', 'No pudimos moverlo de góndola.');
         }
     };
 
@@ -581,6 +590,32 @@ function ShoppingView() {
                                                                 placeholderTextColor="#8C7E70"
                                                                 accessibilityLabel="Cantidad"
                                                             />
+                                                        </View>
+                                                        <View className="gap-1.5">
+                                                            <Text className="text-xs font-extrabold text-pizca-texto2">Góndola</Text>
+                                                            <ScrollView
+                                                                horizontal
+                                                                showsHorizontalScrollIndicator={false}
+                                                                keyboardShouldPersistTaps="handled"
+                                                                contentContainerStyle={{ gap: 6 }}
+                                                                accessibilityRole="radiogroup"
+                                                                accessibilityLabel="Góndola"
+                                                            >
+                                                                {AISLES.map(aisle => {
+                                                                    const selected = (item.category || OTHER_AISLE) === aisle;
+                                                                    return (
+                                                                        <TouchableOpacity
+                                                                            key={aisle}
+                                                                            onPress={() => moveToAisle(item, aisle)}
+                                                                            className={`h-8 px-3 rounded-full justify-center ${selected ? 'bg-pizca-marron' : 'bg-pizca-crema'}`}
+                                                                            accessibilityRole="radio"
+                                                                            accessibilityState={{ checked: selected }}
+                                                                        >
+                                                                            <Text className={`text-[13px] font-bold ${selected ? 'text-pizca-fondo' : 'text-pizca-marron'}`}>{aisle}</Text>
+                                                                        </TouchableOpacity>
+                                                                    );
+                                                                })}
+                                                            </ScrollView>
                                                         </View>
                                                         <View className="flex-row justify-between items-center">
                                                             <TouchableOpacity

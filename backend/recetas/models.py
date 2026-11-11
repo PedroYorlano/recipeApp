@@ -11,6 +11,22 @@ from django.utils import timezone
 OTP_TTL = timedelta(minutes=10)
 MAX_OTP_ATTEMPTS = 5
 
+# Góndolas de la lista de compras, en el orden en que se recorre el súper.
+# Son las secciones que muestra la app (frontend/src/constants/aisles.ts tiene la misma lista).
+AISLES = [
+    'Verduras y frutas',
+    'Carnes y pescados',
+    'Lácteos y huevos',
+    'Panadería',
+    'Almacén',
+    'Especias y condimentos',
+    'Bebidas',
+    'Congelados',
+    'Otros',
+]
+OTHER_AISLE = 'Otros'
+AISLE_CHOICES = [(a, a) for a in AISLES]
+
 class Category(models.Model):
     name = models.CharField(max_length=100)
     parent = models.ForeignKey('self', on_delete=models.CASCADE, null=True, blank=True, related_name='subcategories')
@@ -160,7 +176,7 @@ class ShoppingListItem(models.Model):
     week_start = models.DateField()
     ingredient_name = models.CharField(max_length=100)
     quantity = models.CharField(max_length=50, blank=True, null=True)
-    category = models.CharField(max_length=50, blank=True, default='')
+    category = models.CharField(max_length=50, choices=AISLE_CHOICES, default=OTHER_AISLE)
     is_checked = models.BooleanField(default=False)
     # Lo agregó el usuario a mano: sobrevive a regenerar la lista desde el plan.
     is_manual = models.BooleanField(default=False)
@@ -172,6 +188,33 @@ class ShoppingListItem(models.Model):
     def __str__(self):
         qty = self.quantity if self.quantity is not None else ''
         return f"{qty} {self.category} {self.ingredient_name}".strip()
+
+class IngredientAisle(models.Model):
+    """
+    Caché global de en qué góndola va cada ingrediente (lo decide Gemini una sola vez).
+    `name` está normalizado con shopping.normalize_name.
+    """
+    name = models.CharField(max_length=100, unique=True)
+    aisle = models.CharField(max_length=50, choices=AISLE_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.name} → {self.aisle}"
+
+
+class UserIngredientAisle(models.Model):
+    """Góndola que eligió el usuario para un ingrediente: le gana al caché global, solo para él."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ingredient_aisles')
+    name = models.CharField(max_length=100)
+    aisle = models.CharField(max_length=50, choices=AISLE_CHOICES)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['user', 'name'], name='user_ingredient_aisle_unique')]
+
+    def __str__(self):
+        return f"{self.user.username}: {self.name} → {self.aisle}"
+
 
 def _delete_image_after_commit(name):
     """Borra la foto del bucket recién cuando la base confirmó el cambio: si el save falla, la foto sigue."""
