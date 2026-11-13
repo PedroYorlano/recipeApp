@@ -135,5 +135,5 @@ websockets==16.0
     # via google-genai
 whitenoise==6.12.0
     # via -r requirements.in
-yt-dlp==2026.3.17
+yt-dlp==2026.10.26
     # via -r requirements.in
