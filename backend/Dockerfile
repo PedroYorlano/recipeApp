@@ -29,4 +29,6 @@ EXPOSE 8000
 
 # Cloud Run pasa el puerto en $PORT (8080); en local queda 8000. Los hilos dejan atender otros
 # requests mientras un import de video espera a yt-dlp o a Gemini.
-CMD exec gunicorn config.wsgi --bind 0.0.0.0:${PORT:-8000} --workers 2 --threads 4 --timeout 120
+# Las migraciones corren al arrancar: si una falla, la revisión nueva no levanta y Cloud Run sigue
+# sirviendo la anterior. Con --max-instances=1 no hay dos migrando a la vez.
+CMD python manage.py migrate --noinput && exec gunicorn config.wsgi --bind 0.0.0.0:${PORT:-8000} --workers 2 --threads 4 --timeout 120

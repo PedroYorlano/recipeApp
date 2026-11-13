@@ -219,6 +219,8 @@ if not CORS_ALLOW_ALL_ORIGINS:
         'CORS_ALLOWED_ORIGINS',
         default='http://localhost:3000,http://localhost:8081'
     ).split(',')
+    # Previews de Vercel (una URL por deploy). Vacío = ninguno. Ej.: ^https://pizca-[a-z0-9-]+-pedro-d090\.vercel\.app$
+    CORS_ALLOWED_ORIGIN_REGEXES = [r for r in config('CORS_ALLOWED_ORIGIN_REGEXES', default='').split(',') if r]
 # La API usa JWT en el header Authorization, no cookies: no hace falta mandar credenciales.
 CORS_ALLOW_CREDENTIALS = False
 
