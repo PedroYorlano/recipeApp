@@ -1,8 +1,7 @@
 """
-Cliente HTTP de la API de Pizca, con login por usuario y contraseña.
-
-Es descartable a propósito: en la fase 5 (MCP remoto) el token llega por OAuth y esto
-se reemplaza. Las tools de server.py no saben cómo se consigue el token.
+Cliente HTTP de la API de Pizca. Tiene dos modos, y las tools de server.py no saben cuál se usa:
+- local (Claude Desktop por stdio): login con usuario y contraseña, y renovación del JWT;
+- remoto (conector de Claude): el token OAuth del usuario que llama, que ya validó el MCP.
 """
 from __future__ import annotations
 
@@ -65,20 +64,41 @@ def error_message(response: httpx.Response) -> str:
     return detail or f'La API de Pizca respondió {response.status_code}.'
 
 
+SESION_VENCIDA = 'Tu sesión de Pizca venció o se revocó. Desconectá y volvé a conectar Pizca en Claude.'
+
+_shared_http: httpx.Client | None = None
+
+
+def api_url() -> str:
+    return os.environ.get('PIZCA_API_URL', '').strip() or DEFAULT_API_URL
+
+
 class PizcaClient:
     def __init__(
         self,
         base_url: str,
-        username: str,
-        password: str,
+        username: str = '',
+        password: str = '',
         *,
+        access_token: str | None = None,
         transport: httpx.BaseTransport | None = None,
+        http: httpx.Client | None = None,
     ):
         self._username = username
         self._password = password
-        self._access: str | None = None
+        # Con access_token (modo remoto) no hay login ni renovación: eso lo maneja Claude.
+        self._token_mode = access_token is not None
+        self._access: str | None = access_token
         self._refresh: str | None = None
-        self._http = httpx.Client(base_url=base_url.rstrip('/'), timeout=TIMEOUT, transport=transport)
+        self._http = http or httpx.Client(base_url=base_url.rstrip('/'), timeout=TIMEOUT, transport=transport)
+
+    @classmethod
+    def for_token(cls, access_token: str) -> PizcaClient:
+        """Cliente por request del MCP remoto. Comparte el pool de conexiones entre usuarios."""
+        global _shared_http
+        if _shared_http is None:
+            _shared_http = httpx.Client(base_url=api_url().rstrip('/'), timeout=TIMEOUT)
+        return cls(api_url(), access_token=access_token, http=_shared_http)
 
     @classmethod
     def from_env(cls) -> PizcaClient:
@@ -86,7 +106,7 @@ class PizcaClient:
         password = os.environ.get('PIZCA_PASSWORD', '')
         if not username or not password:
             raise PizcaError('Faltan PIZCA_USERNAME y PIZCA_PASSWORD en la configuración del servidor MCP.')
-        return cls(os.environ.get('PIZCA_API_URL', '').strip() or DEFAULT_API_URL, username, password)
+        return cls(api_url(), username, password)
 
     # --- Tokens -------------------------------------------------------------
 
@@ -133,6 +153,8 @@ class PizcaClient:
             self._login()
         response = self._send(method, path, **kwargs)
         if response.status_code == 401:
+            if self._token_mode:
+                raise PizcaError(SESION_VENCIDA)
             self._renew()
             response = self._send(method, path, **kwargs)
         if response.is_error:

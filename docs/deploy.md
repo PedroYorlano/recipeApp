@@ -12,6 +12,7 @@ rama → PR → CI (lint, tipos, build web, tests) → merge a main
 - **Backend**: Cloud Run, servicio `pizca` en el proyecto `pizca-yorlano`, región `us-east5`, `--max-instances=1`. Lo deploya `.github/workflows/deploy-backend.yml`.
 - **Migraciones**: corren solas al arrancar el contenedor (`CMD` del `backend/Dockerfile`). Si una falla, la revisión nueva no levanta y sigue la anterior.
 - **Base**: Neon, proyecto `cool-dream-46370959` (aws-us-east-2).
+- **MCP remoto** (conector de Claude): Cloud Run, servicio `pizca-mcp`, misma región y `--max-instances=1`. Por ahora se deploya a mano (ver abajo). El backend hace de servidor OAuth; ver `mcp/README.md`.
 
 ## Variables de entorno
 
@@ -21,9 +22,20 @@ Nunca en el repo.
 |---|---|---|
 | Cloud Run | `SECRET_KEY`, `DATABASE_URL`, `GENAI_API_KEY`, `R2_*`, `CORS_*`, `ALLOWED_HOSTS`, `NUM_PROXIES`… | `gcloud run services update pizca --region us-east5 --update-env-vars CLAVE=valor` (crea una revisión nueva) |
 | Vercel | `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_WEB_URL` | `vercel env add` desde `frontend/`; aplica en el próximo build |
+| Cloud Run (`pizca`), OAuth | `PIZCA_MCP_RESOURCE`, `OAUTH_ISSUER`, `CSRF_TRUSTED_ORIGINS`, `MCP_INTROSPECTION_CLIENT_ID`, `MCP_INTROSPECTION_CLIENT_SECRET` | Igual que arriba. Ver `backend/.env.example` |
+| Cloud Run (`pizca-mcp`) | `MCP_PUBLIC_URL`, `PIZCA_API_URL`, `MCP_INTROSPECTION_CLIENT_ID`, `MCP_INTROSPECTION_CLIENT_SECRET` | Copia en `~/pizca-mcp-prod.yaml` (chmod 600) |
 | GitHub (Settings → Variables) | `GCP_WIF_PROVIDER`, `GCP_SERVICE_ACCOUNT` | No son secretos: solo dicen qué identidad usa el deploy |
 
 El deploy automático **no** pasa `--env-vars-file`: Cloud Run conserva las variables de la revisión anterior. La copia de referencia vive en `~/pizca-prod.yaml` (fuera del repo, chmod 600).
+
+## MCP remoto
+
+```sh
+gcloud run deploy pizca-mcp --source mcp --project pizca-yorlano --region us-east5 \
+  --max-instances=1 --allow-unauthenticated --memory 512Mi --env-vars-file ~/pizca-mcp-prod.yaml
+```
+
+`--allow-unauthenticated` es a propósito: la autenticación es OAuth, no IAM. El secreto de introspección tiene que ser el mismo en los dos servicios. Si se cambia, hay que deployar primero el backend: `crear_cliente_mcp` lo actualiza al arrancar.
 
 ## Rollback
 

@@ -69,6 +69,9 @@ jobs:
         env:
           DEBUG: "False"
       - run: python manage.py test
+        env:
+          # Con DEBUG=False se activa SECURE_SSL_REDIRECT y el test client recibe 301 en todo.
+          DEBUG: "True"
 
   mcp:
     runs-on: ubuntu-latest

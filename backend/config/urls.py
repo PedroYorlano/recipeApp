@@ -15,7 +15,10 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
+from django.contrib.auth.views import LogoutView
 from django.urls import path, include
+from oauth2_provider import urls as oauth2_urls
+from recetas.oauth import IntrospectTokenView, LoginView
 from rest_framework.routers import DefaultRouter
 from recetas.views import (
     RecipeViewSet, CategoryViewSet, MealPlanViewSet, ShoppingListItemViewSet,
@@ -36,8 +39,17 @@ router.register(r'categorias', CategoryViewSet, basename='categoria')
 router.register(r'planner', MealPlanViewSet, basename='mealplan')
 router.register(r'shopping', ShoppingListItemViewSet, basename='shoppinglistitem')
 
+oauth_patterns = (oauth2_urls.base_urlpatterns, oauth2_urls.app_name)
+
 urlpatterns = [
     path('admin/', admin.site.urls),
+    # OAuth del conector de Claude: authorize, token, revoke e introspect bajo /o/, la metadata
+    # (RFC 8414) en la raíz, y el login propio. Sin las vistas de gestión de apps ni OIDC.
+    path('o/introspect/', IntrospectTokenView.as_view()),  # antes que la de DOT: ver la vista
+    path('o/', include(oauth_patterns, namespace='oauth2_provider')),
+    path('', include((oauth2_urls.metadata_urlpatterns[:2], 'oauth2_metadata'))),
+    path('cuenta/login/', LoginView.as_view(), name='login'),
+    path('cuenta/logout/', LogoutView.as_view(), name='logout'),
     path('api/', include(router.urls)),
     path('api/importar/', import_recipe_view, name='importar_receta'),
     path('api/importar-archivo/', import_recipe_from_file_view, name='importar_receta_archivo'),

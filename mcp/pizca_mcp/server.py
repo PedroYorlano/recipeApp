@@ -9,29 +9,50 @@ from datetime import date, timedelta
 from typing import Annotated, Any, Literal
 from urllib.parse import parse_qs, urlparse
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.auth.middleware.auth_context import get_access_token
+from mcp.server.mcpserver import MCPServer
 from pydantic import BaseModel, Field
 
 from .client import PizcaClient, PizcaError
 
-mcp = FastMCP(
-    'pizca',
-    instructions=(
-        'Pizca es el recetario personal del usuario. Hablale en español rioplatense. '
-        'Antes de crear una receta, buscá si ya existe. Las cantidades van como número '
-        '(0.5, no "1/2") y la unidad aparte ("g", "taza", "cda"); si no hay cantidad, dejala vacía.'
-    ),
+INSTRUCCIONES = (
+    'Pizca es el recetario personal del usuario. Hablale en español rioplatense. '
+    'Antes de crear una receta, buscá si ya existe. Las cantidades van como número '
+    '(0.5, no "1/2") y la unidad aparte ("g", "taza", "cda"); si no hay cantidad, dejala vacía.'
 )
 
 # httpx loguea cada request en INFO: en Claude Desktop eso llena el log del servidor.
 logging.getLogger('httpx').setLevel(logging.WARNING)
 
+TOOLS: list = []
+
+
+def tool(fn):
+    """Registra una tool. Se agregan al servidor en crear_servidor, para stdio o HTTP."""
+    TOOLS.append(fn)
+    return fn
+
+
+def crear_servidor(*, excluir: frozenset[str] = frozenset(), **kwargs: Any) -> MCPServer:
+    server = MCPServer('pizca', instructions=INSTRUCCIONES, **kwargs)
+    for fn in TOOLS:
+        if fn.__name__ not in excluir:
+            server.add_tool(fn)
+    return server
+
+
 _client: PizcaClient | None = None
 
 
 def client() -> PizcaClient:
-    # Se crea en la primera tool y no al arrancar: si faltan las credenciales, Claude ve el
-    # error en la respuesta en vez de un servidor que no levanta.
+    """
+    En el MCP remoto, un cliente con el token OAuth de quien llama. En local, uno solo con
+    usuario y contraseña de las variables de entorno, creado en la primera tool y no al arrancar:
+    si faltan las credenciales, Claude ve el error en la respuesta en vez de un servidor caído.
+    """
+    token = get_access_token()
+    if token is not None:
+        return PizcaClient.for_token(token.token)
     global _client
     if _client is None:
         _client = PizcaClient.from_env()
@@ -104,7 +125,7 @@ def _lunes(semana: str | None) -> str:
 
 # --- Recetas ------------------------------------------------------------------
 
-@mcp.tool()
+@tool
 def buscar_recetas(
     texto: Annotated[str | None, Field(description='Busca en título, descripción e ingredientes.')] = None,
     categoria_id: Annotated[int | None, Field(description='Id de listar_categorias.')] = None,
@@ -129,13 +150,13 @@ def buscar_recetas(
     return encontradas[:maximo]
 
 
-@mcp.tool()
+@tool
 def ver_receta(id: int) -> dict:
     """Receta completa: ingredientes, pasos, categorías y link original."""
     return _receta(client().get(f'/api/recetas/{id}/'))
 
 
-@mcp.tool()
+@tool
 def crear_receta(
     titulo: str,
     ingredientes: list[Ingrediente],
@@ -168,7 +189,7 @@ def crear_receta(
     return _receta(client().post('/api/recetas/', payload))
 
 
-@mcp.tool()
+@tool
 def editar_receta(
     id: int,
     titulo: str | None = None,
@@ -204,7 +225,7 @@ def editar_receta(
     return _receta(client().patch(f'/api/recetas/{id}/', payload))
 
 
-@mcp.tool()
+@tool
 def importar_desde_url(url: str) -> dict:
     """Arma un BORRADOR de receta a partir de un link (video de TikTok, Instagram o YouTube,
     o una página de recetas) usando la IA de Pizca. NO la guarda: mostrale el borrador al
@@ -237,13 +258,13 @@ def importar_desde_url(url: str) -> dict:
 
 # --- Categorías ---------------------------------------------------------------
 
-@mcp.tool()
+@tool
 def listar_categorias() -> list[dict]:
     """Categorías disponibles (las generales de Pizca y las que creó el usuario), con su id."""
     return [{'id': c['id'], 'nombre': c['name']} for c in client().get('/api/categorias/')]
 
 
-@mcp.tool()
+@tool
 def crear_categoria(nombre: str) -> dict:
     """Crea una categoría propia. Antes fijate en listar_categorias que no exista una parecida."""
     c = client().post('/api/categorias/', {'name': nombre.strip()})
@@ -252,7 +273,7 @@ def crear_categoria(nombre: str) -> dict:
 
 # --- Planificador y compras ---------------------------------------------------
 
-@mcp.tool()
+@tool
 def ver_plan_semanal(
     semana: Annotated[str | None, Field(description='Cualquier día de la semana, AAAA-MM-DD. Vacío = esta semana.')] = None,
 ) -> dict:
@@ -273,7 +294,7 @@ def ver_plan_semanal(
     }
 
 
-@mcp.tool()
+@tool
 def planificar_comida(
     fecha: Annotated[str, Field(description='AAAA-MM-DD, de hoy a 4 semanas.')],
     momento: Literal['desayuno', 'almuerzo', 'cena'],
@@ -285,7 +306,7 @@ def planificar_comida(
     return {'fecha': plan['date'], 'momento': momento, 'receta': receta['title']}
 
 
-@mcp.tool()
+@tool
 def ver_lista_de_compras(
     semana: Annotated[str | None, Field(description='Cualquier día de la semana, AAAA-MM-DD. Vacío = esta semana.')] = None,
 ) -> dict:
@@ -307,7 +328,7 @@ def ver_lista_de_compras(
 
 
 def main() -> None:
-    mcp.run()
+    crear_servidor().run()
 
 
 if __name__ == '__main__':

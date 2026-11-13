@@ -31,4 +31,4 @@ EXPOSE 8000
 # requests mientras un import de video espera a yt-dlp o a Gemini.
 # Las migraciones corren al arrancar: si una falla, la revisión nueva no levanta y Cloud Run sigue
 # sirviendo la anterior. Con --max-instances=1 no hay dos migrando a la vez.
-CMD python manage.py migrate --noinput && exec gunicorn config.wsgi --bind 0.0.0.0:${PORT:-8000} --workers 2 --threads 4 --timeout 120
+CMD python manage.py migrate --noinput && python manage.py crear_cliente_mcp && exec gunicorn config.wsgi --bind 0.0.0.0:${PORT:-8000} --workers 2 --threads 4 --timeout 120

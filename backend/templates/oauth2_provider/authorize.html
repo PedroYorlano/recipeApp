@@ -1,0 +1,33 @@
+{% extends "cuenta/base.html" %}
+{% block title %}Conectar · Pizca{% endblock %}
+{% block content %}
+  {% if not error %}
+    <h1>{{ application.name|default:"Una aplicación" }} quiere acceder a tu Pizca</h1>
+    <p class="sub">Entraste como <strong>{{ request.user.get_username }}</strong>.</p>
+
+    <form method="post">
+      {% csrf_token %}
+      {% for field in form %}{% if field.is_hidden %}{{ field }}{% endif %}{% endfor %}
+      {% if form.errors %}<p class="error">No se pudo autorizar. Volvé a intentarlo desde Claude.</p>{% endif %}
+
+      <p>Va a poder:</p>
+      <ul class="permisos">
+        {% for scope in scopes_descriptions %}<li>{{ scope }}</li>{% endfor %}
+      </ul>
+
+      <button type="submit" name="allow" value="Authorize" class="boton">Permitir</button>
+      <button type="submit" class="boton secundario">Cancelar</button>
+    </form>
+
+    {# LogoutView solo acepta POST: después vuelve a esta misma autorización, que pide login. #}
+    <form method="post" action="{% url 'logout' %}" class="pie">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      ¿No sos vos? <button type="submit" style="all: unset; color: var(--mostaza-texto); font-weight: 700; cursor: pointer; text-decoration: underline;">Entrar con otra cuenta</button>
+    </form>
+  {% else %}
+    <h1>No se pudo conectar</h1>
+    <p class="error">{{ error.description|default:error.error }}</p>
+    <p class="pie">Volvé a Claude y probá de nuevo.</p>
+  {% endif %}
+{% endblock %}

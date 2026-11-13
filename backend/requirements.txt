@@ -32,7 +32,9 @@ cffi==2.0.0
 charset-normalizer==3.4.7
     # via requests
 cryptography==46.0.7
-    # via google-auth
+    # via
+    #   google-auth
+    #   jwcrypto
 distro==1.9.0
     # via google-genai
 dj-database-url==3.1.2
@@ -43,12 +45,15 @@ django==6.0.4
     #   dj-database-url
     #   django-cors-headers
     #   django-filter
+    #   django-oauth-toolkit
     #   django-storages
     #   djangorestframework
     #   djangorestframework-simplejwt
 django-cors-headers==4.9.0
     # via -r requirements.in
 django-filter==25.2
+    # via -r requirements.in
+django-oauth-toolkit==3.4.1
     # via -r requirements.in
 django-storages==1.14.6
     # via -r requirements.in
@@ -79,6 +84,10 @@ jmespath==1.1.0
     # via
     #   boto3
     #   botocore
+jwcrypto==1.5.8
+    # via django-oauth-toolkit
+oauthlib==4.0.1
+    # via django-oauth-toolkit
 packaging==26.2
     # via gunicorn
 pillow==12.2.0
@@ -103,6 +112,7 @@ python-decouple==3.8
     # via -r requirements.in
 requests==2.33.1
     # via
+    #   django-oauth-toolkit
     #   google-auth
     #   google-genai
 s3transfer==0.16.1
@@ -122,6 +132,7 @@ typing-extensions==4.15.0
     #   anyio
     #   beautifulsoup4
     #   google-genai
+    #   jwcrypto
     #   pydantic
     #   pydantic-core
     #   typing-inspection
@@ -130,6 +141,7 @@ typing-inspection==0.4.2
 urllib3==2.6.3
     # via
     #   botocore
+    #   django-oauth-toolkit
     #   requests
 websockets==16.0
     # via google-genai

@@ -1,19 +1,21 @@
 [project]
 name = "pizca-mcp"
-version = "0.1.0"
-description = "Servidor MCP local para usar Pizca desde Claude Desktop"
+version = "0.2.0"
+description = "Servidor MCP de Pizca: local (stdio) para Claude Desktop y remoto (HTTP + OAuth) como conector de Claude"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "mcp>=1.20,<2",
+    "mcp>=2.3,<3",
     "httpx>=0.28,<1",
+    "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=8", "anyio>=4"]
 
 [project.scripts]
 pizca-mcp = "pizca_mcp.server:main"
+pizca-mcp-http = "pizca_mcp.http:main"
 
 [build-system]
 requires = ["hatchling"]
