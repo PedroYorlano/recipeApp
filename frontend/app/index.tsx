@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { View, TouchableOpacity, Platform, ScrollView, Image, useWindowDimensions, type ImageSourcePropType } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check } from 'lucide-react-native';
 import { Text } from '../src/components/ui/Typography';
 import { ICONS, ILLUSTRATIONS, ISOLOGO } from '../src/constants/brand';
@@ -10,6 +11,7 @@ export default function LandingPage() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const scrollRef = useRef<ScrollView>(null);
+  const insets = useSafeAreaInsets();
   const [stepsY, setStepsY] = useState(0);
 
   if (Platform.OS !== 'web') {
@@ -32,7 +34,7 @@ export default function LandingPage() {
   );
 
   return (
-    <ScrollView ref={scrollRef} className="flex-1 bg-pizca-fondo">
+    <ScrollView ref={scrollRef} className="flex-1 bg-pizca-fondo" contentContainerStyle={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
       {/* Nav */}
       {/* Un solo renglón también en el celular: en pantallas angostas todo se achica. */}
       <View className={`w-full max-w-[1160px] self-center ${narrow ? 'px-4 gap-2' : 'px-6 gap-4'} py-5 flex-row items-center justify-between`}>

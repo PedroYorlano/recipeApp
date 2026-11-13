@@ -289,6 +289,13 @@ class RecipeListTests(TestCase):
         self.assertNotIn(ajeno.pk, ids)
         self.assertNotIn(999999, ids)
 
+    def test_crear_acepta_remove_image(self):
+        # El formulario manda remove_image también al crear (p. ej. al guardar una importada).
+        r = self.client.post('/api/recetas/', {
+            'title': 'Importada', 'ingredients': [], 'steps': [], 'remove_image': False,
+        }, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+
     def test_editar_pasos_conserva_ids_y_borra_los_quitados(self):
         recipe = self.make_recipe('Tarta')
         first = recipe.steps.get()

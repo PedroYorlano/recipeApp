@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Modal, View, ScrollView, TouchableOpacity, Image, Platform, Animated, Easing } from 'react-native';
+import { Modal, View, ScrollView, TouchableOpacity, Image, Platform, Animated, Easing, StyleSheet } from 'react-native';
 import { Text, TextInput } from '../ui/Typography';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
@@ -627,9 +627,12 @@ const Spinner = () => {
   return (
     <View className="w-[120px] h-[120px] items-center justify-center">
       <View className="absolute inset-0 rounded-full border-8 border-pizca-crema" />
+      {/* Todo por style: NativeWind no aplica className a un Animated.View en web. */}
       <Animated.View
-        className="absolute inset-0 rounded-full border-8"
-        style={{ borderColor: 'transparent', borderTopColor: '#BE9F00', borderRightColor: '#BE9F00', transform: [{ rotate }] }}
+        style={{
+          ...StyleSheet.absoluteFillObject, borderRadius: 60, borderWidth: 8,
+          borderColor: 'transparent', borderTopColor: '#BE9F00', borderRightColor: '#BE9F00', transform: [{ rotate }],
+        }}
       />
       <Image source={ISOLOGO} style={{ width: 57, height: 46 }} resizeMode="contain" />
     </View>
