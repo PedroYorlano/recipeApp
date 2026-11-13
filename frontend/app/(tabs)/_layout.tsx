@@ -4,7 +4,6 @@ import { TouchableOpacity, View } from 'react-native';
 import { useApp } from '../../src/context/AppContext';
 import { Home, Compass, Plus, CalendarDays, User } from 'lucide-react-native';
 import { COLORS } from '../../src/theme';
-import { FEATURES } from '../../src/constants/features';
 import { FONT } from '../../src/components/ui/Typography';
 
 export default function TabsLayout() {
@@ -40,7 +39,6 @@ export default function TabsLayout() {
         name="explore"
         options={{
           title: 'Explorar',
-          href: FEATURES.EXPLORE ? undefined : null,
           tabBarIcon: ({ color, focused }) => <Compass size={24} color={color} strokeWidth={2} fill={focused ? COLORS.primary : 'transparent'} />,
         }}
       />

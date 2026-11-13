@@ -1,5 +1,5 @@
 import React from 'react';
-import { Modal, View, TouchableOpacity, Pressable, Image, ScrollView } from 'react-native';
+import { Modal, View, TouchableOpacity, Pressable, Image, ScrollView, StyleSheet } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { X, ChevronRight, Lightbulb } from 'lucide-react-native';
 import { Text } from './ui/Typography';
@@ -25,10 +25,12 @@ export const CreateMenuModal = ({ visible, onClose, onSelect }: Props) => {
   const insets = useSafeAreaInsets();
   return (
     <Modal animationType="slide" transparent visible={visible} onRequestClose={closeDialogOr(onClose)}>
-      <Pressable className="flex-1 bg-[#3F3128]/50" onPress={onClose} accessibilityLabel="Cerrar" />
+      {/* El fondo oscuro tapa toda la pantalla (también los costados de la hoja en pantallas anchas). */}
+      <View className="flex-1 justify-end">
+      <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(63,49,40,0.5)' }]} onPress={onClose} accessibilityLabel="Cerrar" />
       <View
         className="bg-pizca-fondo rounded-t-[32px] px-5 pt-3 gap-[18px] w-full max-w-xl self-center"
-        style={{ paddingBottom: Math.max(insets.bottom, 16) + 20 }}
+        style={{ paddingBottom: Math.max(insets.bottom, 16) + 20, maxHeight: '90%' }}
       >
         <View className="self-center w-11 h-[5px] rounded-full bg-pizca-linea" />
         <View className="flex-row items-center justify-between">
@@ -88,6 +90,7 @@ export const CreateMenuModal = ({ visible, onClose, onSelect }: Props) => {
             <Text className="text-[13px] text-pizca-texto2 flex-1">Tip: desde TikTok o Instagram, tocá Compartir y elegí Pizca.</Text>
           </View>
         </ScrollView>
+      </View>
       </View>
       <DialogHost />
     </Modal>

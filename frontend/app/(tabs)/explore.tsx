@@ -4,7 +4,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Text } from '../../src/components/ui/Typography';
 import { ILLUSTRATIONS } from '../../src/constants/brand';
 
-/** Pestaña oculta por ahora (FEATURES.EXPLORE). */
+/** Pestaña visible pero sin contenido todavía: deja el "+" centrado en la barra. */
 export default function ExplorePage() {
     return (
         <SafeAreaView className="flex-1 bg-pizca-fondo">

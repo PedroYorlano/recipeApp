@@ -27,7 +27,7 @@ export default function Root({ children }: PropsWithChildren) {
         <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
 
         <ScrollViewStyleReset />
-        <style dangerouslySetInnerHTML={{ __html: 'body { background-color: #FFF9EC; }' }} />
+        <style dangerouslySetInnerHTML={{ __html: 'body { background-color: #FFF9EC; } input, textarea, select { outline: none; }' }} />
       </head>
       <body>{children}</body>
     </html>

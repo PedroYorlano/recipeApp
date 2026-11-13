@@ -243,7 +243,7 @@ function TypingIndicator() {
     return (
         <View className="flex-row gap-1 py-1.5 px-0.5" accessibilityLabel="Escribiendo">
             {[dot1, dot2, dot3].map((d, i) => (
-                <Animated.View key={i} className="w-2 h-2 rounded-full bg-pizca-mostaza" style={dotStyle(d)} />
+                <Animated.View key={i} style={[{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#BE9F00' }, dotStyle(d)]} />
             ))}
         </View>
     );
