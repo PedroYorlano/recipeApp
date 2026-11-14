@@ -220,6 +220,25 @@ interface ImportResponse { message: string; recipe: Recipe }
 export const importRecipeService = (url: string) =>
     request<ImportResponse>('/importar/', { method: 'POST', body: { url } });
 
+// --- Colecciones (TikTok y playlists de YouTube) ---
+
+export interface CollectionVideo { url: string; title: string }
+
+export type CollectionListing =
+    | { is_collection: false }
+    | { is_collection: true; title: string; videos: CollectionVideo[]; already_imported: string[]; remaining_today: number };
+
+/** Lista los videos sin gastar cupo. Si el link es un video suelto devuelve is_collection=false. */
+export const listCollectionService = (url: string) =>
+    request<CollectionListing>('/importar/coleccion/', { method: 'POST', body: { url } });
+
+/** Importa y guarda un video de la colección. skipped=true si ya estaba. */
+export const importCollectionItemService = (url: string, category?: number | null) =>
+    request<{ skipped: boolean; recipe: Recipe }>('/importar/coleccion/receta/', {
+        method: 'POST',
+        body: category ? { url, category } : { url },
+    });
+
 export const importRecipeServiceAudio = (fileUri: string, fileName: string, fileType: string, webFile?: File) => {
     const formData = new FormData();
     if (webFile) {

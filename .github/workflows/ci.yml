@@ -1,0 +1,89 @@
+# Tests y lint. Corre en cada PR y en cada push a main; deploy-backend.yml lo reusa antes de deployar.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_call:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx expo lint
+      - run: npx tsc --noEmit
+      # Mismo build que hace Vercel: si rompe acá, rompería el deploy.
+      - run: npx expo export -p web
+        env:
+          EXPO_PUBLIC_API_URL: https://example.invalid
+
+  backend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: pizca
+          POSTGRES_PASSWORD: pizca
+          POSTGRES_DB: pizca
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U pizca"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      SECRET_KEY: solo-para-ci-${{ github.run_id }}-no-es-un-secreto-real-0123456789
+      DATABASE_URL: postgres://pizca:pizca@localhost:5432/pizca
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python manage.py makemigrations --check --dry-run
+      - run: python manage.py check --deploy --fail-level WARNING
+        env:
+          DEBUG: "False"
+      - run: python manage.py test
+        env:
+          # Con DEBUG=False se activa SECURE_SSL_REDIRECT y el test client recibe 301 en todo.
+          DEBUG: "True"
+
+  mcp:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mcp
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: mcp/pyproject.toml
+      - run: pip install -e '.[dev]'
+      - run: pytest

@@ -1,0 +1,22 @@
+{% extends "cuenta/base.html" %}
+{% block title %}Entrar · Pizca{% endblock %}
+{% block content %}
+  <h1>Entrá a tu cuenta</h1>
+  <p class="sub">Para conectar Pizca con Claude.</p>
+
+  <form method="post">
+    {% csrf_token %}
+    {% if form.errors %}
+      <p class="error">Usuario o contraseña incorrectos.</p>
+    {% endif %}
+    <label for="id_username">Email o usuario</label>
+    <input type="text" name="username" id="id_username" autocomplete="username" autocapitalize="none" required
+           value="{{ form.username.value|default:'' }}">
+    <label for="id_password">Contraseña</label>
+    <input type="password" name="password" id="id_password" autocomplete="current-password" required>
+    <input type="hidden" name="next" value="{{ next }}">
+    <button type="submit" class="boton">Entrar</button>
+  </form>
+
+  <p class="pie">¿No tenés cuenta? <a href="{{ web_url }}" target="_blank" rel="noopener">Registrate en Pizca</a> y volvé.</p>
+{% endblock %}

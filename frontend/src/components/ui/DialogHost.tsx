@@ -66,11 +66,12 @@ export function DialogHost() {
         <Pressable style={StyleSheet.absoluteFill} onPress={() => close(false)} accessibilityLabel="Cerrar" />
       </Animated.View>
       <View style={StyleSheet.absoluteFill} pointerEvents="box-none" className="items-center justify-center px-6">
+        {/* Las clases van en el View de adentro: NativeWind no las aplica a un Animated.View en web. */}
         <Animated.View
-          style={{ opacity, transform: [{ scale }], width: '100%', maxWidth: 340, boxShadow: '0 12px 40px rgba(63,49,40,0.25)' }}
-          className="bg-pizca-fondo rounded-[28px] px-6 pt-7 pb-5 items-center"
+          style={{ opacity, transform: [{ scale }], width: '100%', maxWidth: 340, borderRadius: 28, boxShadow: '0 12px 40px rgba(63,49,40,0.25)' }}
           accessibilityRole="alert"
         >
+         <View className="bg-pizca-fondo rounded-[28px] px-6 pt-7 pb-5 items-center">
           <View className="w-14 h-14 rounded-full items-center justify-center mb-4" style={{ backgroundColor: tone.bg }}>
             <tone.Icon size={28} color={tone.color} strokeWidth={2.4} />
           </View>
@@ -99,6 +100,7 @@ export function DialogHost() {
               <Text className={`text-base font-extrabold ${destructive ? 'text-white' : 'text-pizca-marron'}`}>{current.confirmText}</Text>
             </TouchableOpacity>
           </View>
+         </View>
         </Animated.View>
       </View>
     </View>

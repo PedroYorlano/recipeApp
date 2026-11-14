@@ -195,9 +195,12 @@ export function AudioRecorder({ onSubmit, onPickFile, onError }: Props) {
     <View className="items-center gap-4 pt-2">
       <View className="w-[132px] h-[132px] items-center justify-center">
         {isRecording ? (
+          // Por style: NativeWind no aplica className a un Animated.View en web.
           <Animated.View
-            className="absolute w-[104px] h-[104px] rounded-full bg-pizca-tomate"
-            style={{ opacity: ringOpacity, transform: [{ scale: ringScale }] }}
+            style={{
+              position: 'absolute', width: 104, height: 104, borderRadius: 52, backgroundColor: '#F95421',
+              opacity: ringOpacity, transform: [{ scale: ringScale }],
+            }}
           />
         ) : null}
         <TouchableOpacity

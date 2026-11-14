@@ -37,3 +37,9 @@ export const WEB_URL: string | null =
 /** Link público de una receta: /receta/<uuid>. */
 export const getShareUrl = (uuid: string): string =>
     WEB_URL ? `${WEB_URL.replace(/\/$/, '')}/receta/${uuid}` : Linking.createURL(`/receta/${uuid}`);
+
+/**
+ * Conector de Claude (el MCP remoto), p. ej. https://pizca-mcp-….run.app/mcp.
+ * Sin EXPO_PUBLIC_MCP_URL, Perfil no muestra la guía del conector.
+ */
+export const MCP_URL: string | null = process.env.EXPO_PUBLIC_MCP_URL?.trim() || null;

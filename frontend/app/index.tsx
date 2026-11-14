@@ -1,6 +1,7 @@
 import React, { useRef, useState } from 'react';
 import { View, TouchableOpacity, Platform, ScrollView, Image, useWindowDimensions, type ImageSourcePropType } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Check } from 'lucide-react-native';
 import { Text } from '../src/components/ui/Typography';
 import { ICONS, ILLUSTRATIONS, ISOLOGO } from '../src/constants/brand';
@@ -10,6 +11,7 @@ export default function LandingPage() {
   const router = useRouter();
   const { width } = useWindowDimensions();
   const scrollRef = useRef<ScrollView>(null);
+  const insets = useSafeAreaInsets();
   const [stepsY, setStepsY] = useState(0);
 
   if (Platform.OS !== 'web') {
@@ -17,47 +19,45 @@ export default function LandingPage() {
   }
 
   const wide = width >= 900;
+  const narrow = width < 480;
   const heroSize = Math.max(44, Math.min(76, width * 0.06));
   const scrollToSteps = () => scrollRef.current?.scrollTo({ y: stepsY, animated: true });
 
-  const PrimaryCta = ({ title, big }: { title: string; big?: boolean }) => (
+  const PrimaryCta = ({ title, big, compact }: { title: string; big?: boolean; compact?: boolean }) => (
     <TouchableOpacity
       onPress={() => router.push('/register')}
-      className={`${big ? 'h-14 px-7' : 'h-11 px-5'} rounded-[16px] bg-pizca-mostaza items-center justify-center`}
+      className={`${big ? 'h-14 px-7' : compact ? 'h-10 px-3.5' : 'h-11 px-5'} rounded-[16px] bg-pizca-mostaza items-center justify-center`}
       accessibilityRole="link"
     >
-      <Text className={`${big ? 'text-[17px]' : 'text-base'} font-extrabold text-pizca-marron`}>{title}</Text>
+      <Text className={`${big ? 'text-[17px]' : compact ? 'text-[15px]' : 'text-base'} font-extrabold text-pizca-marron`}>{title}</Text>
     </TouchableOpacity>
   );
 
   return (
-    <ScrollView ref={scrollRef} className="flex-1 bg-pizca-fondo">
+    <ScrollView ref={scrollRef} className="flex-1 bg-pizca-fondo" contentContainerStyle={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
       {/* Nav */}
-      <View className="w-full max-w-[1160px] self-center px-6 py-5 flex-row items-center justify-between flex-wrap gap-4">
-        <TouchableOpacity className="flex-row items-center gap-2.5" accessibilityRole="link" accessibilityLabel="Pizca, inicio">
-          <Image source={ISOLOGO} style={{ width: 45, height: 36 }} resizeMode="contain" />
-          <Text className="font-display text-[30px] leading-[32px] text-pizca-mostaza">PIZCA</Text>
+      {/* Un solo renglón también en el celular: en pantallas angostas todo se achica. */}
+      <View className={`w-full max-w-[1160px] self-center ${narrow ? 'px-4 gap-2' : 'px-6 gap-4'} py-5 flex-row items-center justify-between`}>
+        <TouchableOpacity className={`flex-row items-center shrink ${narrow ? 'gap-1.5' : 'gap-2.5'}`} accessibilityRole="link" accessibilityLabel="Pizca, inicio">
+          <Image source={ISOLOGO} style={narrow ? { width: 34, height: 27 } : { width: 45, height: 36 }} resizeMode="contain" />
+          <Text className={`font-display text-pizca-mostaza ${narrow ? 'text-[24px] leading-[26px]' : 'text-[30px] leading-[32px]'}`}>PIZCA</Text>
         </TouchableOpacity>
-        <View className="flex-row items-center gap-2 flex-wrap">
+        <View className={`flex-row items-center ${narrow ? 'gap-0.5' : 'gap-2'}`}>
           {wide ? (
             <TouchableOpacity onPress={scrollToSteps} className="px-3.5 py-2.5" accessibilityRole="link">
               <Text className="font-bold text-pizca-marron text-base">Cómo funciona</Text>
             </TouchableOpacity>
           ) : null}
-          <TouchableOpacity onPress={() => router.push('/login')} className="px-3.5 py-2.5" accessibilityRole="link">
-            <Text className="font-bold text-pizca-marron text-base">Ingresar</Text>
+          <TouchableOpacity onPress={() => router.push('/login')} className={narrow ? 'px-2.5 py-2.5' : 'px-3.5 py-2.5'} accessibilityRole="link">
+            <Text className={`font-bold text-pizca-marron ${narrow ? 'text-[15px]' : 'text-base'}`}>Ingresar</Text>
           </TouchableOpacity>
-          <PrimaryCta title="Crear cuenta" />
+          <PrimaryCta title="Crear cuenta" compact={narrow} />
         </View>
       </View>
 
       {/* Hero */}
       <View className={`w-full max-w-[1160px] self-center px-6 pt-12 pb-[72px] gap-12 ${wide ? 'flex-row items-center' : ''}`}>
         <View className="flex-1 gap-6 min-w-0">
-          <View className="self-start flex-row items-center gap-2 px-3.5 py-2 rounded-full bg-pizca-crema">
-            <Image source={ICONS.guardado} style={{ width: 16, height: 16 }} />
-            <Text className="text-sm font-extrabold text-pizca-marron">Tu recetario, siempre a mano</Text>
-          </View>
           <Text className="font-display text-pizca-marron" style={{ fontSize: heroSize, lineHeight: heroSize * 1.04 }} accessibilityRole="header">
             Te faltaba una <Text className="font-display text-pizca-tomate">pizca</Text> de orden.
           </Text>

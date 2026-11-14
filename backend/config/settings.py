@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     # my apps
     'rest_framework',
     'corsheaders',
+    'oauth2_provider',
     'recetas'
 ]
 
@@ -65,7 +66,8 @@ ROOT_URLCONF = 'config.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        # Login y consentimiento de OAuth (pisan a los de oauth2_provider).
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -169,7 +171,9 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 REST_FRAMEWORK = {
     'DEFAULT_FILTER_BACKENDS': ['django_filters.rest_framework.DjangoFilterBackend'],
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'recetas.authentication.PizcaJWTAuthentication',
+        # Tokens OAuth del conector de Claude (MCP remoto). La app sigue usando JWT.
+        'oauth2_provider.contrib.rest_framework.OAuth2Authentication',
     ),
     'DEFAULT_RENDERER_CLASSES': (
         'rest_framework.renderers.JSONRenderer',
@@ -205,6 +209,50 @@ SIMPLE_JWT = {
     'BLACKLIST_AFTER_ROTATION': False,
 }
 
+# --- OAuth: Django como servidor de autorización del MCP remoto ---
+# Claude se registra solo (CIMD: su client_id es una URL de claude.ai), el usuario se loguea en
+# /cuenta/login/ y autoriza; el MCP valida los tokens por introspección y los reenvía a /api/.
+# URL pública del MCP remoto (su "resource", RFC 8707). Los tokens emitidos para ella también
+# valen en /api/: ver recetas.oauth.validate_resource. Vacío = sin MCP remoto.
+PIZCA_MCP_RESOURCE = config('PIZCA_MCP_RESOURCE', default='')
+# La web de Pizca: la pantalla de login manda ahí a registrarse.
+PIZCA_WEB_URL = config('PIZCA_WEB_URL', default='https://pizca-brown.vercel.app')
+LOGIN_URL = '/cuenta/login/'
+CSRF_TRUSTED_ORIGINS = [o for o in config('CSRF_TRUSTED_ORIGINS', default='').split(',') if o]
+
+OAUTH2_PROVIDER = {
+    'SCOPES': {'pizca': 'Ver y editar tus recetas, tu plan semanal y tu lista de compras'},
+    'DEFAULT_SCOPES': ['pizca'],
+    'ACCESS_TOKEN_EXPIRE_SECONDS': 60 * 60,
+    'REFRESH_TOKEN_EXPIRE_SECONDS': 60 * 60 * 24 * 30,
+    'ROTATE_REFRESH_TOKEN': True,
+    'REFRESH_TOKEN_REUSE_PROTECTION': True,
+    # Si el usuario ya autorizó a Claude, no vuelve a preguntar al reconectar.
+    'REQUEST_APPROVAL_PROMPT': 'auto',
+    # Solo authorization code + PKCE S256 (OAuth 2.1).
+    'PKCE_REQUIRED': True,
+    'COMPLIANT_BCP_RFC9700_PKCE_METHOD': True,
+    'COMPLIANT_BCP_RFC9700_IMPLICIT_GRANT': True,
+    'COMPLIANT_BCP_RFC9700_PASSWORD_GRANT': True,
+    'COMPLIANT_BCP_RFC9700_AUTHZ_RESPONSE_ISS': True,
+    'COMPLIANT_BCP_RFC9700_ACCESS_TOKEN_TRANSPORT': True,  # token solo en el header, no en la URL
+    'COMPLIANT_BCP_RFC9700_TOKEN_STORAGE': True,           # tokens hasheados en la base
+    # En producción solo callbacks https (el de claude.ai). En local también http, para probar con
+    # Claude Code, que usa un callback en 127.0.0.1.
+    'ALLOWED_REDIRECT_URI_SCHEMES': ['http', 'https'] if DEBUG else ['https'],
+    'ALLOW_LOCALHOST_LOOPBACK': DEBUG,  # Claude Code registra http://localhost/callback con puerto variable
+    'OAUTH2_RESPONSE_TYPES_SUPPORTED': ['code'],
+    'OAUTH2_GRANT_TYPES_SUPPORTED': ['authorization_code', 'refresh_token'],
+    # Claude usa CIMD solo si la metadata anuncia "none" (cliente público).
+    'OAUTH2_TOKEN_ENDPOINT_AUTH_METHODS_SUPPORTED': ['none', 'client_secret_basic', 'client_secret_post'],
+    'CIMD_ENABLED': True,
+    'CIMD_REGISTRATION_PERMISSION_CLASSES': ('oauth2_provider.cimd.HostAllowlistCIMDPermission',),
+    'CIMD_ALLOWED_HOSTS': config('OAUTH_CIMD_ALLOWED_HOSTS', default='claude.ai').split(','),
+    # Emisor fijo (detrás de Cloud Run el host lo arma el proxy). Vacío = se deriva del request.
+    'OIDC_ISS_ENDPOINT': config('OAUTH_ISSUER', default=''),
+    'RESOURCE_SERVER_TOKEN_RESOURCE_VALIDATOR': 'recetas.oauth.validate_resource',
+}
+
 # --- Pizca: límites de uso ---
 PIZCA_MAX_IMPORTS_PER_USER_PER_DAY = 10   # Importaciones por usuario por día
 PIZCA_MAX_GEMINI_REQUESTS_PER_DAY = 490    # Requests a Gemini globales por día (de 500 RPD disponibles)
@@ -219,6 +267,8 @@ if not CORS_ALLOW_ALL_ORIGINS:
         'CORS_ALLOWED_ORIGINS',
         default='http://localhost:3000,http://localhost:8081'
     ).split(',')
+    # Previews de Vercel (una URL por deploy). Vacío = ninguno. Ej.: ^https://pizca-[a-z0-9-]+-pedro-d090\.vercel\.app$
+    CORS_ALLOWED_ORIGIN_REGEXES = [r for r in config('CORS_ALLOWED_ORIGIN_REGEXES', default='').split(',') if r]
 # La API usa JWT en el header Authorization, no cookies: no hace falta mandar credenciales.
 CORS_ALLOW_CREDENTIALS = False
 

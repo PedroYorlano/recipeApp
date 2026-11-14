@@ -7,6 +7,7 @@ import { Input } from '../components/ui/Input';
 import { EyeOff, Eye } from 'lucide-react-native';
 import { ILLUSTRATIONS, LOGO } from '../constants/brand';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { notify } from '../utils/dialogs';
 import { FEATURES } from '../constants/features';
 
@@ -18,6 +19,7 @@ export const LoginScreen = () => {
 
     const login = useApp();
     const router = useRouter();
+    const insets = useSafeAreaInsets();
 
     const handleLogin = async () => {
         if (!username.trim() || !password) {
@@ -38,12 +40,12 @@ export const LoginScreen = () => {
     return (
         <View className="flex-1 bg-pizca-fondo overflow-hidden">
             {/* Ilustraciones de fondo */}
-            <Image source={ILLUSTRATIONS.zanahoria} style={{ position: 'absolute', right: -14, top: 40, width: 68, height: 84, transform: [{ rotate: '24deg' }] }} resizeMode="contain" accessible={false} />
-            <Image source={ILLUSTRATIONS.tomate} style={{ position: 'absolute', left: -16, top: 150, width: 54, height: 56 }} resizeMode="contain" accessible={false} />
+            <Image source={ILLUSTRATIONS.zanahoria} style={{ position: 'absolute', right: -14, top: 40 + insets.top, width: 68, height: 84, transform: [{ rotate: '24deg' }] }} resizeMode="contain" accessible={false} />
+            <Image source={ILLUSTRATIONS.tomate} style={{ position: 'absolute', left: -16, top: 150 + insets.top, width: 54, height: 56 }} resizeMode="contain" accessible={false} />
 
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1">
                 <ScrollView
-                    contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 64, paddingBottom: 24, maxWidth: 480, width: '100%', alignSelf: 'center' }}
+                    contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 64 + insets.top, paddingBottom: 24 + insets.bottom, maxWidth: 480, width: '100%', alignSelf: 'center' }}
                     keyboardShouldPersistTaps="handled"
                 >
                     <View className="items-center gap-3 mb-9">

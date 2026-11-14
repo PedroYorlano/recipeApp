@@ -7,6 +7,7 @@ import { EyeOff, Eye, ChevronLeft } from 'lucide-react-native';
 import { ILLUSTRATIONS } from '../constants/brand';
 import { CodeInput } from '../components/ui/CodeInput';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { requestPasswordResetService, verifyPasswordResetOTPService } from '../services/api';
 import { notify, getErrorMessage } from '../utils/dialogs';
 
@@ -20,6 +21,7 @@ export const ForgotPasswordScreen = () => {
     const [resendCooldown, setResendCooldown] = useState(0);
 
     const router = useRouter();
+    const insets = useSafeAreaInsets();
 
     // Contador para reenviar el OTP
     useEffect(() => {
@@ -91,7 +93,7 @@ export const ForgotPasswordScreen = () => {
         <View className="flex-1 bg-pizca-fondo">
             <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} className="flex-1">
                 <ScrollView
-                    contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 56, paddingBottom: 20, maxWidth: 480, width: '100%', alignSelf: 'center' }}
+                    contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 24, paddingTop: 56 + insets.top, paddingBottom: 20 + insets.bottom, maxWidth: 480, width: '100%', alignSelf: 'center' }}
                     keyboardShouldPersistTaps="handled"
                 >
                     <TouchableOpacity
