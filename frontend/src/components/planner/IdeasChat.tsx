@@ -162,7 +162,7 @@ export function IdeasChat() {
                 keyboardShouldPersistTaps="handled"
             />
 
-            <View className="flex-row gap-2 px-4 pb-3 pt-1">
+            <View className="flex-row gap-2 px-4 pb-1 pt-1">
                 <View
                     className="flex-1 h-[52px] flex-row items-center px-3.5 rounded-[16px] bg-white border-[1.5px] border-pizca-linea"
                     style={{ boxShadow: '0 6px 16px rgba(63,49,40,0.08)' }}

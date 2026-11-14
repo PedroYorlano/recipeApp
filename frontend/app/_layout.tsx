@@ -4,6 +4,7 @@ import { View, ActivityIndicator, Platform } from 'react-native';
 import { Slot, useRouter, useSegments, useRootNavigationState } from 'expo-router';
 import { AppProvider, useApp, CreateMode } from '../src/context/AppContext';
 import { DialogHost } from '../src/components/ui/DialogHost';
+import { IosPwaInsets } from '../src/components/IosPwaInsets';
 import { PlannerProvider } from '../src/context/PlannerContext';
 import { CreateMenuModal } from '../src/components/CreateMenuModal';
 import { RecipeFormModal } from '../src/components/recipes/RecipeFormModal';
@@ -170,7 +171,9 @@ export default function RootLayout() {
         <title>Pizca</title>
       </Head>
       <PlannerProvider>
-        <MainLayout />
+        <IosPwaInsets>
+          <MainLayout />
+        </IosPwaInsets>
       </PlannerProvider>
     </AppProvider>
   );

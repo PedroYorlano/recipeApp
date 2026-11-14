@@ -656,7 +656,7 @@ function ShoppingView() {
             </ScrollView>
 
             {/* Agregar ítem */}
-            <View className="absolute left-4 right-4 bottom-3 flex-row gap-2">
+            <View className="absolute left-4 right-4 bottom-1 flex-row gap-2">
                 <View
                     className="flex-1 h-[52px] flex-row items-center px-3.5 rounded-[16px] bg-white border-[1.5px] border-pizca-linea"
                     style={{ boxShadow: '0 6px 16px rgba(63,49,40,0.08)' }}
