@@ -58,10 +58,6 @@ export default function LandingPage() {
       {/* Hero */}
       <View className={`w-full max-w-[1160px] self-center px-6 pt-12 pb-[72px] gap-12 ${wide ? 'flex-row items-center' : ''}`}>
         <View className="flex-1 gap-6 min-w-0">
-          <View className="self-start flex-row items-center gap-2 px-3.5 py-2 rounded-full bg-pizca-crema">
-            <Image source={ICONS.guardado} style={{ width: 16, height: 16 }} />
-            <Text className="text-sm font-extrabold text-pizca-marron">Tu recetario, siempre a mano</Text>
-          </View>
           <Text className="font-display text-pizca-marron" style={{ fontSize: heroSize, lineHeight: heroSize * 1.04 }} accessibilityRole="header">
             Te faltaba una <Text className="font-display text-pizca-tomate">pizca</Text> de orden.
           </Text>

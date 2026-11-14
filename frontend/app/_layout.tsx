@@ -1,5 +1,5 @@
 import '../global.css';
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, ActivityIndicator, Platform } from 'react-native';
 import { Slot, useRouter, useSegments, useRootNavigationState } from 'expo-router';
 import { AppProvider, useApp, CreateMode } from '../src/context/AppContext';
@@ -116,11 +116,25 @@ const MainLayout = () => {
   }, [isAuthenticated, isAuthLoading, segments, rootNavigationState, router]);
 
   // 3. Lógica del Menú Flotante
-  const handleMenuSelect = (option: CreateMode) => {
-    setCreateMenuVisible(false);
+  const openForm = (option: CreateMode) => {
     setCreateMode(option);
     setEditingRecipe(null);
     setFormModalVisible(true);
+  };
+
+  // En la PWA de iPhone, la barra de estado toma el color de lo que haya arriba al abrir el form:
+  // si el fondo oscuro del menú todavía se está yendo, queda gris. En web se abre recién cuando el
+  // menú terminó de cerrarse.
+  const pendingCreateMode = useRef<CreateMode | null>(null);
+  const handleMenuSelect = (option: CreateMode) => {
+    setCreateMenuVisible(false);
+    if (Platform.OS === 'web') pendingCreateMode.current = option;
+    else openForm(option);
+  };
+  const handleMenuDismiss = () => {
+    const option = pendingCreateMode.current;
+    pendingCreateMode.current = null;
+    if (option) openForm(option);
   };
 
   // 4. Renderizado: Loading o App + Modales
@@ -142,6 +156,7 @@ const MainLayout = () => {
         visible={isCreateMenuVisible}
         onClose={() => setCreateMenuVisible(false)}
         onSelect={handleMenuSelect}
+        onDismiss={handleMenuDismiss}
       />
 
       <RecipeFormModal

@@ -12,6 +12,8 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   onSelect: (option: Option) => void;
+  /** Cuando terminó de cerrarse (en web, al final de la animación). */
+  onDismiss?: () => void;
 }
 
 const IMPORTS: { key: Option; label: string; hint: string; icon: any }[] = [
@@ -22,10 +24,10 @@ const IMPORTS: { key: Option; label: string; hint: string; icon: any }[] = [
   { key: 'text', label: 'Texto', hint: 'Pegá la receta como está', icon: ICONS.texto },
 ];
 
-export const CreateMenuModal = ({ visible, onClose, onSelect }: Props) => {
+export const CreateMenuModal = ({ visible, onClose, onSelect, onDismiss }: Props) => {
   const insets = useSafeAreaInsets();
   return (
-    <Modal animationType="slide" transparent visible={visible} onRequestClose={closeDialogOr(onClose)}>
+    <Modal animationType="slide" transparent visible={visible} onRequestClose={closeDialogOr(onClose)} onDismiss={onDismiss}>
       {/* El fondo oscuro tapa toda la pantalla (también los costados de la hoja en pantallas anchas). */}
       <View className="flex-1 justify-end">
       <Pressable style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(63,49,40,0.5)' }]} onPress={onClose} accessibilityLabel="Cerrar" />
