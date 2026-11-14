@@ -15,8 +15,9 @@ interface Props {
 }
 
 const IMPORTS: { key: Option; label: string; hint: string; icon: any }[] = [
+  // Video primero: es la forma principal de cargar recetas (también colecciones enteras).
+  { key: 'video', label: 'Video', hint: 'TikTok, Instagram, YouTube, Facebook y colecciones', icon: ICONS.video },
   { key: 'link-web', label: 'Link web', hint: 'Blogs y sitios de recetas', icon: ICONS.web },
-  { key: 'video', label: 'Video', hint: 'TikTok, Instagram, YouTube, Facebook', icon: ICONS.video },
   { key: 'audio', label: 'Audio', hint: 'Dictala o subí un audio', icon: ICONS.audio },
   { key: 'text', label: 'Texto', hint: 'Pegá la receta como está', icon: ICONS.texto },
 ];

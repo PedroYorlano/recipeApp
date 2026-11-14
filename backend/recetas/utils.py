@@ -62,6 +62,44 @@ def download_audio_from_url(video_url):
         return workdir, None, None, None
 
 
+MAX_COLLECTION_ITEMS = 50
+
+
+def list_collection(url):
+    """
+    Lista los videos de una colección de TikTok o una playlist de YouTube sin bajar nada.
+    Devuelve {'title', 'videos': [{'url', 'title'}]}, o None si el link es un video suelto.
+    Tira AIInputError si no se puede leer (privada, inexistente).
+    """
+    ydl_opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': 'in_playlist',
+        'playlistend': MAX_COLLECTION_ITEMS,
+        'skip_download': True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception:
+        logger.exception('Error listando la colección %s', url)
+        raise AIInputError('No pudimos leer la colección. Revisá que sea pública.')
+    if not info or info.get('_type') != 'playlist':
+        return None
+    videos = []
+    for entry in list(info.get('entries') or [])[:MAX_COLLECTION_ITEMS]:
+        if not isinstance(entry, dict):
+            continue
+        video_url = entry.get('webpage_url') or entry.get('url') or ''
+        if not str(video_url).startswith(('http://', 'https://')):
+            if entry.get('ie_key') == 'Youtube' and entry.get('id'):
+                video_url = f"https://www.youtube.com/watch?v={entry['id']}"
+            else:
+                continue
+        videos.append({'url': video_url, 'title': _clean_text(entry.get('title'), MAX_TITLE, single_line=True)})
+    return {'title': _clean_text(info.get('title'), MAX_TITLE, single_line=True), 'videos': videos}
+
+
 # Reglas comunes a todas las extracciones de recetas.
 INGREDIENT_RULES = f"""REGLAS PARA INGREDIENTES:
     - "quantity" DEBE ser un número decimal (ej: 200, 0.5, 1.5). Si no hay cantidad, usa null.

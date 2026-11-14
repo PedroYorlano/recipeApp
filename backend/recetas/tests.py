@@ -17,8 +17,8 @@ from rest_framework.test import APIClient
 
 from .images import InvalidImage, image_from_base64, image_from_url, process_image
 from .models import (
-    Favorite, GlobalUsage, Ingredient, IngredientAisle, MealPlan, PasswordResetOTP, PendingRegistration, Recipe,
-    ShoppingListItem, Step, UserIngredientAisle,
+    Category, Favorite, GlobalUsage, Ingredient, IngredientAisle, MealPlan, PasswordResetOTP, PendingRegistration, Recipe,
+    ShoppingListItem, Step, UserIngredientAisle, UserUsage,
 )
 from .net import FetchError, fetch_public
 from .shopping import format_quantity, learn_from_recipe, normalize_name, resolve_aisles
@@ -606,3 +606,79 @@ class PromptInjectionTests(TestCase):
             result = ai.call_ideas('algo rápido', resumen)
         self.assertEqual(result, {'message': 'Probá esta', 'suggestions': [{'uuid': 'a1', 'title': 'Tortilla'}]})
         self.assertIn('<contenido>', call.call_args.kwargs['contents'])
+
+
+class CollectionImportTests(TestCase):
+    TT = 'https://www.tiktok.com/@cocina/collection/Cenas-123'
+    V1 = 'https://www.tiktok.com/@cocina/video/1'
+    V2 = 'https://www.tiktok.com/@cocina/video/2'
+
+    def setUp(self):
+        self.user = User.objects.create_user('hugo', 'hugo@example.com', 'contraseña-segura')
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        cache.clear()  # throttles
+
+    def recipe(self):
+        return {
+            'title': 'Guiso', 'description': '',
+            'ingredients': [{'name': 'Lentejas', 'quantity': 500, 'unit': 'g', 'aisle': 'Almacén'}],
+            'steps': [{'order': 1, 'instruction': 'Cocinar.'}],
+        }
+
+    @mock.patch('recetas.views.list_collection')
+    def test_listar_marca_las_importadas_y_el_cupo(self, listar):
+        listar.return_value = {'title': 'Cenas', 'videos': [
+            {'url': self.V1, 'title': 'Uno'}, {'url': self.V2, 'title': 'Dos'},
+            {'url': 'https://malo.example/video/3', 'title': 'Ajeno'},
+        ]}
+        Recipe.objects.create(user=self.user, title='Ya está', original_url=self.V1)
+        r = self.client.post('/api/importar/coleccion/', {'url': self.TT}, format='json')
+        self.assertEqual(r.status_code, 200, r.content)
+        self.assertTrue(r.data['is_collection'])
+        self.assertEqual([v['url'] for v in r.data['videos']], [self.V1, self.V2])
+        self.assertEqual(r.data['already_imported'], [self.V1])
+        self.assertEqual(r.data['remaining_today'], 10)
+
+    @mock.patch('recetas.views.list_collection', return_value=None)
+    def test_un_video_suelto_no_es_coleccion(self, listar):
+        r = self.client.post('/api/importar/coleccion/', {'url': self.V1}, format='json')
+        self.assertEqual(r.data, {'is_collection': False})
+
+    def test_link_de_otro_sitio_da_400(self):
+        r = self.client.post('/api/importar/coleccion/', {'url': 'https://example.com/lista'}, format='json')
+        self.assertEqual(r.status_code, 400)
+
+    @mock.patch('recetas.views.extract_from_video')
+    def test_importar_un_video_lo_guarda_privado(self, extract):
+        extract.return_value = self.recipe()
+        cenas = Category.objects.create(name='Cenas')
+        r = self.client.post('/api/importar/coleccion/receta/', {'url': self.V1, 'category': cenas.pk}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        saved = Recipe.objects.get(user=self.user)
+        self.assertEqual(saved.original_url, self.V1)
+        self.assertFalse(saved.is_public)
+        self.assertEqual(list(saved.categories.all()), [cenas])
+        self.assertEqual(UserIngredientAisle.objects.get(user=self.user).aisle, 'Almacén')
+
+        # La segunda vez se saltea sin gastar cupo.
+        r = self.client.post('/api/importar/coleccion/receta/', {'url': self.V1}, format='json')
+        self.assertTrue(r.data['skipped'])
+        extract.assert_called_once()
+        self.assertEqual(UserUsage.objects.get(user=self.user).import_count, 1)
+
+    @mock.patch('recetas.views.extract_from_video')
+    def test_categoria_ajena_da_400_sin_gastar_cupo(self, extract):
+        otro = User.objects.create_user('otro', 'otro@example.com', 'contraseña-segura')
+        ajena = Category.objects.create(name='Ajena', user=otro)
+        r = self.client.post('/api/importar/coleccion/receta/', {'url': self.V1, 'category': ajena.pk}, format='json')
+        self.assertEqual(r.status_code, 400)
+        extract.assert_not_called()
+
+    @override_settings(PIZCA_MAX_IMPORTS_PER_USER_PER_DAY=0)
+    @mock.patch('recetas.views.extract_from_video')
+    def test_sin_cupo_da_429_diario(self, extract):
+        r = self.client.post('/api/importar/coleccion/receta/', {'url': self.V1}, format='json')
+        self.assertEqual(r.status_code, 429)
+        self.assertEqual(r.data['limit'], 'daily')
+        extract.assert_not_called()

@@ -14,6 +14,9 @@ import { ICONS, ISOLOGO } from '../../constants/brand';
 import { notify, getErrorMessage, closeDialogOr } from '../../utils/dialogs';
 import { DialogHost } from '../ui/DialogHost';
 import { AudioRecorder, AudioFile } from './AudioRecorder';
+import { CollectionImport, CollectionData } from './CollectionImport';
+import { listCollectionService } from '../../services/api';
+import { mightBeCollection } from '../../utils/shareImport';
 
 const emptyRecipe: Recipe = {
   uuid: '', title: '', description: '', ingredients: [], steps: [], categories: [], categories_details: [], servings: 1,
@@ -70,8 +73,10 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
   const [saving, setSaving] = useState(false);
   // Error de la última importación, se muestra en la pantalla en vez de un alert.
   const [importError, setImportError] = useState<string | null>(null);
+  // Colección de TikTok o playlist de YouTube pegada en "Importar video".
+  const [collection, setCollection] = useState<CollectionData | null>(null);
 
-  const { createMode, setCreateMode, createCategory, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, initialImportUrl, setInitialImportUrl } = useApp();
+  const { createMode, setCreateMode, createCategory, fetchRecipes, importRecipeAIAudio, importRecipeAIText, importRecipeAIWeb, initialImportUrl, setInitialImportUrl } = useApp();
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState('');
   const isConsumingUrlRef = useRef(false);
@@ -79,6 +84,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
   useEffect(() => {
     if (visible) {
       setImportError(null);
+      setCollection(null);
       if (initialData) {
         setDraftRecipe(JSON.parse(JSON.stringify(initialData)));
         setIsImported(false);
@@ -108,6 +114,13 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
     if (!importUrl.trim()) return notify("Falta el link", "Pegá el link del video.");
     setIsProcessing(true);
     try {
+      if (mightBeCollection(importUrl.trim())) {
+        const listing = await listCollectionService(importUrl.trim());
+        if (listing.is_collection) {
+          setCollection(listing);
+          return;
+        }
+      }
       const recipe = await onImportAI(importUrl.trim());
       setDraftRecipe({ ...emptyRecipe, ...recipe, original_url: importUrl.trim() });
       setIsImported(true);
@@ -277,7 +290,7 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
   };
 
   const IMPORT_COPY: Record<string, { title: string; label: string; hint: string; icon: any }> = {
-    video: { title: 'Importar video', label: 'Pegá el link del video', hint: 'Funciona con TikTok, Instagram, YouTube y Facebook.', icon: ICONS.video },
+    video: { title: 'Importar video', label: 'Pegá el link del video o de una colección', hint: 'Funciona con TikTok, Instagram, YouTube y Facebook. Con una colección de TikTok o una playlist de YouTube, importamos todas las recetas de una.', icon: ICONS.video },
     'link-web': { title: 'Importar de la web', label: 'Pegá el link de la receta', hint: 'Nos quedamos con la receta y salteamos la historia y las publicidades.', icon: ICONS.web },
     text: { title: 'Importar texto', label: 'Pegá o escribí la receta', hint: 'Con cantidades y pasos, mejor. Lo que falte lo completamos.', icon: ICONS.texto },
     audio: { title: 'Dictar receta', label: 'Contanos la receta', hint: 'Decí el nombre, los ingredientes con sus cantidades y los pasos. Nosotros la pasamos a texto.', icon: ICONS.audio },
@@ -291,7 +304,17 @@ export const RecipeFormModal = ({ visible, onClose, onSubmit, onImportAI, initia
     <Modal animationType="slide" visible={visible} onRequestClose={closeDialogOr(onClose)}>
       <SafeAreaView className="flex-1 bg-pizca-fondo" edges={['top', 'bottom']}>
         {/* FASE 1: IMPORTACIÓN */}
-        {!draftRecipe && (
+        {collection && !draftRecipe && (
+          <CollectionImport
+            collection={collection}
+            categories={categories}
+            onBack={() => setCollection(null)}
+            onImported={() => { fetchRecipes(); }}
+            onClose={onClose}
+          />
+        )}
+
+        {!draftRecipe && !collection && (
           <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 12, gap: 20, maxWidth: 640, width: '100%', alignSelf: 'center' }} keyboardShouldPersistTaps="handled">
             <View className="flex-row items-center gap-3">
               <TouchableOpacity onPress={onClose} className="w-11 h-11 rounded-full bg-white border border-pizca-linea items-center justify-center" accessibilityLabel="Volver">

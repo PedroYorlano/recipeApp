@@ -22,7 +22,8 @@ from recetas.oauth import IntrospectTokenView, LoginView
 from rest_framework.routers import DefaultRouter
 from recetas.views import (
     RecipeViewSet, CategoryViewSet, MealPlanViewSet, ShoppingListItemViewSet,
-    import_recipe_view, import_recipe_from_file_view, import_recipe_from_text_view,
+    import_collection_item_view, import_recipe_view, import_recipe_from_file_view, import_recipe_from_text_view,
+    list_collection_view,
     import_recipe_from_web_view, SharedRecipeView, RegisterView, RegisterVerifyView,
     RegisterResendView, PasswordResetRequestView, PasswordResetVerifyView, current_user_view, ideas
 )
@@ -52,6 +53,8 @@ urlpatterns = [
     path('cuenta/logout/', LogoutView.as_view(), name='logout'),
     path('api/', include(router.urls)),
     path('api/importar/', import_recipe_view, name='importar_receta'),
+    path('api/importar/coleccion/', list_collection_view, name='importar_coleccion'),
+    path('api/importar/coleccion/receta/', import_collection_item_view, name='importar_coleccion_receta'),
     path('api/importar-archivo/', import_recipe_from_file_view, name='importar_receta_archivo'),
     path('api/importar-texto/', import_recipe_from_text_view, name='importar_receta_texto'),
     path('api/importar-web/', import_recipe_from_web_view, name='importar_receta_web'),

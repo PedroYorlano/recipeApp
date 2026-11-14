@@ -8,6 +8,7 @@ import { useApp } from '../context/AppContext';
 import { confirmAction } from '../utils/dialogs';
 import { ILLUSTRATIONS } from '../constants/brand';
 import { useTabBarSpace } from '../components/FloatingTabBar';
+import { ClaudeConnectorCard } from '../components/ClaudeConnectorCard';
 
 const APP_ICON = require('../../assets/images/icon.png');
 
@@ -47,6 +48,8 @@ export default function SettingsScreen() {
                         {user?.email ? <Text className="text-sm text-pizca-texto2" numberOfLines={1}>{user.email}</Text> : null}
                     </View>
                 </View>
+
+                <ClaudeConnectorCard />
 
                 {/* Sesión */}
                 <View className="gap-2">

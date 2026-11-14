@@ -10,6 +10,24 @@ export const importModeForUrl = (url: string): 'video' | 'link-web' => {
   return VIDEO_DOMAINS.some(d => host === d || host.endsWith(`.${d}`)) ? 'video' : 'link-web';
 };
 
+/**
+ * Links que pueden ser una colección: colecciones de TikTok, playlists de YouTube y los links
+ * cortos de TikTok (vt./vm.), que no dicen si son un video o una colección hasta resolverlos.
+ * Un video abierto desde una playlist (watch?v=…&list=…) cuenta como video suelto.
+ */
+export const mightBeCollection = (url: string): boolean => {
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return false; }
+  const host = parsed.hostname.toLowerCase();
+  if (host === 'tiktok.com' || host.endsWith('.tiktok.com')) {
+    return /\/collection\//.test(parsed.pathname) || host === 'vt.tiktok.com' || host === 'vm.tiktok.com';
+  }
+  if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
+    return parsed.pathname === '/playlist' && parsed.searchParams.has('list');
+  }
+  return false;
+};
+
 const URL_REGEX = /https?:\/\/[^\s<>"']+/i;
 
 /** Devuelve la primera URL http(s) que aparezca en el valor (string o array de params). */
