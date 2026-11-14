@@ -3,8 +3,9 @@ Lista de compras: junta los ingredientes del plan semanal y los ubica en su gón
 
 La góndola de cada ingrediente sale, en este orden, de:
 1. Lo que eligió el usuario al mover un ítem (UserIngredientAisle).
-2. El caché global (IngredientAisle), que se llena al importar recetas con IA y con lo que
-   Gemini clasifica acá. Cada ingrediente se le pregunta a la IA una sola vez para todos.
+   También se llena con las góndolas que trae una receta importada con IA, sin pisar lo que eligió.
+2. El caché global (IngredientAisle), que se llena con lo que Gemini clasifica acá. Cada
+   ingrediente se le pregunta a la IA una sola vez para todos.
 3. Una llamada en lote a Gemini con lo que falta. Si falla o no hay cupo: "Otros".
 """
 import logging
@@ -43,18 +44,30 @@ def remember_aisles(pairs) -> None:
         )
 
 
-def learn_from_recipe(recipe: dict) -> None:
+def learn_from_recipe(user, recipe: dict) -> None:
     """
-    Las importaciones con IA traen la góndola de cada ingrediente (`aisle`): va al caché y se
-    saca de la receta, que el frontend no la necesita. Nunca rompe la importación.
+    Las importaciones con IA traen la góndola de cada ingrediente (`aisle`): va al caché de ese
+    usuario y se saca de la receta, que el frontend no la necesita. Nunca rompe la importación.
+
+    No va al caché global: la receta sale de una página o un video ajeno, y un texto armado a
+    propósito podría hacer que la IA ubique mal un ingrediente para todos los usuarios.
     """
     ingredients = [i for i in recipe.get('ingredients') or [] if isinstance(i, dict)]
+    rows = {}
+    for ingredient in ingredients:
+        key = normalize_name(str(ingredient.get('name') or ''))
+        aisle = ingredient.pop('aisle', None)
+        if key and aisle in AISLES:
+            rows.setdefault(key, aisle)
+    if not rows:
+        return
     try:
-        remember_aisles((i.get('name'), i.get('aisle')) for i in ingredients)
+        # ignore_conflicts: lo que el usuario ya eligió a mano no se pisa.
+        UserIngredientAisle.objects.bulk_create(
+            [UserIngredientAisle(user=user, name=k, aisle=a) for k, a in rows.items()], ignore_conflicts=True,
+        )
     except Exception:
         logger.exception('No se pudieron guardar las góndolas de una receta importada')
-    for ingredient in ingredients:
-        ingredient.pop('aisle', None)
 
 
 def remember_user_choice(user, name: str, aisle: str) -> None:

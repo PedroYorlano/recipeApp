@@ -112,7 +112,7 @@ def run_ai_import(request, extract, failure_message, failure_status=status.HTTP_
         return error('Algo falló al armar la receta. Probá de nuevo en un rato.', status.HTTP_500_INTERNAL_SERVER_ERROR)
     if not recipe:
         return error(failure_message, failure_status)
-    learn_from_recipe(recipe)
+    learn_from_recipe(request.user, recipe)
     record_usage(request.user)
     return Response({'message': 'Receta importada', 'recipe': recipe}, status=status.HTTP_201_CREATED)
 
@@ -595,9 +595,9 @@ def import_recipe_from_web_view(request):
             tag.decompose()
         text = soup.get_text(separator=' ', strip=True)[:100_000]
         recipe = extract_recipe_from_text(
-            'Por favor extrae la receta estructurada del siguiente contenido de una página web. '
-            f'Elimina las historias/publicidades/comentarios del blog:\n\n{text}',
+            text,
             strict_mode=True,
+            source='Es el texto de una página web: dejá afuera historias, publicidades y comentarios del blog.',
         )
         if recipe and og_image and og_image.get('content'):
             # Muchos sitios la ponen relativa ("/img/a.jpg") o sin protocolo ("//cdn.../a.jpg").

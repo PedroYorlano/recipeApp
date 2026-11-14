@@ -215,7 +215,10 @@ class IngredientAisle(models.Model):
 
 
 class UserIngredientAisle(models.Model):
-    """Góndola que eligió el usuario para un ingrediente: le gana al caché global, solo para él."""
+    """
+    Góndola de un ingrediente solo para este usuario (la eligió a mano o vino en una receta que
+    importó con IA): le gana al caché global.
+    """
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='ingredient_aisles')
     name = models.CharField(max_length=100)
     aisle = models.CharField(max_length=50, choices=AISLE_CHOICES)
