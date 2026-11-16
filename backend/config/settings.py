@@ -254,7 +254,7 @@ OAUTH2_PROVIDER = {
 }
 
 # --- Pizca: límites de uso ---
-PIZCA_MAX_IMPORTS_PER_USER_PER_DAY = 10   # Importaciones por usuario por día
+PIZCA_MAX_IMPORTS_PER_USER_PER_DAY = 25   # Importaciones por usuario por día
 PIZCA_MAX_GEMINI_REQUESTS_PER_DAY = 490    # Requests a Gemini globales por día (de 500 RPD disponibles)
 PIZCA_MAX_IMAGES_PER_USER_PER_DAY = 50    # Fotos de portada por usuario por día (solo frena abusos)
 # Góndolas de la lista de compras: cada ingrediente que no está en el caché es una llamada a Gemini.
