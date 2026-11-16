@@ -13,7 +13,9 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
-from .models import AISLES
+from django.conf import settings
+
+from .models import AISLES, GlobalUsage
 
 logger = logging.getLogger(__name__)
 
@@ -24,6 +26,10 @@ class AIInputError(ValueError):
 
 class AIUnavailableError(Exception):
     """Gemini sigue saturado o sin cupo (429/5xx) después de los reintentos: no es culpa de lo que mandó el usuario."""
+
+
+class AIQuotaError(AIUnavailableError):
+    """Se llegó al tope diario propio de llamadas a Gemini (PIZCA_MAX_GEMINI_REQUESTS_PER_DAY)."""
 
 MAX_VIDEO_SECONDS = 20 * 60          # Videos más largos no son recetas (y tardan una eternidad)
 MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
@@ -253,6 +259,8 @@ GEMINI_MODEL = config('GEMINI_MODEL', default='gemini-3.5-flash-lite')
 # Si el principal sigue saturado (429/5xx) se prueba una vez con este; la saturación es por modelo.
 # Vacío = sin respaldo. Ojo: gemini-3.1-flash-lite se apaga el 2027-05-07.
 GEMINI_FALLBACK_MODEL = config('GEMINI_FALLBACK_MODEL', default='gemini-3.1-flash-lite')
+# Tope de la respuesta (la salida es lo caro). Una receta de 50 ingredientes y 50 pasos usa ~5000.
+GEMINI_MAX_OUTPUT_TOKENS = 8192
 
 
 def generate_json(contents, retries=3, wait=10, schema=None):
@@ -261,9 +269,12 @@ def generate_json(contents, retries=3, wait=10, schema=None):
     Reintenta si se pasó la cuota (429), si Google falla (5xx) o si el JSON vino roto.
     Si lo primero persiste prueba una vez con GEMINI_FALLBACK_MODEL y, si tampoco, tira
     AIUnavailableError. Cualquier otro error (key inválida, modelo inexistente) se propaga de una.
+    Cada llamada, reintentos incluidos, descuenta del cupo global del día; sin cupo tira AIQuotaError.
     """
     try:
         return _generate_json(GEMINI_MODEL, contents, retries, wait, schema)
+    except AIQuotaError:
+        raise
     except AIUnavailableError:
         if not GEMINI_FALLBACK_MODEL or GEMINI_FALLBACK_MODEL == GEMINI_MODEL:
             raise
@@ -273,11 +284,18 @@ def generate_json(contents, retries=3, wait=10, schema=None):
 
 def _generate_json(model, contents, retries, wait, schema):
     for attempt in range(1, retries + 1):
+        if not GlobalUsage.try_reserve(settings.PIZCA_MAX_GEMINI_REQUESTS_PER_DAY):
+            logger.warning('Sin cupo diario de Gemini: no se llama a %s.', model)
+            raise AIQuotaError('Se llegó al tope diario de llamadas a Gemini')
         try:
             result = client.models.generate_content(
                 model=model,
                 contents=contents,
-                config=types.GenerateContentConfig(response_mime_type="application/json", response_json_schema=schema),
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_json_schema=schema,
+                    max_output_tokens=GEMINI_MAX_OUTPUT_TOKENS,
+                ),
             )
             data = json.loads(result.text)
             if isinstance(data, list):

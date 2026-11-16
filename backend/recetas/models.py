@@ -116,14 +116,14 @@ class UserUsage(models.Model):
             self.last_reset = timezone.localdate()
             self.save()
 
-    def can_import(self, max_daily):
+    def try_reserve_import(self, max_daily):
+        """Suma una importación solo si queda cupo, en un solo UPDATE: dos pedidos a la vez no pasan los dos."""
         self.reset_if_new_day()
-        return self.import_count < max_daily
+        return UserUsage.objects.filter(pk=self.pk, import_count__lt=max_daily).update(
+            import_count=F('import_count') + 1) == 1
 
-    def record_import(self):
-        self.reset_if_new_day()
-        UserUsage.objects.filter(pk=self.pk).update(import_count=F('import_count') + 1)
-        self.refresh_from_db()
+    def refund_import(self):
+        UserUsage.objects.filter(pk=self.pk, import_count__gt=0).update(import_count=F('import_count') - 1)
 
     def can_upload_image(self, max_daily):
         self.reset_if_new_day()
@@ -132,12 +132,10 @@ class UserUsage(models.Model):
     def record_image(self):
         UserUsage.objects.filter(pk=self.pk).update(image_count=F('image_count') + 1)
 
-    def can_classify(self, max_daily):
+    def try_reserve_classification(self, max_daily):
         self.reset_if_new_day()
-        return self.aisle_count < max_daily
-
-    def record_classification(self):
-        UserUsage.objects.filter(pk=self.pk).update(aisle_count=F('aisle_count') + 1)
+        return UserUsage.objects.filter(pk=self.pk, aisle_count__lt=max_daily).update(
+            aisle_count=F('aisle_count') + 1) == 1
 
     def __str__(self):
         return f"{self.user.username}: {self.import_count} imports ({self.last_reset})"
@@ -156,9 +154,12 @@ class GlobalUsage(models.Model):
     def can_request(self, max_daily):
         return self.gemini_requests < max_daily
 
-    def record_request(self):
-        GlobalUsage.objects.filter(pk=self.pk).update(gemini_requests=F('gemini_requests') + 1)
-        self.refresh_from_db()
+    @classmethod
+    def try_reserve(cls, max_daily):
+        """Suma una llamada a Gemini solo si queda cupo hoy, en un solo UPDATE (sin carreras)."""
+        today = cls.get_today()
+        return cls.objects.filter(pk=today.pk, gemini_requests__lt=max_daily).update(
+            gemini_requests=F('gemini_requests') + 1) == 1
 
     def __str__(self):
         return f"Gemini {self.date}: {self.gemini_requests} requests"

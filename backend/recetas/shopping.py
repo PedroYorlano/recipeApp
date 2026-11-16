@@ -81,23 +81,22 @@ def _ask_ai(user, names: list[str]) -> dict[str, str]:
     """Clasifica con Gemini (una llamada). Devuelve {clave normalizada: góndola} y lo guarda en el caché."""
     # Dos frenos, porque los nombres los escribe el usuario y cada uno nuevo es una llamada:
     # un tope por persona y una parte del cupo global que queda para importar recetas e Ideas.
-    user_usage, _ = UserUsage.objects.get_or_create(user=user)
-    if not user_usage.can_classify(settings.PIZCA_MAX_AISLE_CALLS_PER_USER_PER_DAY):
-        logger.warning('%s llegó al tope diario de clasificaciones de góndola', user.username)
-        return {}
     usage = GlobalUsage.get_today()
     if not usage.can_request(settings.PIZCA_MAX_GEMINI_REQUESTS_PER_DAY - settings.PIZCA_GEMINI_REQUESTS_RESERVED):
         logger.warning('Sin cupo diario de Gemini: %s ingredientes quedan en "%s"', len(names), OTHER_AISLE)
         return {}
+    # Se cuenta antes y aunque falle: un pedido que hace fallar a Gemini no puede salir gratis.
+    # (El cupo global lo descuenta generate_json por cada llamada.)
+    user_usage, _ = UserUsage.objects.get_or_create(user=user)
+    if not user_usage.try_reserve_classification(settings.PIZCA_MAX_AISLE_CALLS_PER_USER_PER_DAY):
+        logger.warning('%s llegó al tope diario de clasificaciones de góndola', user.username)
+        return {}
     names = names[:MAX_NAMES_PER_CALL]
-    # Se cuenta aunque falle: un pedido que hace fallar a Gemini no puede salir gratis.
-    user_usage.record_classification()
     try:
         answer = classify_ingredients(names, AISLES)
     except Exception:
         logger.exception('Gemini no pudo clasificar los ingredientes')
         return {}
-    usage.record_request()
     # Solo lo que se preguntó: el caché es de todos, y un nombre con instrucciones adentro
     # podría hacer que la IA devuelva góndolas para ingredientes que nadie pidió.
     asked = {normalize_name(n) for n in names}

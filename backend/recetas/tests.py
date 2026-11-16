@@ -469,7 +469,6 @@ class AisleTests(TestCase):
         classify.assert_called_once()
         self.assertEqual(sorted(classify.call_args.args[0]), ['Provoleta', 'Rúcula'])
         self.assertEqual(IngredientAisle.objects.get(name='rucula').aisle, 'Verduras y frutas')
-        self.assertEqual(GlobalUsage.get_today().gemini_requests, 1)
 
         # La segunda vez sale todo del caché.
         classify.reset_mock()
@@ -760,3 +759,73 @@ class GeminiSaturadoTests(TestCase):
     def test_sin_respaldo(self):
         self.assert_saturado(self.client.post('/api/importar-texto/', {'text': 'flan'}, format='json'))
         self.assertEqual(self.generate.call_count, 3)
+
+
+class GastoIATests(TestCase):
+    """Todo lo que llega a Gemini cuenta: los intentos fallidos también, y nada pasa los topes."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('ana', 'ana@example.com', 'contraseña-segura')
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        cache.clear()  # throttles
+        p = mock.patch.object(ai.time, 'sleep')
+        p.start()
+        self.addCleanup(p.stop)
+
+    def gemini(self, payload):
+        response = mock.Mock(text=__import__('json').dumps(payload))
+        return mock.patch.object(ai.client.models, 'generate_content', return_value=response)
+
+    def imports(self):
+        return UserUsage.objects.get(user=self.user).import_count
+
+    def test_un_intento_sin_receta_igual_gasta_cupo(self):
+        with self.gemini({'title': 'ERROR_NO_RECIPE'}):
+            r = self.client.post('/api/importar-texto/', {'text': 'nada que ver'}, format='json')
+        self.assertEqual(r.status_code, 500)
+        self.assertEqual(self.imports(), 1)
+        self.assertEqual(GlobalUsage.get_today().gemini_requests, 1)
+
+    def test_cada_llamada_real_cuenta_en_el_cupo_global(self):
+        roto = mock.Mock(text='{no es json')
+        with mock.patch.object(ai.client.models, 'generate_content', return_value=roto) as call:
+            self.client.post('/api/importar-texto/', {'text': 'flan'}, format='json')
+        self.assertEqual(call.call_count, 3)
+        self.assertEqual(GlobalUsage.get_today().gemini_requests, 3)
+
+    def test_la_salida_tiene_tope(self):
+        with self.gemini({'title': 'Flan', 'description': '', 'ingredients': [], 'steps': []}) as call:
+            ai.extract_recipe_from_text('flan')
+        self.assertEqual(call.call_args.kwargs['config'].max_output_tokens, ai.GEMINI_MAX_OUTPUT_TOKENS)
+
+    @override_settings(PIZCA_MAX_GEMINI_REQUESTS_PER_DAY=2)
+    def test_el_tope_global_corta_a_mitad_de_los_reintentos(self):
+        roto = mock.Mock(text='{no es json')
+        with mock.patch.object(ai.client.models, 'generate_content', return_value=roto) as call:
+            r = self.client.post('/api/importar-texto/', {'text': 'flan'}, format='json')
+        self.assertEqual(call.call_count, 2)
+        self.assertEqual(r.status_code, 429, r.content)
+        self.assertEqual(self.imports(), 0)  # no fue culpa del usuario: se le devuelve
+
+        # Con el tope alcanzado ni siquiera se intenta.
+        with self.gemini({}) as call:
+            r = self.client.post('/api/ideas/', {'message': 'algo rico'}, format='json')
+        self.assertEqual(r.status_code, 429)
+        call.assert_not_called()
+
+    @override_settings(PIZCA_MAX_IMPORTS_PER_USER_PER_DAY=2)
+    def test_la_reserva_por_usuario_no_se_pasa_del_tope(self):
+        usage = UserUsage.objects.create(user=self.user)
+        self.assertEqual([usage.try_reserve_import(2) for _ in range(3)], [True, True, False])
+        self.assertEqual(self.imports(), 2)
+        with self.gemini({}) as call:
+            r = self.client.post('/api/importar-texto/', {'text': 'flan'}, format='json')
+        self.assertEqual(r.status_code, 429)
+        call.assert_not_called()
+
+    def test_si_el_video_no_baja_no_gasta_cupo(self):
+        with mock.patch('recetas.views.download_audio_from_url', return_value=('/tmp/no-existe', None, None, None)):
+            r = self.client.post('/api/importar/', {'url': 'https://www.tiktok.com/@a/video/1'}, format='json')
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(self.imports(), 0)

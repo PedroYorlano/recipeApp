@@ -40,7 +40,7 @@ from .net import FetchError, fetch_public
 from .serializers import CategorySerializer, MealPlanSerializer, RecipeSerializer, ShoppingListItemSerializer
 from .shopping import consolidate, format_quantity, learn_from_recipe, normalize_name, remember_user_choice, resolve_aisles
 from .utils import (
-    AIInputError, AIUnavailableError, build_recipes_summary, call_ideas, convert_audio_to_mp3,
+    AIInputError, AIQuotaError, AIUnavailableError, build_recipes_summary, call_ideas, convert_audio_to_mp3,
     download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text, list_collection,
 )
 
@@ -73,50 +73,57 @@ def error(message, code=status.HTTP_400_BAD_REQUEST):
 # Límites de uso de la IA
 # ---------------------------------------------------------------------------
 
-def check_usage_limits(user):
+SYSTEM_LIMIT_MESSAGE = "Se alcanzó el límite diario de importaciones del sistema. ¡Intentá mañana!"
+SATURATED_MESSAGE = 'La IA está saturada, probá en unos minutos.'
+
+
+def reserve_usage(user):
     """
-    Verifica los límites antes de llamar a Gemini: por usuario y por día, y global por día.
-    Devuelve el mensaje de error, o None si se puede seguir.
+    Reserva una importación del cupo diario del usuario ANTES de llamar a Gemini: un intento
+    que falla después de llamar a la IA igual se pagó, así que cuenta. Se devuelve con
+    refund_import() solo si Gemini no llegó a cobrar (el video no bajó, Google saturado, sin cupo).
+    El cupo global lo descuenta generate_json por cada llamada real.
+    Devuelve (usage, None) o (None, mensaje de error).
     """
     max_per_user = settings.PIZCA_MAX_IMPORTS_PER_USER_PER_DAY
     usage, _ = UserUsage.objects.get_or_create(user=user)
-    if not usage.can_import(max_per_user):
-        return f"Alcanzaste tu límite de {max_per_user} importaciones por día. ¡Mañana podés seguir!"
     if not GlobalUsage.get_today().can_request(settings.PIZCA_MAX_GEMINI_REQUESTS_PER_DAY):
-        return "Se alcanzó el límite diario de importaciones del sistema. ¡Intentá mañana!"
-    return None
-
-
-def record_usage(user):
-    """Registra una llamada exitosa en ambos contadores."""
-    usage, _ = UserUsage.objects.get_or_create(user=user)
-    usage.record_import()
-    GlobalUsage.get_today().record_request()
+        return None, SYSTEM_LIMIT_MESSAGE
+    if not usage.try_reserve_import(max_per_user):
+        return None, f"Alcanzaste tu límite de {max_per_user} importaciones por día. ¡Mañana podés seguir!"
+    return usage, None
 
 
 def _ai_import(request, extract, failure_message, failure_status=status.HTTP_500_INTERNAL_SERVER_ERROR):
     """
     Lo común a todas las importaciones: límites, errores y registro de uso.
     `extract()` devuelve el dict de la receta o None; puede tirar AIInputError/FetchError
-    con un mensaje para el usuario, o AIUnavailableError si Gemini está saturado (503). Devuelve (receta, None) o (None, Response de error).
+    con un mensaje para el usuario, o AIUnavailableError si Gemini está saturado (503).
+    Devuelve (receta, None) o (None, Response de error).
     """
-    limit_msg = check_usage_limits(request.user)
+    usage, limit_msg = reserve_usage(request.user)
     if limit_msg:
         return None, Response({'error': limit_msg, 'limit': 'daily'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
     try:
         recipe = extract()
     except (AIInputError, FetchError) as e:
+        # Fallan antes de llegar a Gemini (el video no baja, el audio no se lee, la página no responde).
+        usage.refund_import()
         return None, error(str(e))
+    except AIQuotaError:
+        usage.refund_import()
+        return None, Response({'error': SYSTEM_LIMIT_MESSAGE, 'limit': 'daily'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
     except AIUnavailableError:
+        usage.refund_import()
         logger.warning('Importación fallida: Gemini saturado', exc_info=True)
-        return None, error('La IA está saturada, probá en unos minutos.', status.HTTP_503_SERVICE_UNAVAILABLE)
+        return None, error(SATURATED_MESSAGE, status.HTTP_503_SERVICE_UNAVAILABLE)
     except Exception:
         logger.exception('Falló una importación con IA')
         return None, error('Algo falló al armar la receta. Probá de nuevo en un rato.', status.HTTP_500_INTERNAL_SERVER_ERROR)
     if not recipe:
+        # La IA ya se llamó (y se pagó): el intento cuenta igual.
         return None, error(failure_message, failure_status)
     learn_from_recipe(request.user, recipe)
-    record_usage(request.user)
     return recipe, None
 
 
@@ -739,7 +746,7 @@ def ideas(request):
     if len(user_message) > MAX_IDEAS_MESSAGE_CHARS:
         return error('Mensaje demasiado largo (máximo 2000 caracteres).')
 
-    limit_msg = check_usage_limits(request.user)
+    usage, limit_msg = reserve_usage(request.user)
     if limit_msg:
         return error(limit_msg, status.HTTP_429_TOO_MANY_REQUESTS)
 
@@ -767,9 +774,15 @@ def ideas(request):
 
     try:
         result = call_ideas(user_message, build_recipes_summary(recipes))
+    except AIQuotaError:
+        usage.refund_import()
+        return error(SYSTEM_LIMIT_MESSAGE, status.HTTP_429_TOO_MANY_REQUESTS)
+    except AIUnavailableError:
+        usage.refund_import()
+        logger.warning('Ideas: Gemini saturado', exc_info=True)
+        return error(SATURATED_MESSAGE, status.HTTP_503_SERVICE_UNAVAILABLE)
     except Exception:
         logger.exception('Falló Ideas')
         return error('Ideas no está disponible en este momento. Intentá de nuevo.', status.HTTP_503_SERVICE_UNAVAILABLE)
 
-    record_usage(request.user)
     return Response(result)
