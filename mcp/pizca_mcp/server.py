@@ -74,7 +74,10 @@ VIDEO_HOSTS = ('tiktok.com', 'instagram.com', 'youtube.com', 'youtu.be', 'facebo
 class Ingrediente(BaseModel):
     nombre: str
     cantidad: float | None = Field(None, description='Número (0.5, 200). Vacío si es "a gusto".')
-    unidad: str = Field('', description='"g", "ml", "taza", "cda", "unidad"... Vacío si no aplica.')
+    unidad: str = Field('', description=(
+        'Preferí estas: "g", "kg", "ml", "l", "taza", "cda" (cucharada), "cdita" (cucharadita), '
+        '"unidad", "diente", "pizca". Otra solo si ninguna sirve ("lata", "paquete"). Vacío si no aplica.'
+    ))
 
 
 def _ingredientes_api(ingredientes: list[Ingrediente]) -> list[dict]:
@@ -131,7 +134,7 @@ def buscar_recetas(
     categoria_id: Annotated[int | None, Field(description='Id de listar_categorias.')] = None,
     solo_favoritas: bool = False,
     maximo: Annotated[int, Field(ge=1, le=100)] = 30,
-) -> list[dict]:
+) -> dict:
     """Busca recetas del usuario (las más nuevas primero). Sin filtros, lista las últimas.
     Devuelve un resumen; para ingredientes y pasos usá ver_receta con el id."""
     params: dict[str, Any] = {
@@ -147,7 +150,8 @@ def buscar_recetas(
         if not cursor:
             break
         params['cursor'] = cursor[0]
-    return encontradas[:maximo]
+    # Un dict y no una lista: el SDK convierte cada elemento de una lista en un bloque aparte.
+    return {'recetas': encontradas[:maximo]}
 
 
 @tool
@@ -166,7 +170,7 @@ def crear_receta(
     descripcion: str = '',
     categoria_ids: Annotated[list[int] | None, Field(description='Ids de listar_categorias.')] = None,
     link_original: str | None = None,
-    imagen_url: Annotated[str | None, Field(description='URL pública de una foto (por ejemplo, la miniatura que trae importar_desde_url).')] = None,
+    imagen_url: Annotated[str | None, Field(description='URL pública (https) de una foto del plato.')] = None,
 ) -> dict:
     """Guarda una receta nueva en Pizca. Antes de crear, usá buscar_recetas para ver que no exista.
     Si la receta viene de una foto o un texto, pasá los ingredientes separados en nombre,
@@ -259,9 +263,9 @@ def importar_desde_url(url: str) -> dict:
 # --- Categorías ---------------------------------------------------------------
 
 @tool
-def listar_categorias() -> list[dict]:
+def listar_categorias() -> dict:
     """Categorías disponibles (las generales de Pizca y las que creó el usuario), con su id."""
-    return [{'id': c['id'], 'nombre': c['name']} for c in client().get('/api/categorias/')]
+    return {'categorias': [{'id': c['id'], 'nombre': c['name']} for c in client().get('/api/categorias/')]}
 
 
 @tool

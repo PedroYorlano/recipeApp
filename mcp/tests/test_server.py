@@ -56,7 +56,7 @@ def api(monkeypatch):
 
 
 def test_buscar_sigue_el_cursor(api):
-    found = server.buscar_recetas(texto='papa')
+    found = server.buscar_recetas(texto='papa')['recetas']
     assert [r['id'] for r in found] == [7, 8]
     assert found[0] == {'id': 7, 'titulo': 'Tortilla', 'minutos': 30, 'porciones': 2, 'categorias': ['Cenas'], 'favorita': True}
     gets = [r for r in api if r.url.path == '/api/recetas/']
@@ -64,7 +64,7 @@ def test_buscar_sigue_el_cursor(api):
 
 
 def test_buscar_respeta_el_maximo(api):
-    assert len(server.buscar_recetas(maximo=1)) == 1
+    assert len(server.buscar_recetas(maximo=1)['recetas']) == 1
 
 
 def test_ver_receta_ordena_ingredientes(api):

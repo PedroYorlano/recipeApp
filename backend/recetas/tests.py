@@ -21,7 +21,7 @@ from .models import (
     ShoppingListItem, Step, UserIngredientAisle, UserUsage,
 )
 from .net import FetchError, fetch_public
-from .shopping import format_quantity, learn_from_recipe, normalize_name, resolve_aisles
+from .shopping import consolidate, format_quantity, learn_from_recipe, normalize_name, resolve_aisles
 from . import utils as ai
 
 # Los tests nunca tocan el bucket real.
@@ -314,6 +314,27 @@ class RecipeListTests(TestCase):
 
 
 class ShoppingConsolidationTests(TestCase):
+    def test_suma_unidades_equivalentes(self):
+        from types import SimpleNamespace as I
+
+        items = consolidate([
+            I(name='Azúcar', quantity=Decimal('1'), unit='cdita'),
+            I(name='azucar', quantity=Decimal('2'), unit='Cucharaditas'),
+            I(name='Harina', quantity=Decimal('500'), unit='g'),
+            I(name='harina', quantity=Decimal('1'), unit='kg'),
+            I(name='Leche', quantity=Decimal('1'), unit='taza'),
+            I(name='leche', quantity=Decimal('200'), unit='ml'),
+            I(name='Manteca', quantity=Decimal('1.5'), unit='kg'),
+            I(name='manteca', quantity=Decimal('0.5'), unit='kg'),
+        ])
+        got = {i['name']: format_quantity(i['quantity'], i['unit']) for i in items}
+        self.assertEqual(got, {
+            'Azúcar': '3 cdita',
+            'Harina': '1,5 kg',
+            'Leche': '1 taza',  # taza y ml no se suman: queda la primera
+            'Manteca': '2 kg',  # misma unidad: se respeta la que escribió el usuario
+        })
+
     def test_formato_de_cantidad(self):
         self.assertEqual(format_quantity(Decimal('200.00'), 'g'), '200 g')
         self.assertEqual(format_quantity(Decimal('0.50'), 'taza'), '1/2 taza')

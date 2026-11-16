@@ -151,5 +151,6 @@ def test_con_token_llama_a_la_api_como_el_usuario(app):
     r = tc.post('/mcp', headers=auth_headers, json=rpc('tools/call', {'name': 'listar_categorias', 'arguments': {}}, id=3))
     result = mensajes(r)[0]['result']
     assert not result.get('isError'), result
+    assert len(result['content']) == 1  # un solo bloque con la lista, no uno por categoría
     assert api_calls[-1].url.path == '/api/categorias/'
     assert api_calls[-1].headers['Authorization'] == 'Bearer bueno'

@@ -169,18 +169,78 @@ def format_quantity(quantity: Decimal | None, unit: str) -> str:
     return f'{text} {unit}'.strip()
 
 
+# Unidad escrita → (unidad canónica, cuántas canónicas vale una). Sirve para sumar en la lista
+# de compras "1 cdita" + "1 cucharadita", o "500 g" + "1 kg". Las claves van como las deja
+# _unit_key (sin tildes, puntos ni mayúsculas). Lo que no está acá se suma solo con la misma unidad.
+UNIT_ALIASES: dict[str, tuple[str, Decimal]] = {}
+
+
+def _alias(canonical: str, factor: str | int, *names: str) -> None:
+    for name in names:
+        UNIT_ALIASES[name] = (canonical, Decimal(factor))
+
+
+_alias('g', 1, 'g', 'gr', 'grs', 'gramo', 'gramos')
+_alias('g', 1000, 'kg', 'kgs', 'kilo', 'kilos', 'kilogramo', 'kilogramos')
+_alias('ml', 1, 'ml', 'cc', 'mililitro', 'mililitros')
+_alias('ml', 10, 'cl')
+_alias('ml', 1000, 'l', 'lt', 'lts', 'litro', 'litros')
+_alias('taza', 1, 'taza', 'tazas', 'tz', 'tza', 'cup', 'cups')
+_alias('cda', 1, 'cda', 'cdas', 'cucharada', 'cucharadas', 'cucharada sopera', 'cucharadas soperas', 'cs', 'c/s', 'tbsp')
+_alias('cdita', 1, 'cdita', 'cditas', 'cdta', 'cdtas', 'cucharadita', 'cucharaditas', 'cucharadita de te',
+       'cucharaditas de te', 'c/c', 'tsp')
+_alias('unidad', 1, 'unidad', 'unidades', 'u', 'un')
+_alias('diente', 1, 'diente', 'dientes')
+_alias('pizca', 1, 'pizca', 'pizcas')
+_alias('lata', 1, 'lata', 'latas')
+_alias('paquete', 1, 'paquete', 'paquetes', 'paq')
+
+
+def _unit_key(unit: str) -> str:
+    return ' '.join(normalize_name(unit).replace('.', ' ').split())
+
+
+def canonical_unit(unit: str) -> tuple[str, Decimal]:
+    """'Cucharaditas' → ('cdita', 1); 'kg' → ('g', 1000); 'lata grande' → ('lata grande', 1)."""
+    key = _unit_key(unit)
+    return UNIT_ALIASES.get(key, (key, Decimal(1)))
+
+
+def _display(quantity: Decimal, canonical: str) -> tuple[Decimal, str]:
+    """1500 g → 1,5 kg y 2000 ml → 2 l, para que la lista no muestre números enormes."""
+    if canonical in ('g', 'ml') and quantity >= 1000:
+        return quantity / 1000, 'kg' if canonical == 'g' else 'l'
+    return quantity, canonical
+
+
 def consolidate(ingredients) -> list[dict]:
     """
-    Suma las cantidades de un mismo ingrediente cuando vienen en la misma unidad.
-    Si las unidades no coinciden se queda con la primera (no se puede sumar "1 taza" con "200 g").
+    Suma las cantidades de un mismo ingrediente cuando las unidades son equivalentes
+    ("cdita" y "cucharadita", "g" y "kg"). Si no lo son, se queda con la primera (no se puede
+    sumar "1 taza" con "200 g"). Si todas venían en la misma unidad, se muestra tal cual.
     """
     consolidated: dict[str, dict] = {}
     for ingredient in ingredients:
         key = normalize_name(ingredient.name)
         qty, unit = split_quantity_unit(ingredient.quantity, (ingredient.unit or '').strip())
+        canonical, factor = canonical_unit(unit)
         current = consolidated.get(key)
         if current is None:
-            consolidated[key] = {'name': ingredient.name.strip(), 'quantity': qty, 'unit': unit}
-        elif qty is not None and current['unit'].lower() == unit.lower():
-            current['quantity'] = (current['quantity'] or 0) + qty
-    return list(consolidated.values())
+            consolidated[key] = {
+                'name': ingredient.name.strip(), 'unit': unit, 'canonical': canonical,
+                'base': None if qty is None else qty * factor, 'mixed': False,
+            }
+        elif qty is not None and current['canonical'] == canonical:
+            current['base'] = (current['base'] or 0) + qty * factor
+            current['mixed'] |= _unit_key(current['unit']) != _unit_key(unit)
+    items = []
+    for item in consolidated.values():
+        base, unit = item['base'], item['unit']
+        if base is None:
+            quantity = None
+        elif item['mixed']:
+            quantity, unit = _display(base, item['canonical'])
+        else:
+            quantity = base / canonical_unit(unit)[1]
+        items.append({'name': item['name'], 'quantity': quantity, 'unit': unit})
+    return items
