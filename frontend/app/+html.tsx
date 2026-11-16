@@ -11,9 +11,11 @@ export default function Root({ children }: PropsWithChildren) {
       <head>
         <meta charSet="utf-8" />
         <meta httpEquiv="X-UA-Compatible" content="IE=edge" />
+        {/* maximum-scale=1: iOS hace zoom al enfocar campos con letra < 16px. Así no lo hace,
+            y el pellizco para hacer zoom sigue andando (iOS lo ignora para eso). */}
         <meta
           name="viewport"
-          content="width=device-width, initial-scale=1, shrink-to-fit=no, viewport-fit=cover"
+          content="width=device-width, initial-scale=1, maximum-scale=1, shrink-to-fit=no, viewport-fit=cover"
         />
         <meta name="description" content="Tu recetario, planificador semanal y lista de compras." />
 
