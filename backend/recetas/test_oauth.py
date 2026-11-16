@@ -169,3 +169,19 @@ class JWTSigueAndandoTests(TestCase):
         self.assertEqual(self.client.get('/api/me/', HTTP_AUTHORIZATION=f'Bearer {access}').status_code, 200)
         self.assertEqual(self.client.get('/api/me/', HTTP_AUTHORIZATION=f'Bearer {access}x').status_code, 401)
         self.assertEqual(self.client.get('/api/me/', HTTP_AUTHORIZATION='Bearer token-opaco-que-no-existe').status_code, 401)
+
+
+class CIMDTests(TestCase):
+    def test_acepta_la_metadata_actual_de_claude(self):
+        # Copia de https://claude.ai/oauth/mcp-oauth-client-metadata al 2026-11-16 (trae jwt-bearer).
+        from oauth2_provider.cimd import _build_application_kwargs
+
+        kwargs = _build_application_kwargs({
+            'client_id': 'https://claude.ai/oauth/mcp-oauth-client-metadata',
+            'client_name': 'Claude',
+            'redirect_uris': [CALLBACK],
+            'grant_types': ['authorization_code', 'refresh_token', 'urn:ietf:params:oauth:grant-type:jwt-bearer'],
+            'response_types': ['code'],
+            'token_endpoint_auth_method': 'none',
+        })
+        self.assertEqual(kwargs['authorization_grant_type'], Application.GRANT_AUTHORIZATION_CODE)
