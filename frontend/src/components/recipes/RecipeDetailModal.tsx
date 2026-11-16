@@ -302,7 +302,7 @@ export const RecipeDetailView = ({ recipe, onBack, backIcon = 'close', actions, 
 
               {canConvert ? (
                 <View className="flex-row bg-pizca-crema rounded-full p-1" accessibilityRole="radiogroup">
-                  {([['volume', 'Tazas'], ['grams', 'Gramos']] as const).map(([value, label]) => {
+                  {([['volume', 'Original'], ['grams', 'Gramos']] as const).map(([value, label]) => {
                     const active = (value === 'grams') === inGrams;
                     return (
                       <TouchableOpacity
