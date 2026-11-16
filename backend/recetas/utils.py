@@ -250,19 +250,32 @@ client = genai.Client(api_key=GENAI_API_KEY)
 
 # El Flash-Lite actual: el más barato de Gemini con audio y sin fecha de apagado. Se cambia desde el .env sin tocar código.
 GEMINI_MODEL = config('GEMINI_MODEL', default='gemini-3.5-flash-lite')
+# Si el principal sigue saturado (429/5xx) se prueba una vez con este; la saturación es por modelo.
+# Vacío = sin respaldo. Ojo: gemini-3.1-flash-lite se apaga el 2027-05-07.
+GEMINI_FALLBACK_MODEL = config('GEMINI_FALLBACK_MODEL', default='gemini-3.1-flash-lite')
 
 
 def generate_json(contents, retries=3, wait=10, schema=None):
     """
     Llama a Gemini pidiendo JSON (con `schema`, uno que respete ese JSON Schema) y devuelve un dict.
-    Reintenta si se pasó la cuota (429), si Google falla (5xx) o si el JSON vino roto;
-    si lo primero persiste tira AIUnavailableError. Cualquier otro error (key inválida,
-    modelo inexistente) se propaga de una.
+    Reintenta si se pasó la cuota (429), si Google falla (5xx) o si el JSON vino roto.
+    Si lo primero persiste prueba una vez con GEMINI_FALLBACK_MODEL y, si tampoco, tira
+    AIUnavailableError. Cualquier otro error (key inválida, modelo inexistente) se propaga de una.
     """
+    try:
+        return _generate_json(GEMINI_MODEL, contents, retries, wait, schema)
+    except AIUnavailableError:
+        if not GEMINI_FALLBACK_MODEL or GEMINI_FALLBACK_MODEL == GEMINI_MODEL:
+            raise
+        logger.warning('%s sigue saturado; se prueba con %s.', GEMINI_MODEL, GEMINI_FALLBACK_MODEL)
+        return _generate_json(GEMINI_FALLBACK_MODEL, contents, 1, wait, schema)
+
+
+def _generate_json(model, contents, retries, wait, schema):
     for attempt in range(1, retries + 1):
         try:
             result = client.models.generate_content(
-                model=GEMINI_MODEL,
+                model=model,
                 contents=contents,
                 config=types.GenerateContentConfig(response_mime_type="application/json", response_json_schema=schema),
             )
@@ -273,9 +286,9 @@ def generate_json(contents, retries=3, wait=10, schema=None):
         except genai_errors.APIError as e:
             if e.code != 429 and (e.code or 0) < 500:
                 raise
-            logger.warning('Gemini respondió %s (intento %s/%s).', e.code, attempt, retries)
+            logger.warning('%s respondió %s (intento %s/%s).', model, e.code, attempt, retries)
             if attempt == retries:
-                raise AIUnavailableError(f'Gemini respondió {e.code}') from e
+                raise AIUnavailableError(f'{model} respondió {e.code}') from e
         except json.JSONDecodeError:
             logger.warning('Gemini devolvió un JSON inválido (intento %s/%s).', attempt, retries)
             if attempt == retries:

@@ -745,4 +745,18 @@ class GeminiSaturadoTests(TestCase):
                         return_value=('/tmp/no-existe', '/tmp/no-existe/a.mp3', '200 g de harina', None)):
             r = self.client.post('/api/importar/', {'url': 'https://www.tiktok.com/@cocina/video/1'}, format='json')
         self.assert_saturado(r)
-        self.assertEqual(self.generate.call_count, 4)  # 3 con el audio + 1 solo con la descripción
+        # 3 con el audio + 1 con el respaldo, y el plan B: 1 solo con la descripción + 1 con el respaldo.
+        self.assertEqual(self.generate.call_count, 6)
+
+    def test_el_respaldo_salva_la_importacion(self):
+        receta = mock.Mock(text='{"title": "Flan", "description": "", "ingredients": [], "steps": []}')
+        self.generate.side_effect = [self.generate.side_effect] * 3 + [receta]
+        r = self.client.post('/api/importar-texto/', {'text': 'flan con dulce de leche'}, format='json')
+        self.assertEqual(r.status_code, 201, r.content)
+        modelos = [c.kwargs['model'] for c in self.generate.call_args_list]
+        self.assertEqual(modelos, [ai.GEMINI_MODEL] * 3 + [ai.GEMINI_FALLBACK_MODEL])
+
+    @mock.patch.object(ai, 'GEMINI_FALLBACK_MODEL', '')
+    def test_sin_respaldo(self):
+        self.assert_saturado(self.client.post('/api/importar-texto/', {'text': 'flan'}, format='json'))
+        self.assertEqual(self.generate.call_count, 3)
