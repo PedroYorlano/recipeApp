@@ -40,7 +40,7 @@ from .net import FetchError, fetch_public
 from .serializers import CategorySerializer, MealPlanSerializer, RecipeSerializer, ShoppingListItemSerializer
 from .shopping import consolidate, format_quantity, learn_from_recipe, normalize_name, remember_user_choice, resolve_aisles
 from .utils import (
-    AIInputError, build_recipes_summary, call_ideas, convert_audio_to_mp3,
+    AIInputError, AIUnavailableError, build_recipes_summary, call_ideas, convert_audio_to_mp3,
     download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text, list_collection,
 )
 
@@ -98,7 +98,7 @@ def _ai_import(request, extract, failure_message, failure_status=status.HTTP_500
     """
     Lo común a todas las importaciones: límites, errores y registro de uso.
     `extract()` devuelve el dict de la receta o None; puede tirar AIInputError/FetchError
-    con un mensaje para el usuario. Devuelve (receta, None) o (None, Response de error).
+    con un mensaje para el usuario, o AIUnavailableError si Gemini está saturado (503). Devuelve (receta, None) o (None, Response de error).
     """
     limit_msg = check_usage_limits(request.user)
     if limit_msg:
@@ -107,6 +107,9 @@ def _ai_import(request, extract, failure_message, failure_status=status.HTTP_500
         recipe = extract()
     except (AIInputError, FetchError) as e:
         return None, error(str(e))
+    except AIUnavailableError:
+        logger.warning('Importación fallida: Gemini saturado', exc_info=True)
+        return None, error('La IA está saturada, probá en unos minutos.', status.HTTP_503_SERVICE_UNAVAILABLE)
     except Exception:
         logger.exception('Falló una importación con IA')
         return None, error('Algo falló al armar la receta. Probá de nuevo en un rato.', status.HTTP_500_INTERNAL_SERVER_ERROR)

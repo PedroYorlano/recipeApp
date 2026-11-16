@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 class AIInputError(ValueError):
     """Lo que mandó el usuario no sirve (audio ilegible, video que no baja). El mensaje se le puede mostrar."""
 
+
+class AIUnavailableError(Exception):
+    """Gemini sigue saturado o sin cupo (429/5xx) después de los reintentos: no es culpa de lo que mandó el usuario."""
+
 MAX_VIDEO_SECONDS = 20 * 60          # Videos más largos no son recetas (y tardan una eternidad)
 MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
 GEMINI_FILE_TIMEOUT = 60             # Segundos esperando que Gemini procese el audio subido
@@ -252,7 +256,8 @@ def generate_json(contents, retries=3, wait=10, schema=None):
     """
     Llama a Gemini pidiendo JSON (con `schema`, uno que respete ese JSON Schema) y devuelve un dict.
     Reintenta si se pasó la cuota (429), si Google falla (5xx) o si el JSON vino roto;
-    cualquier otro error (key inválida, modelo inexistente) se propaga de una.
+    si lo primero persiste tira AIUnavailableError. Cualquier otro error (key inválida,
+    modelo inexistente) se propaga de una.
     """
     for attempt in range(1, retries + 1):
         try:
@@ -270,7 +275,7 @@ def generate_json(contents, retries=3, wait=10, schema=None):
                 raise
             logger.warning('Gemini respondió %s (intento %s/%s).', e.code, attempt, retries)
             if attempt == retries:
-                raise
+                raise AIUnavailableError(f'Gemini respondió {e.code}') from e
         except json.JSONDecodeError:
             logger.warning('Gemini devolvió un JSON inválido (intento %s/%s).', attempt, retries)
             if attempt == retries:
@@ -380,13 +385,17 @@ def _extract_recipe_from_audio(myfile, description_text, thumbnail_url, require_
 
     try:
         result_json = generate_json(build_contents(with_audio=bool(myfile)), schema=RECIPE_SCHEMA)
-    except Exception:
+    except Exception as e:
         logger.exception('Error analizando el audio')
         # Último recurso para videos: si hay descripción, armamos la receta solo con ella.
         if not myfile or require_audio or not description_text:
+            if isinstance(e, AIUnavailableError):
+                raise
             return None
         try:
             result_json = generate_json(build_contents(with_audio=False), retries=1, schema=RECIPE_SCHEMA)
+        except AIUnavailableError:
+            raise
         except Exception:
             logger.exception('Error analizando la descripción')
             return None
@@ -439,6 +448,8 @@ def extract_recipe_from_text(description_text: str, strict_mode: bool = False, s
 
     try:
         result_json = clean_recipe(generate_json(prompt, wait=3, schema=RECIPE_SCHEMA))
+    except AIUnavailableError:
+        raise
     except Exception:
         logger.exception('Error analizando el texto')
         return None

@@ -709,3 +709,40 @@ class CollectionImportTests(TestCase):
         self.assertEqual(r.status_code, 429)
         self.assertEqual(r.data['limit'], 'daily')
         extract.assert_not_called()
+
+
+class GeminiSaturadoTests(TestCase):
+    """Si Gemini sigue respondiendo 503/429 después de los reintentos, la importación da 503 y no 500."""
+
+    def setUp(self):
+        self.user = User.objects.create_user('sara', 'sara@example.com', 'contraseña-segura')
+        self.client = APIClient()
+        self.client.force_authenticate(self.user)
+        cache.clear()  # throttles
+        error = ai.genai_errors.ServerError(503, {'error': {'code': 503, 'message': 'high demand', 'status': 'UNAVAILABLE'}})
+        patches = [
+            mock.patch.object(ai.client.models, 'generate_content', side_effect=error),
+            mock.patch.object(ai.time, 'sleep'),
+        ]
+        self.generate = patches[0].start()
+        patches[1].start()
+        for p in patches:
+            self.addCleanup(p.stop)
+
+    def assert_saturado(self, r):
+        self.assertEqual(r.status_code, 503, r.content)
+        self.assertEqual(r.data['error'], 'La IA está saturada, probá en unos minutos.')
+        self.assertFalse(UserUsage.objects.filter(user=self.user, import_count__gt=0).exists())
+
+    def test_texto(self):
+        r = self.client.post('/api/importar-texto/', {'text': 'flan con dulce de leche'}, format='json')
+        self.assert_saturado(r)
+
+    @mock.patch('recetas.utils.upload_audio', return_value=mock.Mock(name='files/x'))
+    @mock.patch.object(ai.client.files, 'delete')
+    def test_video_tambien_falla_el_plan_b(self, _delete, _upload):
+        with mock.patch('recetas.views.download_audio_from_url',
+                        return_value=('/tmp/no-existe', '/tmp/no-existe/a.mp3', '200 g de harina', None)):
+            r = self.client.post('/api/importar/', {'url': 'https://www.tiktok.com/@cocina/video/1'}, format='json')
+        self.assert_saturado(r)
+        self.assertEqual(self.generate.call_count, 4)  # 3 con el audio + 1 solo con la descripción
