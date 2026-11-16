@@ -316,7 +316,13 @@ class RecipeListTests(TestCase):
 class ShoppingConsolidationTests(TestCase):
     def test_formato_de_cantidad(self):
         self.assertEqual(format_quantity(Decimal('200.00'), 'g'), '200 g')
-        self.assertEqual(format_quantity(Decimal('0.50'), 'taza'), '0.5 taza')
+        self.assertEqual(format_quantity(Decimal('0.50'), 'taza'), '1/2 taza')
+        self.assertEqual(format_quantity(Decimal('0.25'), 'taza'), '1/4 taza')
+        self.assertEqual(format_quantity(Decimal('1.50'), 'cda'), '1 1/2 cda')
+        self.assertEqual(format_quantity(Decimal('0.33'), 'taza'), '1/3 taza')
+        self.assertEqual(format_quantity(Decimal('3'), 'unidad'), '3 unidad')
+        self.assertEqual(format_quantity(Decimal('1.50'), 'kg'), '1,5 kg')
+        self.assertEqual(format_quantity(Decimal('0.05'), 'taza'), '0,05 taza')
         self.assertEqual(format_quantity(None, 'a gusto'), 'a gusto')
 
     def test_suma_misma_unidad_y_separa_cantidad_pegada(self):

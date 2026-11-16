@@ -3,7 +3,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Image, Modal, Platform, ScrollView, Share, TouchableOpacity, View } from 'react-native';
 import { Text } from '../ui/Typography';
 import { Recipe } from '../../types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { formatQuantity, scaleQuantity, getRecipeImage } from '../../utils';
+import { toGrams } from '../../utils/units';
 import { useApp } from '../../context/AppContext';
 import { Share as ShareIcon, Pencil, Trash2, X, Plus, Minus, ExternalLink, Heart, Users, ArrowLeft, Play, ChevronRight, Check, CalendarPlus } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -17,6 +19,10 @@ import { notify, confirmAction, getErrorMessage, closeDialogOr } from '../../uti
 import { setRecipePublicService } from '../../services/api';
 import { getShareUrl } from '../../constants';
 import { DialogHost } from '../ui/DialogHost';
+
+type Measure = 'volume' | 'grams';
+// Tazas o gramos: se recuerda para todas las recetas.
+const MEASURE_KEY = 'pizca.measure';
 
 interface Props {
   visible: boolean;
@@ -156,15 +162,36 @@ export const RecipeDetailView = ({ recipe, onBack, backIcon = 'close', actions, 
   // Ingredientes tachados mientras se cocina (no se guarda).
   const [checked, setChecked] = useState<Set<number>>(new Set());
   const [cooking, setCooking] = useState(false);
+  const [measure, setMeasure] = useState<Measure>('volume');
+
+  useEffect(() => {
+    AsyncStorage.getItem(MEASURE_KEY)
+      .then(value => { if (value === 'grams') setMeasure('grams'); })
+      .catch(() => {});
+  }, []);
+
+  const changeMeasure = (value: Measure) => {
+    setMeasure(value);
+    AsyncStorage.setItem(MEASURE_KEY, value).catch(() => {});
+  };
+
+  // Si ningún ingrediente viene en tazas/cucharadas con densidad conocida, no hay nada que convertir.
+  const canConvert = useMemo(
+    () => (recipe.ingredients ?? []).some(ing => toGrams(ing.quantity, ing.unit, ing.name) !== null),
+    [recipe.ingredients],
+  );
+  const inGrams = canConvert && measure === 'grams';
 
   const scaledIngredients: CookingIngredient[] = useMemo(
     () => (recipe.ingredients ?? []).map(ing => {
       const scaled = recipe.servings && currentServings !== recipe.servings
         ? scaleQuantity(ing.quantity, recipe.servings, currentServings)
         : ing.quantity;
-      return { quantity: formatQuantity(scaled, ing.unit), name: ing.name };
+      const grams = inGrams ? toGrams(scaled, ing.unit, ing.name) : null;
+      // "≈" solo en lo que se pasó de tazas/cucharadas: lo que ya venía en gramos es exacto.
+      return { quantity: grams !== null ? `≈ ${formatQuantity(grams, 'g')}` : formatQuantity(scaled, ing.unit), name: ing.name };
     }),
-    [recipe.ingredients, recipe.servings, currentServings],
+    [recipe.ingredients, recipe.servings, currentServings, inGrams],
   );
   const timerCount = useMemo(
     () => (recipe.steps ?? []).reduce((n, s) => n + detectTimers(s.instruction ?? '').length, 0),
@@ -273,31 +300,49 @@ export const RecipeDetailView = ({ recipe, onBack, backIcon = 'close', actions, 
                 <Text className="text-[19px] font-extrabold text-pizca-marron">Ingredientes</Text>
               </View>
 
-              {recipe.servings ? (
-                <View className="flex-row items-center gap-1 bg-pizca-crema rounded-full p-1">
-                  <TouchableOpacity
-                    onPress={() => setCurrentServings(p => Math.max(1, p - 1))}
-                    className="w-8 h-8 bg-white rounded-full items-center justify-center"
-                    accessibilityLabel="Menos porciones"
-                  >
-                    <Minus size={16} color="#3F3128" strokeWidth={2.6} />
-                  </TouchableOpacity>
-                  <Text className="text-base font-extrabold text-pizca-marron min-w-[24px] text-center">{currentServings}</Text>
-                  <TouchableOpacity
-                    onPress={() => setCurrentServings(p => p + 1)}
-                    className="w-8 h-8 bg-white rounded-full items-center justify-center"
-                    accessibilityLabel="Más porciones"
-                  >
-                    <Plus size={16} color="#3F3128" strokeWidth={2.6} />
-                  </TouchableOpacity>
+              {canConvert ? (
+                <View className="flex-row bg-pizca-crema rounded-full p-1" accessibilityRole="radiogroup">
+                  {([['volume', 'Tazas'], ['grams', 'Gramos']] as const).map(([value, label]) => {
+                    const active = (value === 'grams') === inGrams;
+                    return (
+                      <TouchableOpacity
+                        key={value}
+                        onPress={() => changeMeasure(value)}
+                        className={`px-3.5 h-8 rounded-full items-center justify-center ${active ? 'bg-white' : ''}`}
+                        accessibilityRole="radio"
+                        accessibilityState={{ selected: active }}
+                      >
+                        <Text className={`text-sm font-extrabold ${active ? 'text-pizca-marron' : 'text-pizca-texto2'}`}>{label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
               ) : null}
             </View>
 
             {ingredientCount ? (
-              <Text className="text-xs font-bold text-pizca-texto2">
-                Tocá un ingrediente para tacharlo · {checked.size} de {ingredientCount} listos
-              </Text>
+              <View className="flex-row items-center justify-between gap-3">
+                <Text className="text-xs font-bold text-pizca-texto2 flex-1">Tocá un ingrediente para tacharlo</Text>
+                {recipe.servings ? (
+                  <View className="flex-row items-center gap-1 bg-pizca-crema rounded-full p-1">
+                    <TouchableOpacity
+                      onPress={() => setCurrentServings(p => Math.max(1, p - 1))}
+                      className="w-8 h-8 bg-white rounded-full items-center justify-center"
+                      accessibilityLabel="Menos porciones"
+                    >
+                      <Minus size={16} color="#3F3128" strokeWidth={2.6} />
+                    </TouchableOpacity>
+                    <Text className="text-base font-extrabold text-pizca-marron min-w-[24px] text-center">{currentServings}</Text>
+                    <TouchableOpacity
+                      onPress={() => setCurrentServings(p => p + 1)}
+                      className="w-8 h-8 bg-white rounded-full items-center justify-center"
+                      accessibilityLabel="Más porciones"
+                    >
+                      <Plus size={16} color="#3F3128" strokeWidth={2.6} />
+                    </TouchableOpacity>
+                  </View>
+                ) : null}
+              </View>
             ) : (
               <Text className="text-sm text-pizca-texto2">Esta receta no tiene ingredientes cargados.</Text>
             )}

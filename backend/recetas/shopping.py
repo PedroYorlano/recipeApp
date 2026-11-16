@@ -11,6 +11,7 @@ La góndola de cada ingrediente sale, en este orden, de:
 import logging
 import unicodedata
 from decimal import Decimal
+from fractions import Fraction
 
 from django.conf import settings
 
@@ -129,11 +130,42 @@ def resolve_aisles(user, names, use_ai: bool = True) -> dict[str, str]:
     return {name: found.get(key, OTHER_AISLE) for name, key in keys.items()}
 
 
+# Igual que frontend/src/utils/units.ts: las medidas métricas van en decimal, el resto en fracción.
+METRIC_UNITS = {
+    'g', 'gr', 'grs', 'gramo', 'gramos', 'mg', 'kg', 'kgs', 'kilo', 'kilos', 'ml', 'cc', 'cl', 'l', 'lt', 'lts',
+    'litro', 'litros',
+}
+FRACTIONS = [
+    (Fraction(0), ''), (Fraction(1, 8), '1/8'), (Fraction(1, 4), '1/4'), (Fraction(1, 3), '1/3'),
+    (Fraction(1, 2), '1/2'), (Fraction(2, 3), '2/3'), (Fraction(3, 4), '3/4'), (Fraction(1), ''),
+]
+FRACTION_TOLERANCE = Fraction(1, 25)
+
+
+def _decimal_text(quantity: Decimal) -> str:
+    return f'{quantity.normalize():f}'.replace('.', ',')
+
+
+def _fraction_text(quantity: Decimal) -> str:
+    """Decimal('0.25') → '1/4'; Decimal('1.50') → '1 1/2'; Decimal('0.33') → '1/3'."""
+    value = Fraction(quantity)
+    whole = int(value)
+    rest = value - whole
+    target, label = min(FRACTIONS, key=lambda f: abs(rest - f[0]))
+    if abs(rest - target) >= FRACTION_TOLERANCE:
+        return _decimal_text(quantity)
+    whole += 1 if target == 1 else 0
+    if not label:
+        return str(whole) if whole else _decimal_text(quantity)
+    return f'{whole} {label}' if whole else label
+
+
 def format_quantity(quantity: Decimal | None, unit: str) -> str:
-    """Decimal('200.00'), 'g' → '200 g'; Decimal('0.50') → '0.5'."""
+    """Decimal('200.00'), 'g' → '200 g'; Decimal('0.50'), 'taza' → '1/2 taza'."""
     if quantity is None:
         return unit
-    text = f'{quantity.normalize():f}'
+    is_metric = normalize_name(unit or '').replace('.', '') in METRIC_UNITS
+    text = _decimal_text(quantity) if is_metric else _fraction_text(quantity)
     return f'{text} {unit}'.strip()
 
 

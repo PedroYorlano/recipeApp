@@ -17,6 +17,7 @@ import { AudioRecorder, AudioFile } from './AudioRecorder';
 import { CollectionImport, CollectionData } from './CollectionImport';
 import { listCollectionService } from '../../services/api';
 import { mightBeCollection } from '../../utils/shareImport';
+import { parseAmount } from '../../utils/units';
 
 const emptyRecipe: Recipe = {
   uuid: '', title: '', description: '', ingredients: [], steps: [], categories: [], categories_details: [], servings: 1,
@@ -24,11 +25,8 @@ const emptyRecipe: Recipe = {
 
 const emptyIngredient: Ingredient = { name: '', quantity: null, unit: '', order: 0 };
 
-/** Acepta coma o punto decimal ("1,5" → 1.5). Devuelve null si no es un número. */
-const parseDecimal = (text: string): number | null => {
-  const n = parseFloat(text.replace(',', '.'));
-  return isNaN(n) ? null : n;
-};
+/** Acepta coma o punto decimal ("1,5" → 1.5) y fracciones ("1/2", "1 1/2"). null si no es un número. */
+const parseDecimal = parseAmount;
 
 /**
  * Input de cantidad que guarda el texto tal cual mientras se escribe.

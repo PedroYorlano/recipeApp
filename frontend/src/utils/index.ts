@@ -1,18 +1,14 @@
 import { SERVER_URL } from "../constants";
 import { Recipe } from "../types";
+import { formatAmount } from "./units";
 
 /**
- * Formatea una cantidad numérica + unidad para mostrar.
+ * Formatea una cantidad numérica + unidad para mostrar (fracciones para medidas caseras).
  * Ej: formatQuantity(200, "g") → "200 g"
- *     formatQuantity(0.5, "taza") → "0.5 taza"
+ *     formatQuantity(0.5, "taza") → "1/2 taza"
  *     formatQuantity(null, "") → ""
  */
-export const formatQuantity = (value: number | null, unit: string): string => {
-  if (value === null || value === undefined) return unit || '';
-  // Redondeamos para no tener "333.33333g"
-  const rounded = Math.round(value * 100) / 100;
-  return `${rounded} ${unit}`.trim();
-};
+export const formatQuantity = formatAmount;
 
 /**
  * Escala una cantidad proporcionalmente según porciones.
