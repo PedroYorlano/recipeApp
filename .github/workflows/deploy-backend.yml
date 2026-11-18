@@ -1,0 +1,54 @@
+# Deploy del backend a Cloud Run cuando cambia backend/ en main. Las variables de entorno NO pasan
+# por acá: Cloud Run conserva las de la revisión anterior (ver docs/deploy.md).
+name: Deploy backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - ".github/workflows/deploy-backend.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: ci
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      id-token: write  # Workload Identity Federation: sin claves JSON
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+      - name: Deploy a Cloud Run
+        run: >
+          gcloud run deploy pizca
+          --source backend
+          --project pizca-yorlano
+          --region us-east5
+          --max-instances=1
+          --allow-unauthenticated
+          --memory 1Gi
+          --timeout 300
+          --quiet
+      - name: Smoke test
+        run: |
+          url=$(gcloud run services describe pizca --project pizca-yorlano --region us-east5 --format 'value(status.url)')
+          code=$(curl -s -o /dev/null -w '%{http_code}' "$url/api/")
+          echo "GET $url/api/ -> $code"
+          test "$code" -lt 500

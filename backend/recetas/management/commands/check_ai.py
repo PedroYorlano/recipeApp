@@ -5,8 +5,8 @@ import time
 
 from django.core.management.base import BaseCommand
 
+from recetas import utils
 from recetas.utils import (
-    GEMINI_MODEL,
     call_ideas,
     convert_audio_to_mp3,
     extract_recipe_from_audio,
@@ -26,6 +26,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--audio", help="Archivo de audio propio. Sin esto, en macOS se genera uno con `say`.")
+        parser.add_argument("--model", help="Probar este modelo en vez de GEMINI_MODEL (p. ej. el de respaldo).")
 
     def probar(self, name, fn):
         start = time.monotonic()
@@ -42,7 +43,11 @@ class Command(BaseCommand):
         return ok
 
     def handle(self, *args, **options):
-        self.stdout.write(f"Modelo: {GEMINI_MODEL}")
+        if options["model"]:
+            utils.GEMINI_MODEL = options["model"]
+        # Sin respaldo: si el modelo probado falla, que se vea.
+        utils.GEMINI_FALLBACK_MODEL = ""
+        self.stdout.write(f"Modelo: {utils.GEMINI_MODEL}")
         results = [
             self.probar("Texto", lambda: extract_recipe_from_text(SAMPLE_TEXT, strict_mode=True)),
             self.probar("Ideas", lambda: call_ideas(

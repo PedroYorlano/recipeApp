@@ -40,8 +40,8 @@ from .net import FetchError, fetch_public
 from .serializers import CategorySerializer, MealPlanSerializer, RecipeSerializer, ShoppingListItemSerializer
 from .shopping import consolidate, format_quantity, learn_from_recipe, normalize_name, remember_user_choice, resolve_aisles
 from .utils import (
-    AIInputError, build_recipes_summary, call_ideas, convert_audio_to_mp3,
-    download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text,
+    AIInputError, AIQuotaError, AIUnavailableError, build_recipes_summary, call_ideas, convert_audio_to_mp3,
+    download_audio_from_url, extract_recipe_from_audio, extract_recipe_from_text, list_collection,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,53 +73,86 @@ def error(message, code=status.HTTP_400_BAD_REQUEST):
 # Límites de uso de la IA
 # ---------------------------------------------------------------------------
 
-def check_usage_limits(user):
+SYSTEM_LIMIT_MESSAGE = "Se alcanzó el límite diario de importaciones del sistema. ¡Intentá mañana!"
+SATURATED_MESSAGE = 'La IA está saturada, probá en unos minutos.'
+
+
+def reserve_usage(user):
     """
-    Verifica los límites antes de llamar a Gemini: por usuario y por día, y global por día.
-    Devuelve el mensaje de error, o None si se puede seguir.
+    Reserva una importación del cupo diario del usuario ANTES de llamar a Gemini: un intento
+    que falla después de llamar a la IA igual se pagó, así que cuenta. Se devuelve con
+    refund_import() solo si Gemini no llegó a cobrar (el video no bajó, Google saturado, sin cupo).
+    El cupo global lo descuenta generate_json por cada llamada real.
+    Devuelve (usage, None) o (None, mensaje de error).
     """
     max_per_user = settings.PIZCA_MAX_IMPORTS_PER_USER_PER_DAY
     usage, _ = UserUsage.objects.get_or_create(user=user)
-    if not usage.can_import(max_per_user):
-        return f"Alcanzaste tu límite de {max_per_user} importaciones por día. ¡Mañana podés seguir!"
     if not GlobalUsage.get_today().can_request(settings.PIZCA_MAX_GEMINI_REQUESTS_PER_DAY):
-        return "Se alcanzó el límite diario de importaciones del sistema. ¡Intentá mañana!"
-    return None
+        return None, SYSTEM_LIMIT_MESSAGE
+    if not usage.try_reserve_import(max_per_user):
+        return None, f"Alcanzaste tu límite de {max_per_user} importaciones por día. ¡Mañana podés seguir!"
+    return usage, None
 
 
-def record_usage(user):
-    """Registra una llamada exitosa en ambos contadores."""
-    usage, _ = UserUsage.objects.get_or_create(user=user)
-    usage.record_import()
-    GlobalUsage.get_today().record_request()
-
-
-def run_ai_import(request, extract, failure_message, failure_status=status.HTTP_500_INTERNAL_SERVER_ERROR):
+def _ai_import(request, extract, failure_message, failure_status=status.HTTP_500_INTERNAL_SERVER_ERROR):
     """
     Lo común a todas las importaciones: límites, errores y registro de uso.
     `extract()` devuelve el dict de la receta o None; puede tirar AIInputError/FetchError
-    con un mensaje para el usuario.
+    con un mensaje para el usuario, o AIUnavailableError si Gemini está saturado (503).
+    Devuelve (receta, None) o (None, Response de error).
     """
-    limit_msg = check_usage_limits(request.user)
+    usage, limit_msg = reserve_usage(request.user)
     if limit_msg:
-        return error(limit_msg, status.HTTP_429_TOO_MANY_REQUESTS)
+        return None, Response({'error': limit_msg, 'limit': 'daily'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
     try:
         recipe = extract()
     except (AIInputError, FetchError) as e:
-        return error(str(e))
+        # Fallan antes de llegar a Gemini (el video no baja, el audio no se lee, la página no responde).
+        usage.refund_import()
+        return None, error(str(e))
+    except AIQuotaError:
+        usage.refund_import()
+        return None, Response({'error': SYSTEM_LIMIT_MESSAGE, 'limit': 'daily'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    except AIUnavailableError:
+        usage.refund_import()
+        logger.warning('Importación fallida: Gemini saturado', exc_info=True)
+        return None, error(SATURATED_MESSAGE, status.HTTP_503_SERVICE_UNAVAILABLE)
     except Exception:
         logger.exception('Falló una importación con IA')
-        return error('Algo falló al armar la receta. Probá de nuevo en un rato.', status.HTTP_500_INTERNAL_SERVER_ERROR)
+        return None, error('Algo falló al armar la receta. Probá de nuevo en un rato.', status.HTTP_500_INTERNAL_SERVER_ERROR)
     if not recipe:
-        return error(failure_message, failure_status)
-    learn_from_recipe(recipe)
-    record_usage(request.user)
+        # La IA ya se llamó (y se pagó): el intento cuenta igual.
+        return None, error(failure_message, failure_status)
+    learn_from_recipe(request.user, recipe)
+    return recipe, None
+
+
+def run_ai_import(request, extract, failure_message, failure_status=status.HTTP_500_INTERNAL_SERVER_ERROR):
+    """Importación que devuelve un borrador para que el usuario lo revise antes de guardar."""
+    recipe, failure = _ai_import(request, extract, failure_message, failure_status)
+    if failure:
+        return failure
     return Response({'message': 'Receta importada', 'recipe': recipe}, status=status.HTTP_201_CREATED)
 
 
 def is_allowed_video_url(url):
     host = (urlparse(url).hostname or '').lower()
     return any(host == d or host.endswith('.' + d) for d in ALLOWED_VIDEO_DOMAINS)
+
+
+VIDEO_FAILURE = 'No pudimos sacar una receta de este video.'
+
+
+def extract_from_video(url):
+    workdir, audio_path, description, thumbnail = download_audio_from_url(url)
+    try:
+        if not audio_path:
+            raise AIInputError(
+                'No pudimos bajar el video. Revisá que sea público y que no dure más de 20 minutos.'
+            )
+        return extract_recipe_from_audio(audio_path, description, thumbnail)
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
@@ -521,18 +554,96 @@ def import_recipe_view(request):
     if not is_allowed_video_url(url):
         return error('Solo se pueden importar videos de YouTube, TikTok, Instagram y Facebook.')
 
-    def extract():
-        workdir, audio_path, description, thumbnail = download_audio_from_url(url)
-        try:
-            if not audio_path:
-                raise AIInputError(
-                    'No pudimos bajar el video. Revisá que sea público y que no dure más de 20 minutos.'
-                )
-            return extract_recipe_from_audio(audio_path, description, thumbnail)
-        finally:
-            shutil.rmtree(workdir, ignore_errors=True)
+    return run_ai_import(request, lambda: extract_from_video(url), VIDEO_FAILURE)
 
-    return run_ai_import(request, extract, 'No pudimos sacar una receta de este video.')
+
+def remaining_imports_today(user):
+    usage, _ = UserUsage.objects.get_or_create(user=user)
+    usage.reset_if_new_day()
+    return max(0, settings.PIZCA_MAX_IMPORTS_PER_USER_PER_DAY - usage.import_count)
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@throttle_classes([ImportRateThrottle])
+def list_collection_view(request):
+    """
+    Colección de TikTok o playlist de YouTube: lista los videos (sin IA, no gasta cupo).
+    Si el link resulta ser un video suelto devuelve is_collection=False y el cliente sigue
+    con la importación de siempre (pasa con los links cortos de TikTok, que no dicen qué son).
+    """
+    url = str(request.data.get('url') or '').strip()
+    if not url:
+        return error('Falta el link.')
+    if not is_allowed_video_url(url):
+        return error('Solo se pueden importar colecciones de TikTok y playlists de YouTube.')
+    try:
+        collection = list_collection(url)
+    except AIInputError as e:
+        return error(str(e))
+    if collection is None:
+        return Response({'is_collection': False})
+
+    videos = [v for v in collection['videos'] if is_allowed_video_url(v['url'])]
+    urls = [v['url'] for v in videos]
+    already = set(
+        Recipe.objects.filter(user=request.user, original_url__in=urls).values_list('original_url', flat=True)
+    )
+    return Response({
+        'is_collection': True,
+        'title': collection['title'],
+        'videos': videos,
+        'already_imported': [u for u in urls if u in already],
+        'remaining_today': remaining_imports_today(request.user),
+    })
+
+
+@api_view(['POST'])
+@permission_classes([IsAuthenticated])
+@throttle_classes([ImportRateThrottle])
+def import_collection_item_view(request):
+    """
+    Un video de una colección: se extrae y se guarda directo (privada), sin borrador.
+    Si ya está importado no gasta cupo y devuelve skipped=True.
+    """
+    url = str(request.data.get('url') or '').strip()
+    if not url:
+        return error('Falta el link del video.')
+    if not is_allowed_video_url(url) or len(url) > Recipe._meta.get_field('original_url').max_length:
+        return error('Link de video inválido.')
+    category = request.data.get('category')
+    categories = []
+    if category not in (None, ''):
+        # Se valida antes de gastar la llamada a la IA.
+        if not str(category).isdigit() or not Category.objects.filter(
+            Q(user__isnull=True) | Q(user=request.user), pk=int(category)
+        ).exists():
+            return error('Categoría inválida.')
+        categories = [int(category)]
+
+    existing = Recipe.objects.filter(user=request.user, original_url=url).first()
+    if existing:
+        data = RecipeSerializer(existing, context={'request': request}).data
+        return Response({'skipped': True, 'recipe': data})
+
+    recipe, failure = _ai_import(request, lambda: extract_from_video(url), VIDEO_FAILURE)
+    if failure:
+        return failure
+
+    # Sin cupo de fotos se guarda igual, sin portada: la receta ya gastó la llamada a la IA.
+    usage, _ = UserUsage.objects.get_or_create(user=request.user)
+    if not usage.can_upload_image(settings.PIZCA_MAX_IMAGES_PER_USER_PER_DAY):
+        recipe.pop('image_url', None)
+
+    serializer = RecipeSerializer(
+        data={**recipe, 'original_url': url, 'categories': categories},
+        context={'request': request},
+    )
+    if not serializer.is_valid():
+        logger.warning('Receta de colección inválida %s: %s', url, serializer.errors)
+        return error('La receta de este video salió incompleta.')
+    serializer.save(user=request.user)
+    return Response({'skipped': False, 'recipe': serializer.data}, status=status.HTTP_201_CREATED)
 
 
 @api_view(['POST'])
@@ -595,9 +706,9 @@ def import_recipe_from_web_view(request):
             tag.decompose()
         text = soup.get_text(separator=' ', strip=True)[:100_000]
         recipe = extract_recipe_from_text(
-            'Por favor extrae la receta estructurada del siguiente contenido de una página web. '
-            f'Elimina las historias/publicidades/comentarios del blog:\n\n{text}',
+            text,
             strict_mode=True,
+            source='Es el texto de una página web: dejá afuera historias, publicidades y comentarios del blog.',
         )
         if recipe and og_image and og_image.get('content'):
             # Muchos sitios la ponen relativa ("/img/a.jpg") o sin protocolo ("//cdn.../a.jpg").
@@ -635,7 +746,7 @@ def ideas(request):
     if len(user_message) > MAX_IDEAS_MESSAGE_CHARS:
         return error('Mensaje demasiado largo (máximo 2000 caracteres).')
 
-    limit_msg = check_usage_limits(request.user)
+    usage, limit_msg = reserve_usage(request.user)
     if limit_msg:
         return error(limit_msg, status.HTTP_429_TOO_MANY_REQUESTS)
 
@@ -663,9 +774,15 @@ def ideas(request):
 
     try:
         result = call_ideas(user_message, build_recipes_summary(recipes))
+    except AIQuotaError:
+        usage.refund_import()
+        return error(SYSTEM_LIMIT_MESSAGE, status.HTTP_429_TOO_MANY_REQUESTS)
+    except AIUnavailableError:
+        usage.refund_import()
+        logger.warning('Ideas: Gemini saturado', exc_info=True)
+        return error(SATURATED_MESSAGE, status.HTTP_503_SERVICE_UNAVAILABLE)
     except Exception:
         logger.exception('Falló Ideas')
         return error('Ideas no está disponible en este momento. Intentá de nuevo.', status.HTTP_503_SERVICE_UNAVAILABLE)
 
-    record_usage(request.user)
     return Response(result)

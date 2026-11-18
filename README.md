@@ -352,7 +352,7 @@ Authorization: Bearer <access_token>
 **Rate limiting (Throttling)**
 - Usuarios anónimos: 20 req/min
 - Usuarios autenticados: 60 req/min (CRUD general)
-- Importaciones IA: 5 req/min + 10/día por usuario
+- Importaciones IA: 5 req/min + 25/día por usuario (`PIZCA_MAX_IMPORTS_PER_USER_PER_DAY`)
 - Límite global de Gemini: 490 req/día (configurable en settings)
 - Fotos de portada: 50 por usuario por día (`PIZCA_MAX_IMAGES_PER_USER_PER_DAY`)
 

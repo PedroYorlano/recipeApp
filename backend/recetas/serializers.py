@@ -176,6 +176,7 @@ class RecipeSerializer(serializers.ModelSerializer):
 
         img_b64 = validated_data.pop('image_base64', None)
         img_url = validated_data.pop('image_url', None)
+        validated_data.pop('remove_image', None)  # solo tiene sentido al editar
 
         image = new_cover_image(self.context['request'], img_b64, img_url)
         if image:

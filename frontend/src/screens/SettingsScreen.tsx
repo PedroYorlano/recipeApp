@@ -7,6 +7,8 @@ import { Text } from '../components/ui/Typography';
 import { useApp } from '../context/AppContext';
 import { confirmAction } from '../utils/dialogs';
 import { ILLUSTRATIONS } from '../constants/brand';
+import { useTabBarSpace } from '../components/FloatingTabBar';
+import { ClaudeConnectorCard } from '../components/ClaudeConnectorCard';
 
 const APP_ICON = require('../../assets/images/icon.png');
 
@@ -17,6 +19,7 @@ const showInstallTip = () =>
     !window.matchMedia?.('(display-mode: standalone)').matches;
 
 export default function SettingsScreen() {
+    const tabBarSpace = useTabBarSpace();
     const { logout, user } = useApp();
     const version = Constants.expoConfig?.version ?? '1.0.0';
 
@@ -32,7 +35,7 @@ export default function SettingsScreen() {
 
     return (
         <SafeAreaView className="flex-1 bg-pizca-fondo" edges={['top']}>
-            <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 16, gap: 20, flexGrow: 1, maxWidth: 640, width: '100%', alignSelf: 'center' }}>
+            <ScrollView contentContainerStyle={{ padding: 20, paddingTop: 16, paddingBottom: tabBarSpace, gap: 20, flexGrow: 1, maxWidth: 640, width: '100%', alignSelf: 'center' }}>
                 <Text className="font-display text-[32px] leading-[34px] text-pizca-marron" accessibilityRole="header">Perfil</Text>
 
                 {/* Cuenta */}
@@ -45,6 +48,8 @@ export default function SettingsScreen() {
                         {user?.email ? <Text className="text-sm text-pizca-texto2" numberOfLines={1}>{user.email}</Text> : null}
                     </View>
                 </View>
+
+                <ClaudeConnectorCard />
 
                 {/* Sesión */}
                 <View className="gap-2">

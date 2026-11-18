@@ -14,8 +14,10 @@ import { getTodayISO } from '../utils/dates';
 import { ICONS, ILLUSTRATIONS, ISOLOGO } from '../constants/brand';
 import { Button } from '../components/ui/Button';
 import { notify, confirmAction } from '../utils/dialogs';
+import { useTabBarSpace } from '../components/FloatingTabBar';
 
 export default function HomeScreen() {
+    const tabBarSpace = useTabBarSpace();
     const {
         recipes,
         categories,
@@ -205,7 +207,7 @@ export default function HomeScreen() {
                 numColumns={numCols}
                 keyExtractor={(item) => item.id?.toString() || item.uuid}
                 ListHeaderComponent={header}
-                contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 32, maxWidth: 1280, width: '100%', alignSelf: 'center' }}
+                contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: tabBarSpace + 8, maxWidth: 1280, width: '100%', alignSelf: 'center' }}
                 columnWrapperStyle={numCols > 1 ? { gap: 14 } : undefined}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"

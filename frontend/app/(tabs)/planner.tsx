@@ -18,6 +18,7 @@ import { notify, confirmAction } from '../../src/utils/dialogs';
 import { addDays, getTodayISO, parseISODate } from '../../src/utils/dates';
 import { ICONS, ILLUSTRATIONS } from '../../src/constants/brand';
 import { AISLES, OTHER_AISLE } from '../../src/constants/aisles';
+import { useTabBarSpace } from '../../src/components/FloatingTabBar';
 
 if (Platform.OS === 'android') {
     UIManager.setLayoutAnimationEnabledExperimental?.(true);
@@ -91,6 +92,7 @@ const slotPrepTime = (plan?: MealPlan | DraftSlot) =>
 // --- Pantalla ---
 
 export default function PlannerScreen() {
+    const tabBarSpace = useTabBarSpace();
     const [activeTab, setActiveTab] = useState<TabView>('week');
 
     return (
@@ -119,7 +121,8 @@ export default function PlannerScreen() {
                 </View>
             </View>
 
-            <View className="flex-1 w-full max-w-3xl self-center">
+            {/* Lo de abajo (guardar, agregar ítem, el chat) queda arriba de la barra flotante. */}
+            <View className="flex-1 w-full max-w-3xl self-center" style={{ paddingBottom: tabBarSpace }}>
                 {activeTab === 'week' && <WeekView onSwitchTab={setActiveTab} />}
                 {activeTab === 'shopping' && <ShoppingView />}
                 {activeTab === 'ideas' && <IdeasChat />}
@@ -653,7 +656,7 @@ function ShoppingView() {
             </ScrollView>
 
             {/* Agregar ítem */}
-            <View className="absolute left-4 right-4 bottom-3 flex-row gap-2">
+            <View className="absolute left-4 right-4 bottom-1 flex-row gap-2">
                 <View
                     className="flex-1 h-[52px] flex-row items-center px-3.5 rounded-[16px] bg-white border-[1.5px] border-pizca-linea"
                     style={{ boxShadow: '0 6px 16px rgba(63,49,40,0.08)' }}

@@ -162,7 +162,7 @@ export function IdeasChat() {
                 keyboardShouldPersistTaps="handled"
             />
 
-            <View className="flex-row gap-2 px-4 pb-3 pt-1">
+            <View className="flex-row gap-2 px-4 pb-1 pt-1">
                 <View
                     className="flex-1 h-[52px] flex-row items-center px-3.5 rounded-[16px] bg-white border-[1.5px] border-pizca-linea"
                     style={{ boxShadow: '0 6px 16px rgba(63,49,40,0.08)' }}
@@ -243,7 +243,7 @@ function TypingIndicator() {
     return (
         <View className="flex-row gap-1 py-1.5 px-0.5" accessibilityLabel="Escribiendo">
             {[dot1, dot2, dot3].map((d, i) => (
-                <Animated.View key={i} className="w-2 h-2 rounded-full bg-pizca-mostaza" style={dotStyle(d)} />
+                <Animated.View key={i} style={[{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#BE9F00' }, dotStyle(d)]} />
             ))}
         </View>
     );
