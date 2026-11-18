@@ -652,6 +652,7 @@ class CollectionImportTests(TestCase):
             'steps': [{'order': 1, 'instruction': 'Cocinar.'}],
         }
 
+    @override_settings(PIZCA_MAX_IMPORTS_PER_USER_PER_DAY=10)
     @mock.patch('recetas.views.list_collection')
     def test_listar_marca_las_importadas_y_el_cupo(self, listar):
         listar.return_value = {'title': 'Cenas', 'videos': [
